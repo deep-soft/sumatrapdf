@@ -29,7 +29,7 @@
 #include "Translations.h"
 #include "uia/Provider.h"
 
-SelectionOnPage::SelectionOnPage(int pageNo, RectF* rect) {
+SelectionOnPage::SelectionOnPage(int pageNo, const RectF* const rect) {
     this->pageNo = pageNo;
     if (rect) {
         this->rect = *rect;
@@ -426,7 +426,7 @@ void OnSelectionEdgeAutoscroll(MainWindow* win, int x, int y) {
     }
 }
 
-void OnSelectionStart(MainWindow* win, int x, int y, __unused WPARAM key) {
+void OnSelectionStart(MainWindow* win, int x, int y, WPARAM) {
     CrashIf(!win->AsFixed());
     DeleteOldSelectionInfo(win, true);
 

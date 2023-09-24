@@ -18,7 +18,7 @@
 #include "EngineAll.h"
 #include "PdfCreator.h"
 
-void _uploadDebugReportIfFunc(__unused bool cond, __unused const char* condStr) {
+void _uploadDebugReportIfFunc(bool, const char*) {
     // no-op implementation to satisfy SubmitBugReport()
 }
 
@@ -463,17 +463,6 @@ static bool RenderDocument(EngineBase* engine, const char* renderPath, float zoo
         return file::WriteFile(txtFilePath, textUTF8BOM);
     }
 
-    if (str::EndsWithI(renderPath, ".pdf")) {
-        if (silent) {
-            return false;
-        }
-        AutoFreeStr pdfFilePath(str::Format(renderPath, 0));
-        if (engine->SaveFileAsPDF(pdfFilePath)) {
-            return true;
-        }
-        return PdfCreator::RenderToFile(pdfFilePath, engine);
-    }
-
     bool success = true;
     for (int pageNo = 1; pageNo <= engine->PageCount(); pageNo++) {
         RenderPageArgs args(pageNo, zoom, 0);
@@ -517,13 +506,12 @@ class PasswordHolder : public PasswordUI {
   public:
     explicit PasswordHolder(const char* password) : password(password) {
     }
-    char* GetPassword(__unused const char* fileName, __unused u8* fileDigest, __unused u8 decryptionKeyOut[32],
-                      __unused bool* saveKey) override {
+    char* GetPassword(const char*, u8*, __unused u8 decryptionKeyOut[32], bool*) override {
         return str::Dup(password);
     }
 };
 
-int main(__unused int argc, __unused char** argv) {
+int main(int, char**) {
     setlocale(LC_ALL, "C");
     DisableDataExecution();
 

@@ -86,7 +86,7 @@ static void RemoveInstalledFiles() {
     logf("RemoveInstalledFiles(): removed dir '%s', ok = %d\n", dir, (int)ok);
 }
 
-static DWORD WINAPI UninstallerThread(__unused LPVOID data) {
+static DWORD WINAPI UninstallerThread(void*) {
     log("UninstallerThread started\n");
     // also kill the original uninstaller, if it's just spawned
     // a DELETE_ON_CLOSE copy from the temp directory
@@ -230,19 +230,22 @@ static LRESULT CALLBACK WndProcUninstallerFrame(HWND hwnd, UINT msg, WPARAM wp, 
             OnPaintFrame(hwnd, false);
             break;
 
-        case WM_COMMAND:
+        case WM_COMMAND: {
             handled = UninstallerOnWmCommand(wp);
             if (!handled) {
                 return DefWindowProc(hwnd, msg, wp, lp);
             }
             break;
+        }
 
-        case WM_APP_INSTALLATION_FINISHED:
+        case WM_APP_INSTALLATION_FINISHED: {
             OnUninstallationFinished();
             if (gButtonExit) {
                 gButtonExit->SetFocus();
             }
+            SetForegroundWindow(hwnd);
             break;
+        }
 
         default:
             return DefWindowProc(hwnd, msg, wp, lp);
@@ -274,6 +277,7 @@ static bool InstanceInit() {
 
     CenterDialog(gHwndFrame);
     ShowWindow(gHwndFrame, SW_SHOW);
+    SetForegroundWindow(gHwndFrame);
 
     return TRUE;
 }
@@ -324,8 +328,8 @@ static char* GetUninstallerPathInTemp() {
 
 // to be able to delete installation directory we must copy
 // ourselves to temp directory and re-launch
-static void RelaunchElevatedFromTempDirectory(Flags* cli) {
-    log("RelaunchElevatedFromTempDirectory()\n");
+static void RelaunchMaybeElevatedFromTempDirectory(Flags* cli) {
+    log("RelaunchMaybeElevatedFromTempDirectory()\n");
     if (gIsDebugBuild) {
         // for easier debugging, debug build doesn't need
         // to be copied / re-launched
@@ -335,6 +339,10 @@ static void RelaunchElevatedFromTempDirectory(Flags* cli) {
     char* installerTempPath = GetUninstallerPathInTemp();
     char* ownPath = GetExePathTemp();
     if (str::EqI(installerTempPath, ownPath)) {
+        if (!gCli->allUsers) {
+            log("  already running from temp dir\n");
+            return;
+        }
         if (IsProcessRunningElevated()) {
             log("  already running elevated and from temp dir\n");
             return;
@@ -357,8 +365,15 @@ static void RelaunchElevatedFromTempDirectory(Flags* cli) {
     if (cli->log) {
         cmdLine.Append(" -log");
     }
+    if (cli->allUsers) {
+        cmdLine.Append(" -all-users");
+    }
     logf("  re-launching '%s' with args '%s' as elevated\n", installerTempPath, cmdLine.Get());
-    LaunchElevated(installerTempPath, cmdLine.Get());
+    if (cli->allUsers) {
+        LaunchElevated(installerTempPath, cmdLine.Get());
+    } else {
+        LaunchProcess(installerTempPath, cmdLine.Get());
+    }
     ::ExitProcess(0);
 }
 
@@ -434,7 +449,7 @@ int RunUninstaller() {
         goto Exit;
     }
 
-    RelaunchElevatedFromTempDirectory(gCli);
+    RelaunchMaybeElevatedFromTempDirectory(gCli);
 
     gWasSearchFilterInstalled = IsSearchFilterInstalled();
     if (gWasSearchFilterInstalled) {
@@ -469,8 +484,6 @@ int RunUninstaller() {
     if (!InstanceInit()) {
         goto Exit;
     }
-
-    BringWindowToTop(gHwndFrame);
     ret = RunApp();
 
     // re-register if we un-registered but uninstallation was cancelled
@@ -484,6 +497,8 @@ int RunUninstaller() {
     LaunchFileIfExists(uninstallerLogPath);
 
 Exit:
+#if 0 // technically a leak but there's no point
     free(gFirstError);
+#endif
     return ret;
 }

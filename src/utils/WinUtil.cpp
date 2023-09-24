@@ -112,6 +112,18 @@ void ListBox_AppendString_NoSort(HWND hwnd, const WCHAR* txt) {
     ListBox_InsertString(hwnd, -1, txt);
 }
 
+// https://learn.microsoft.com/en-us/windows/win32/controls/lb-gettopindex
+int ListBoxGetTopIndex(HWND hwnd) {
+    auto res = ListBox_GetTopIndex(hwnd);
+    return res;
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/controls/lb-settopindex
+bool ListBoxSetTopIndex(HWND hwnd, int idx) {
+    auto res = ListBox_SetTopIndex(hwnd, idx);
+    return res != LB_ERR;
+}
+
 void InitAllCommonControls() {
     INITCOMMONCONTROLSEX cex{};
     cex.dwSize = sizeof(INITCOMMONCONTROLSEX);
@@ -866,6 +878,7 @@ bool IsCtrlPressed() {
     return IsKeyPressed(VK_CONTROL);
 }
 
+#if 0
 // The result value contains major and minor version in the high resp. the low WORD
 DWORD GetFileVersion(const WCHAR* path) {
     DWORD fileVersion = 0;
@@ -882,6 +895,7 @@ DWORD GetFileVersion(const WCHAR* path) {
 
     return fileVersion;
 }
+#endif
 
 bool LaunchFile(const char* path, const char* params, const char* verb, bool hidden) {
     if (str::IsEmpty(path)) {
@@ -909,6 +923,25 @@ bool LaunchBrowser(const char* url) {
     return LaunchFile(url, nullptr, "open");
 }
 
+HANDLE LaunchProces(const char* exe, const char* cmdLine) {
+    PROCESS_INFORMATION pi = {nullptr};
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+
+    WCHAR* exeW = ToWstrTemp(exe);
+    // CreateProcess() might modify cmd line argument, so make a copy
+    // in case caller provides a read-only string
+    WCHAR* cmdLineW = ToWstrTemp(cmdLine);
+    BOOL ok = CreateProcessW(exeW, cmdLineW, nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi);
+    if (!ok) {
+        return nullptr;
+    }
+
+    CloseHandle(pi.hThread);
+    return pi.hProcess;
+}
+
+// TODO: not sure why I decided to not use lpAplicationName arg to CreateProcessW()
 HANDLE LaunchProcess(const char* cmdLine, const char* currDir, DWORD flags) {
     PROCESS_INFORMATION pi = {nullptr};
     STARTUPINFOW si{};
@@ -1138,7 +1171,7 @@ Rect GetFullscreenRect(HWND hwnd) {
     return Rect(0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
 }
 
-static BOOL CALLBACK GetMonitorRectProc(__unused HMONITOR hMonitor, __unused HDC hdc, LPRECT rcMonitor, LPARAM data) {
+static BOOL CALLBACK GetMonitorRectProc(HMONITOR, HDC, LPRECT rcMonitor, LPARAM data) {
     Rect* rcAll = (Rect*)data;
     *rcAll = rcAll->Union(ToRect(*rcMonitor));
     return TRUE;
@@ -2260,9 +2293,7 @@ ByteSlice LoadDataResource(int resId) {
     return {(u8*)s, size};
 }
 
-static HDDEDATA CALLBACK DdeCallback(__unused UINT uType, __unused UINT uFmt, __unused HCONV hconv, __unused HSZ hsz1,
-                                     __unused HSZ hsz2, __unused HDDEDATA hdata, __unused ULONG_PTR dwData1,
-                                     __unused ULONG_PTR dwData2) {
+static HDDEDATA CALLBACK DdeCallback(UINT, UINT, HCONV, HSZ, HSZ, HDDEDATA, ULONG_PTR, ULONG_PTR) {
     return nullptr;
 }
 

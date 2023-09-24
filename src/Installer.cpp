@@ -89,12 +89,14 @@ static Checkbox* CreateCheckbox(HWND hwndParent, const WCHAR* s, bool isChecked)
     return w;
 }
 
+constexpr const char* kLogFileName = "sumatra-install-log.txt";
+// caller has to free()
 char* GetInstallerLogPath() {
     TempStr dir = GetTempDirTemp();
     if (!dir) {
-        return str::DupTemp("sumatra-install-log.txt");
+        return str::Dup(kLogFileName);
     }
-    return path::Join(dir, "sumatra-install-log.txt");
+    return path::Join(dir, kLogFileName);
 }
 
 static bool ExtractFiles(lzma::SimpleArchive* archive, const char* destDir) {
@@ -227,11 +229,12 @@ void RemoveAppShortcuts() {
     }
 }
 
-static DWORD WINAPI InstallerThread(__unused LPVOID data) {
+static DWORD WINAPI InstallerThread(void*) {
     gWnd->failed = true;
     bool ok;
 
-    HKEY key = gCli->allUsers ? HKEY_LOCAL_MACHINE : HKEY_CURRENT_USER;
+    bool allUsers = gCli->allUsers;
+    HKEY key = allUsers ? HKEY_LOCAL_MACHINE : HKEY_CURRENT_USER;
 
     if (!ExtractInstallerFiles(gCli->installDir)) {
         log("ExtractInstallerFiles() failed\n");
@@ -254,20 +257,20 @@ static DWORD WINAPI InstallerThread(__unused LPVOID data) {
     gWnd->prevInstall.previewInstalled = false;
 
     if (gCli->withFilter) {
-        RegisterSearchFilter(gCli->allUsers);
+        RegisterSearchFilter(allUsers);
     }
 
     if (gCli->withPreview) {
-        RegisterPreviewer(gCli->allUsers);
+        RegisterPreviewer(allUsers);
     }
 
-    CreateAppShortcuts(gCli->allUsers);
+    CreateAppShortcuts(allUsers);
 
     // consider installation a success from here on
     // (still warn, if we've failed to create the uninstaller, though)
     gWnd->failed = false;
 
-    ok = WriteUninstallerRegistryInfo(key);
+    ok = WriteUninstallerRegistryInfo(key, allUsers);
     if (!ok) {
         NotifyFailed(_TR("Failed to write the uninstallation information to the registry"));
     }
@@ -819,22 +822,26 @@ static LRESULT CALLBACK WndProcInstallerFrame(HWND hwnd, UINT msg, WPARAM wp, LP
         case WM_ERASEBKGND:
             return TRUE;
 
-        case WM_PAINT:
+        case WM_PAINT: {
             OnPaintFrame(hwnd, gWnd->showOptions);
             break;
+        }
 
-        case WM_COMMAND:
+        case WM_COMMAND: {
             handled = InstallerOnWmCommand(wp);
             if (!handled) {
                 return DefWindowProc(hwnd, msg, wp, lp);
             }
             break;
+        }
 
-        case WM_APP_START_INSTALLATION:
+        case WM_APP_START_INSTALLATION: {
             StartInstallation(gWnd);
+            SetForegroundWindow(hwnd);
             break;
+        }
 
-        case WM_APP_INSTALLATION_FINISHED:
+        case WM_APP_INSTALLATION_FINISHED: {
             OnInstallationFinished();
             if (gWnd->btnRunSumatra) {
                 gWnd->btnRunSumatra->SetFocus();
@@ -842,7 +849,9 @@ static LRESULT CALLBACK WndProcInstallerFrame(HWND hwnd, UINT msg, WPARAM wp, LP
             if (gWnd->btnExit) {
                 gWnd->btnExit->SetFocus();
             }
+            SetForegroundWindow(hwnd);
             break;
+        }
 
         default:
             return DefWindowProc(hwnd, msg, wp, lp);
@@ -1083,8 +1092,11 @@ int RunInstaller() {
             gCli->withPreview = gWnd->prevInstall.previewInstalled;
         }
     }
-    logf("RunInstaller: gClii->silent: %d, gCli->runInstallNow = %d, gCli->withFilter = %d, gCli->withPreview = %d\n",
-         (int)gCli->silent, (int)gCli->runInstallNow, (int)gCli->withFilter, (int)gCli->withPreview);
+    logf(
+        "RunInstaller: gClii->silent: %d, gCli->allUsers: %d, gCli->runInstallNow = %d, gCli->withFilter = %d, "
+        "gCli->withPreview = %d\n",
+        (int)gCli->silent, (int)gCli->allUsers, (int)gCli->runInstallNow, (int)gCli->withFilter,
+        (int)gCli->withPreview);
 
     // unregister search filter and previewer to reduce
     // possibility of blocking the installation because the dlls are loaded
@@ -1109,8 +1121,8 @@ int RunInstaller() {
             log("CreateInstallerWindow() failed\n");
             goto Exit;
         }
-        log("Before BringWindowToTop()\n");
-        BringWindowToTop(gWnd->hwnd);
+        log("Before SetForegroundWindow()\n");
+        SetForegroundWindow(gWnd->hwnd);
         log("Before RunApp()\n");
         ret = RunApp();
         logfa("RunApp() returned %d\n", ret);
@@ -1137,7 +1149,9 @@ Exit:
             LaunchFileIfExists(installerLogPath);
         }
     }
+#if 0 // technically a leak but there's no point
     str::Free(installerLogPath);
     str::Free(gFirstError);
+#endif
     return ret;
 }
