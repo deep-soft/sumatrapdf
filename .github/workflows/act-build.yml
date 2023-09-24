@@ -1,0 +1,174 @@
+#2023-09-20 17:00
+name: act - Release - build
+
+on:
+#  push:
+#  pull_request:
+#  repository_dispatch:
+#    types: [build-pre-rel]
+  workflow_dispatch:
+    inputs:
+      build_target:
+        description: '64bit / 32bit'
+        required: true
+        default: '64'
+        type: choice
+        options:
+          - 64
+          - 32
+
+env:
+  PRG_NAME:    "sumatrapdf"
+  TAG_VERSION: "sumatrapdf-v3.5.0"
+  TAG_NAME:    "sumatrapdf"
+  VERSION:     "3.5.0"
+  TAG_BUILD:   "-b"
+  TAG_REF:     "0000000"
+  TAG_DATE:    "20230617T215000"
+  #build_target: '64'
+
+jobs:
+  build:
+    name: Build
+    runs-on: windows-2022
+    steps:
+      - name: Check out source code
+        uses: actions/checkout@v3
+        with:
+          # needed to calc build number via git log --oneline
+          fetch-depth: 0
+
+# - get ref set build begin
+      - name: Get ref, set build version
+        shell: bash
+        run: |
+          _ref_all_=$(git log -1 --format='%H')
+          # _ref_=$(echo ${_ref_all_::7})
+          _date_=$(date +%Y%m%dT%H%M%S)
+          _ref_org_=${{ env.TAG_REF }}
+          _ref_len_="${#_ref_org_}"
+          _ref_=$(echo ${_ref_all_::$_ref_len_})
+          echo "TAG_REF=$_ref_" >> $GITHUB_ENV
+          _build_=${{ env.TAG_BUILD }}-$_date_-$_ref_
+          _version_=$(grep "define CURR_VERSION_COMMA " 'src/Version.h' | awk '{print $3}' | tr , .)
+          if [ "$_version_" != "" ]; then
+            echo "VERSION=$_version_" >>$GITHUB_ENV
+            echo "TAG_VERSION=${{ env.PRG_NAME }}-$_version_" >>$GITHUB_ENV
+          fi
+          echo "TAG_BUILD=$_build_" >> $GITHUB_ENV
+          echo "WORK_DIR=$(pwd)" >> $GITHUB_ENV
+          echo "TAG_DATE=$_date_" >> $GITHUB_ENV
+
+      - name: Print ref, build version
+        shell: bash
+        run: |
+          echo "REF: ${{ env.TAG_REF     }}"
+          echo "BLD: ${{ env.TAG_BUILD   }}"
+          echo "VER: ${{ env.TAG_VERSION }}"
+          echo "${{ env.TAG_NAME }}-${{ env.TAG_BUILD }}" > _tag_name_.txt
+# - get ref set build end
+
+      - name: Try fix build
+        #shell: cmd
+        shell: bash
+        run: |
+          echo "Dir0:"
+          ls -l ${{ env.WORK_DIR }}
+          echo "Dir1:"
+          ls -l ${{ env.WORK_DIR }}/vs2022
+          #dir "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.36.32532\"
+          #:: del "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.36.32532\modules\modules.json"
+          #:: rmdir /S/Q "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.36.32532\modules"
+          #:: move "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.36.32532\modules\modules.json" "modules.js!n"
+          sed -ibak 's!<LanguageStandard>stdcpplatest</LanguageStandard>!<LanguageStandard>stdcpp20</LanguageStandard>!' ${{ env.WORK_DIR }}/vs2022/*.vcxproj
+          echo "Dir2:"
+          ls -l ${{ env.WORK_DIR }}/vs2022
+          #dir "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.36.32532\"
+
+      - name: Switch CI to x64 version build
+        #if env.TARGET='64'
+        if: ${{ github.event.inputs.build_target == '64' }}
+        shell: bash
+        run: |
+          echo "cat1:"
+          cat ./do/build.go | grep buildPreRelease
+          sed -ibak 's/buildPreRelease(kPlatformIntel32, true)/buildPreRelease(kPlatformIntel64, true)/' ./do/build.go
+          echo "cat2:"
+          cat ./do/build.go | grep buildPreRelease
+
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.19
+
+      - name: Build
+        continue-on-error: true
+        env:
+          CERT_PWD: ${{ secrets.CERT_PWD }}
+        run: .\doit.bat -ci
+        #run: .\doit.bat -ci-daily
+
+# Sign Windows executables begin
+      - name: Sign Windows executables files
+        uses: deep-soft/code-sign-action@master
+        with:
+          certificate: '${{ secrets.WINDOWS_PFX_BASE64 }}'
+          password: '${{ secrets.WINDOWS_PFX_PASSWORD }}'
+          certificatesha1: '${{ secrets.WINDOWS_PFX_SHA1_THUMBPRINT }}'
+          # certificatename: '${{ secrets.CERTNAME }}'
+          folder: './out/final-prerel'
+          recursive: true
+# Sign Windows executables end
+
+# zip release begin
+      - name: Set Zip name
+        shell: bash
+        run: |
+          #echo "ZIP_NAME=${{ env.PRG_NAME }}-${{ env.VERSION }}-x${{ env.TARGET }}.zip" >>$GITHUB_ENV
+          echo "ZIP_NAME=${{ env.PRG_NAME }}-${{ env.VERSION }}-x${{ inputs.build_target }}.zip" >>$GITHUB_ENV
+
+      - name: Create Zip Archive Release
+        uses: deep-soft/zip-release@v2
+        with:
+          type: 'zip'
+          filename: '${{ env.WORK_DIR }}/${{ env.ZIP_NAME }}'
+          # directory: '.'
+          directory: ./out/final-prerel
+          path: '.'
+          exclusions: '*.git* /*node_modules/* .editorconfig'
+          recursive_exclusions: '*.map *.pdb'
+        # archive name is ${{ env.ZIP_RELEASE_ARCHIVE }}
+
+      - name: print env value
+        continue-on-error: true
+        shell: bash
+        run: |
+          echo "env.ZIP_RELEASE_ARCHIVE=${{ env.ZIP_RELEASE_ARCHIVE }}"
+# zip release end
+
+# upload artifacts begin
+      - name: Upload zip
+        continue-on-error: true
+        uses: deep-soft/upload-artifact@main
+        with:
+          name: '${{ env.ZIP_NAME }}'
+          path: '${{ env.ZIP_RELEASE_ARCHIVE }}'
+          # name: '${{ env.PRG_NAME }}-${{ env.VERSION }}.zip'
+          # path: '${{ env.PRG_NAME }}-${{ env.VERSION }}.zip'
+# upload artifacts end
+
+# upload release begin
+      - name: Publish
+        continue-on-error: true
+        uses: deep-soft/action-gh-release@v1
+        with:
+          #tag_name: ${{ env.TAG_NAME }}-${{ env.VERSION }}
+          tag_name: ${{ env.TAG_NAME }}-${{ env.TAG_BUILD }}
+          draft: true
+          files: |
+            _tag_name_.txt
+            ${{ env.ZIP_RELEASE_ARCHIVE }}
+            ./out/final-prerel/SumatraPDF-prerel-${{ inputs.build_target}}.exe
+            ./out/final-prerel/SumatraPDF-prerel-${{ inputs.build_target}}.zip
+            ./out/final-prerel/SumatraPDF-prerel-${{ inputs.build_target}}-install.exe
+# upload release end
