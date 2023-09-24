@@ -1,7 +1,8 @@
 name: CodeQL
 on:
-  repository_dispatch:
-    types: [codeql]
+  workflow_dispatch:
+#  repository_dispatch:
+#    types: [codeql]
 jobs:
   build:
     name: CodeQL
