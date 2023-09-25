@@ -28,6 +28,8 @@
 :Background Color:
 :Border: %d
 :Checking for update...
+:Cleared history of %d files, deleted thumbnails.
+:Clearing history...
 :Close Other Tabs
 :Close Tabs To The Right
 :Color:
@@ -40,7 +42,7 @@
 :Create Annotation From Selection
 :Custom &Zoom...
 :Date:
-:Delete Annotation\tDel
+:Delete Annotation
 :Don't install
 :Download 64-bit version
 :E&xit

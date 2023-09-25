@@ -1,4 +1,7 @@
 :%s annotation. Ctrl+click to select. Ctrl+dbl click to edit.
+:Cleared history of %d files, deleted thumbnails.
+:Clearing history...
+:Delete Annotation
 :Edit %s Annotation
 :&About
 &Acerca de
@@ -276,8 +279,6 @@ Fecha:
 Distribución pre&determinada:
 :Default &Zoom:
 Am&pliación predeterminada:
-:Delete Annotation\tDel
-Eliminar anotación\tDel
 :Denied Permissions:
 Permisos denegados:
 :DjVu documents

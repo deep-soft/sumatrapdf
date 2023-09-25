@@ -1,4 +1,7 @@
 :%s annotation. Ctrl+click to select. Ctrl+dbl click to edit.
+:Cleared history of %d files, deleted thumbnails.
+:Clearing history...
+:Delete Annotation
 :Edit %s Annotation
 :&About
 &Om
@@ -276,8 +279,6 @@ Dato:
 Standard sideoppsett:
 :Default &Zoom:
 Standard&zoom:
-:Delete Annotation\tDel
-Slett merknad\tDel
 :Denied Permissions:
 Manglende tillatelser:
 :DjVu documents

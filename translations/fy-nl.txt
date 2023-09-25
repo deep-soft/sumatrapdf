@@ -60,6 +60,8 @@
 :Can't connect to the Internet (error %#x).
 :Checking for update...
 :Circle
+:Cleared history of %d files, deleted thumbnails.
+:Clearing history...
 :Close
 :Close Other Tabs
 :Close Tabs To The Right
@@ -93,7 +95,7 @@
 :Dark
 :Darker
 :Date:
-:Delete Annotation\tDel
+:Delete Annotation
 :Denied Permissions:
 :Don't install
 :Download 64-bit version

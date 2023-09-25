@@ -20,6 +20,8 @@
 :Annotations
 :Author: %s
 :Border: %d
+:Cleared history of %d files, deleted thumbnails.
+:Clearing history...
 :Close Tabs To The Right
 :Collapse All
 :Command Palette
@@ -28,7 +30,7 @@
 :Create Annotation &Under Cursor
 :Create Annotation From Selection
 :Custom &Zoom...
-:Delete Annotation\tDel
+:Delete Annotation
 :E&xit Fullscreen
 :Edit %s Annotation
 :Edit Annotations

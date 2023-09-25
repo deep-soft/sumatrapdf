@@ -15,12 +15,14 @@
 :&Text
 :&Translate With Google
 :&Underline
+:Cleared history of %d files, deleted thumbnails.
+:Clearing history...
 :Command Palette
 :Couldn't get printer name
 :Couldn't uninstall Sumatra search filter
 :Create Annotation &Under Cursor
 :Custom &Zoom...
-:Delete Annotation\tDel
+:Delete Annotation
 :E&xit
 :E&xit Fullscreen
 :Edit %s Annotation

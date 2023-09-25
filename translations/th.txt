@@ -14,6 +14,8 @@
 :&Single Page
 :Author: %s
 :Border: %d
+:Cleared history of %d files, deleted thumbnails.
+:Clearing history...
 :Close Other Tabs
 :Close Tabs To The Right
 :Command Palette
@@ -22,7 +24,7 @@
 :Copy To Clipboard
 :Custom &Zoom...
 :Date:
-:Delete Annotation\tDel
+:Delete Annotation
 :E&xit
 :Edit %s Annotation
 :F&orward

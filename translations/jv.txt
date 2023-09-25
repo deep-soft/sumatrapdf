@@ -55,6 +55,8 @@
 :Check for &Updates
 :Checking for update...
 :Circle
+:Cleared history of %d files, deleted thumbnails.
+:Clearing history...
 :Close Other Tabs
 :Close Tabs To The Right
 :Collapse All
@@ -83,7 +85,7 @@
 :Date:
 :Default &Layout:
 :Default &Zoom:
-:Delete Annotation\tDel
+:Delete Annotation
 :Denied Permissions:
 :Document Properties
 :Don't install

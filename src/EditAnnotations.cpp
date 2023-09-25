@@ -322,6 +322,7 @@ bool CloseAndDeleteEditAnnotationsWindow(WindowTab* tab) {
 }
 
 EditAnnotationsWindow::~EditAnnotationsWindow() {
+    tab->lastEditAnnotsWindowPos = WindowRect(hwnd);
     delete mainLayout;
 }
 
@@ -826,6 +827,8 @@ static void UpdateUIForSelectedAnnotation(EditAnnotationsWindow* ew, Annotation*
             ew->editContents->SetFocus();
             ew->editContents->SetCursorPositionAtEnd();
         }
+    } else {
+        ew->listBox->SetFocus();
     }
 
     // TODO: get from client size
@@ -1389,22 +1392,34 @@ void ShowEditAnnotationsWindow(WindowTab* tab) {
 
     UpdateAnnotationsList(ew);
 
+    Rect lastPos = tab->lastEditAnnotsWindowPos;
     // size our editor window to be the same height as main window
-    int minDy = 720;
-    // TODO: this is slightly less that wanted
-    HWND hwnd = tab->win->hwndCanvas;
-    auto rc = ClientRect(hwnd);
-    if (rc.dy > 0) {
-        minDy = rc.dy;
-        // if it's a tall window, up the number of items in list box
-        // from 5 to 14
-        if (minDy > 1024) {
-            ew->listBox->idealSizeLines = 14;
+    int minDy = lastPos.dy;
+    if (minDy == 0) {
+        minDy = 720;
+        // TODO: this is slightly less that wanted
+        HWND hwnd = tab->win->hwndCanvas;
+        auto rc = ClientRect(hwnd);
+        if (rc.dy > 0) {
+            minDy = rc.dy;
         }
     }
 
-    LayoutAndSizeToContent(ew->mainLayout, 520, minDy, ew->hwnd);
-    HwndPositionToTheRightOf(ew->hwnd, tab->win->hwndFrame);
+    // if it's a tall window, up the number of items in list box
+    // from 5 to 14
+    if (minDy > 1024) {
+        ew->listBox->idealSizeLines = 14;
+    }
+
+    if (lastPos.IsEmpty()) {
+        LayoutAndSizeToContent(ew->mainLayout, 520, minDy, ew->hwnd);
+        HwndPositionToTheRightOf(ew->hwnd, tab->win->hwndFrame);
+    } else {
+        int dx = lastPos.dx;
+        LayoutAndSizeToContent(ew->mainLayout, dx, minDy, ew->hwnd);
+        Rect r = ShiftRectToWorkArea(lastPos, ew->hwnd, true);
+        SetWindowPos(ew->hwnd, nullptr, r.x, r.y, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
+    }
     Annotation* annot = ew->tab->selectedAnnotation;
     ew->skipGoToPage = (annot != nullptr);
     if (annot) {

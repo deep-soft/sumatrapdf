@@ -26,6 +26,8 @@
 :Author: %s
 :Border: %d
 :Circle
+:Cleared history of %d files, deleted thumbnails.
+:Clearing history...
 :Close Other Tabs
 :Close Tabs To The Right
 :Command Palette
@@ -37,7 +39,7 @@
 :Create Annotation &Under Cursor
 :Custom &Zoom...
 :Date:
-:Delete Annotation\tDel
+:Delete Annotation
 :E&xit
 :E&xit Fullscreen
 :Edit %s Annotation

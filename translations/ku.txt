@@ -29,6 +29,8 @@
 :Border: %d
 :Checking for update...
 :Circle
+:Cleared history of %d files, deleted thumbnails.
+:Clearing history...
 :Close Other Tabs
 :Close Tabs To The Right
 :Collapse All
@@ -42,7 +44,7 @@
 :Create Annotation From Selection
 :Custom &Zoom...
 :Date:
-:Delete Annotation\tDel
+:Delete Annotation
 :Don't install
 :Download 64-bit version
 :E&xit
