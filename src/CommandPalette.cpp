@@ -50,7 +50,7 @@ static i32 gBlacklistCommandsFromPalette[] = {
     CmdCollapseAll, // TODO: figure proper context for it
     CmdMoveFrameFocus,
 
-    CmdFavoriteAdd,
+    //CmdFavoriteAdd,
     CmdFavoriteDel,
 
     CmdPresentationWhiteBackground,
@@ -79,6 +79,7 @@ static i32 gDocumentNotOpenWhitelist[] = {
     CmdChangeLanguage,
     CmdCheckUpdate,
     CmdHelpOpenManualInBrowser,
+    CmdHelpOpenKeyboardShortcutsInBrowser,
     CmdHelpVisitWebsite,
     CmdHelpAbout,
     CmdDebugDownloadSymbols,
@@ -107,6 +108,7 @@ static i32 gCommandsNoActivate[] = {
     CmdChangeLanguage,
     CmdHelpAbout,
     CmdHelpOpenManualInBrowser,
+    CmdHelpOpenKeyboardShortcutsInBrowser,
     CmdHelpVisitWebsite,
     CmdOpenFile,
     CmdOpenFolder,

@@ -96,11 +96,7 @@ constexpr const WCHAR* kSumatraWindowTitleW = L"SumatraPDF";
 
 /* if true, we're in debug mode where we show links as blue rectangle on
    the screen. Makes debugging code related to links easier. */
-#if defined(DEBUG)
-bool gDebugShowLinks = true;
-#else
 bool gDebugShowLinks = false;
-#endif
 
 // used to show it in debug, but is not very useful,
 // so always disable
@@ -1456,7 +1452,7 @@ static MainWindow* CreateMainWindow() {
     if (!win->isMenuHidden) {
         SetMenu(win->hwndFrame, win->menu);
     }
-    win->brControlBgColor = CreateSolidBrush(gCurrentTheme->mainWindow.controlBackgroundColor);
+    win->brControlBgColor = CreateSolidBrush(gCurrentTheme->window.controlBackgroundColor);
 
     ShowWindow(win->hwndCanvas, SW_SHOW);
     UpdateWindow(win->hwndCanvas);
@@ -1545,7 +1541,7 @@ void DeleteMainWindow(MainWindow* win) {
 
 static void UpdateThemeForWindow(MainWindow* win) {
     DeleteObject(win->brControlBgColor);
-    win->brControlBgColor = CreateSolidBrush(gCurrentTheme->mainWindow.controlBackgroundColor);
+    win->brControlBgColor = CreateSolidBrush(gCurrentTheme->window.controlBackgroundColor);
 
     UpdateControlsColors(win);
     RebuildMenuBarForWindow(win);
@@ -5130,15 +5126,19 @@ static LRESULT FrameOnCommand(MainWindow* win, HWND hwnd, UINT msg, WPARAM wp, L
             break;
 
         case CmdHelpVisitWebsite:
-            SumatraLaunchBrowser(WEBSITE_MAIN_URL);
+            SumatraLaunchBrowser(kWebsiteURL);
             break;
 
         case CmdHelpOpenManualInBrowser:
-            SumatraLaunchBrowser(WEBSITE_MANUAL_URL);
+            SumatraLaunchBrowser(kManualURL);
+            break;
+
+        case CmdHelpOpenKeyboardShortcutsInBrowser:
+            SumatraLaunchBrowser(kManualKeyboardShortcutsURL);
             break;
 
         case CmdContributeTranslation:
-            SumatraLaunchBrowser(WEBSITE_TRANSLATIONS_URL);
+            SumatraLaunchBrowser(kContributeTranslationsURL);
             break;
 
         case CmdHelpAbout:

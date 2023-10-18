@@ -1,4 +1,6 @@
+:&Keyboard Shortcuts
 :%s annotation. Ctrl+click to edit.
+Comentario %s.
 :&About
 &Acerca de
 :&Actual Size

@@ -3449,7 +3449,7 @@ void TabsCtrl::Paint(HDC hdc, RECT& rc) {
     gfx.SetPageUnit(UnitPixel);
 
     Theme* theme = gCurrentTheme;
-    SolidBrush br(GdipCol(theme->mainWindow.controlBackgroundColor));
+    SolidBrush br(GdipCol(theme->window.controlBackgroundColor));
 
     Font f(hdc, GetDefaultGuiFont());
 
@@ -3466,16 +3466,16 @@ void TabsCtrl::Paint(HDC hdc, RECT& rc) {
     Rect r;
     Gdiplus::RectF rTxt;
 
-    COLORREF textColor = theme->mainWindow.textColor;
-    COLORREF tabBgSelected = theme->mainWindow.controlBackgroundColor;
+    COLORREF textColor = theme->window.textColor;
+    COLORREF tabBgSelected = theme->window.controlBackgroundColor;
     COLORREF tabBgHighlight;
     COLORREF tabBgBackground;
     if (IsLightColor(tabBgSelected)) {
-        tabBgBackground = AdjustLightness2(tabBgSelected, -15);
-        tabBgHighlight = AdjustLightness2(tabBgSelected, -25);
+        tabBgBackground = AdjustLightness2(tabBgSelected, -25);
+        tabBgHighlight = AdjustLightness2(tabBgSelected, -35);
     } else {
-        tabBgBackground = AdjustLightness2(tabBgSelected, 15);
-        tabBgHighlight = AdjustLightness2(tabBgSelected, 25);
+        tabBgBackground = AdjustLightness2(tabBgSelected, 25);
+        tabBgHighlight = AdjustLightness2(tabBgSelected, 35);
     }
 
     COLORREF tabBgCol;

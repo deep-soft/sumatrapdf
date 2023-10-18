@@ -24,7 +24,6 @@
 #include "Theme.h"
 
 using Gdiplus::ARGB;
-using Gdiplus::Brush;
 using Gdiplus::Color;
 using Gdiplus::Graphics;
 using Gdiplus::Pen;
@@ -165,7 +164,7 @@ void CaptionInfo::UpdateColors(bool activeWindow) {
                                                                   : GetSysColor(COLOR_INACTIVECAPTIONTEXT);
     }
     if (gGlobalPrefs->useTabs) {
-        COLORREF col = gCurrentTheme->mainWindow.controlBackgroundColor;
+        COLORREF col = gCurrentTheme->window.controlBackgroundColor;
         dwm::SetCaptionColor(::GetParent(hwnd), col);
     }
 }

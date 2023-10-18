@@ -498,6 +498,10 @@ static MenuDef menuDefHelp[] = {
         CmdHelpOpenManualInBrowser,
     },
     {
+        _TRN("&Keyboard Shortcuts"),
+        CmdHelpOpenKeyboardShortcutsInBrowser
+    },
+    {
         _TRN("Check for &Updates"),
         CmdCheckUpdate,
     },
@@ -891,6 +895,7 @@ UINT_PTR removeIfNoInternetPerms[] = {
     CmdSearchSelectionWithBing,
     CmdHelpVisitWebsite,
     CmdHelpOpenManualInBrowser,
+    CmdHelpOpenKeyboardShortcutsInBrowser,
     CmdContributeTranslation,
     0,
 };
@@ -2061,7 +2066,7 @@ void MenuCustomDrawItem(HWND hwnd, DRAWITEMSTRUCT* dis) {
     ScopedSelectFont restoreFont(hdc, font);
 
     COLORREF bgCol = GetMainWindowBackgroundColor();
-    COLORREF txtCol = gCurrentTheme->mainWindow.textColor;
+    COLORREF txtCol = gCurrentTheme->window.textColor;
     // TODO: if isDisabled, pick a color that represents disabled
     // either add it to theme definition or auto-generate
     // (lighter if dark color, darker if light color)

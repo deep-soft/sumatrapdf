@@ -757,7 +757,7 @@ static void PaintPageFrameAndShadow(HDC hdc, Rect& bounds, Rect& pageRect, bool 
 
     // Draw frame
     ScopedGdiObj<HPEN> pe(CreatePen(PS_SOLID, 1, presentation ? TRANSPARENT : COL_PAGE_FRAME));
-    ScopedGdiObj<HBRUSH> brush(CreateSolidBrush(GetCurrentTheme()->mainWindow.backgroundColor));
+    ScopedGdiObj<HBRUSH> brush(CreateSolidBrush(gCurrentTheme->window.backgroundColor));
     SelectObject(hdc, pe);
     SelectObject(hdc, brush);
     Rectangle(hdc, frame.x, frame.y, frame.x + frame.dx, frame.y + frame.dy);
@@ -858,12 +858,17 @@ NO_INLINE static void PaintCurrentEditAnnotationMark(WindowTab* tab, HDC hdc, Di
         dm->ScrollScreenToRect(pageNo, rect);
         tab->didScrollToSelectedAnnotation = true;
     }
-
-    Gdiplus::Color col = GdiRgbFromCOLORREF(gCurrentTheme->document.textColor);
-    Gdiplus::Pen pen(col, 5);
-    Gdiplus::Graphics gs(hdc);
+    rect.Inflate(4, 4);
+    //Gdiplus::Color col = GdiRgbFromCOLORREF(gCurrentTheme->window.backgroundColor);
+    Gdiplus::Color col = GdiRgbFromCOLORREF(0xff3333); // blue
     // TODO: maybe make the rectangle a bit bigger and draw line
-    // using a pattern
+    // using a pattern, using a brush pen
+    Gdiplus::Color colHatch2((Gdiplus::ARGB)Gdiplus::Color::Yellow);
+
+    Gdiplus::HatchBrush br(Gdiplus::HatchStyleCross, colHatch2, col);
+    //Gdiplus::Pen pen(col, 4);
+    Gdiplus::Pen pen(&br, 4);
+    Gdiplus::Graphics gs(hdc);
     Gdiplus::Status stat = gs.DrawRectangle(&pen, rect.x, rect.y, rect.dx, rect.dy);
 }
 
@@ -974,7 +979,7 @@ static void DrawDocument(MainWindow* win, HDC hdc, RECT* rcArea) {
         if (renderDelay != 0) {
             AutoDeleteFont fontRightTxt(CreateSimpleFont(hdc, "MS Shell Dlg", 14));
             HGDIOBJ hPrevFont = SelectObject(hdc, fontRightTxt);
-            auto col = gCurrentTheme->mainWindow.textColor;
+            auto col = gCurrentTheme->window.textColor;
             SetTextColor(hdc, col);
             if (renderDelay != RENDER_DELAY_FAILED) {
                 if (renderDelay < REPAINT_MESSAGE_DELAY_IN_MS) {
