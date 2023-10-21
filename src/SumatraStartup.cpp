@@ -608,7 +608,9 @@ static void UpdateGlobalPrefs(const Flags& i) {
         str::ReplacePtr(&gGlobalPrefs->inverseSearchCmdLine, cmdLine);
         gGlobalPrefs->enableTeXEnhancements = true;
     }
-    gGlobalPrefs->fixedPageUI.invertColors = i.invertColors;
+    if (i.invertColors) {
+        gGlobalPrefs->fixedPageUI.invertColors = true;
+    }
 
     char* arg = nullptr;
     char* param = nullptr;
@@ -1377,7 +1379,6 @@ ContinueOpenWindow:
         RestrictPolicies(Perm::SavePreferences);
         RebuildMenuBarForWindow(win);
         StartStressTest(&flags, win);
-        fastExit = true;
     }
 
     // only hide newly missing files when showing the start page on startup

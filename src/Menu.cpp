@@ -1881,6 +1881,10 @@ HFONT GetMenuFont() {
     return gMenuFont;
 }
 
+void DeleteMenuFont() {
+    DeleteFontSafe(&gMenuFont);
+}
+
 struct MenuText {
     WCHAR* menuText;
     int menuTextLen;
@@ -1927,7 +1931,7 @@ void FreeMenuOwnerDrawInfoData(HMENU hmenu) {
             SetMenuItemInfoW(hmenu, (uint)i, TRUE /* by position */, &mii);
         }
         if (mii.hSubMenu != nullptr) {
-            MarkMenuOwnerDraw(mii.hSubMenu);
+            FreeMenuOwnerDrawInfoData(mii.hSubMenu);
         }
     };
 }
