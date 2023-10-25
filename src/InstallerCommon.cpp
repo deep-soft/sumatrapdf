@@ -89,14 +89,6 @@ TempStr GetRegPathUninstTemp(const char* appName) {
     return str::JoinTemp("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\", appName);
 }
 
-void NotifyFailed(const WCHAR* msg) {
-    if (!gFirstError) {
-        gFirstError = str::Dup(msg);
-    }
-    char* s = ToUtf8Temp(msg);
-    logf("NotifyFailed: %s\n", s);
-}
-
 void NotifyFailed(const char* msg) {
     if (!gFirstError) {
         gFirstError = ToWstr(msg);
@@ -246,7 +238,7 @@ void UninstallBrowserPlugin() {
         return;
     }
     log("  failed to uninstall browser plugin\n");
-    NotifyFailed(_TR("Couldn't uninstall browser plugin"));
+    NotifyFailed(_TRA("Couldn't uninstall browser plugin"));
 }
 
 constexpr const char* kSearchFilterDllName = "PdfFilter.dll";
@@ -260,7 +252,7 @@ void RegisterSearchFilter(bool allUsers) {
         return;
     }
     log("  failed to register\n");
-    NotifyFailed(_TR("Couldn't install PDF search filter"));
+    NotifyFailed(_TRA("Couldn't install PDF search filter"));
 }
 
 void UnRegisterSearchFilter() {
@@ -272,7 +264,7 @@ void UnRegisterSearchFilter() {
         return;
     }
     log("  failed to unregister\n");
-    NotifyFailed(_TR("Couldn't uninstall Sumatra search filter"));
+    NotifyFailed(_TRA("Couldn't uninstall Sumatra search filter"));
 }
 
 constexpr const char* kPreviewDllName = "PdfPreview.dll";
@@ -286,7 +278,7 @@ void RegisterPreviewer(bool allUsers) {
         return;
     }
     log("  failed to register\n");
-    NotifyFailed(_TR("Couldn't install PDF previewer"));
+    NotifyFailed(_TRA("Couldn't install PDF previewer"));
 }
 
 void UnRegisterPreviewer() {
@@ -298,7 +290,7 @@ void UnRegisterPreviewer() {
         return;
     }
     log(" failed to unregister\n");
-    NotifyFailed(_TR("Couldn't uninstall PDF previewer"));
+    NotifyFailed(_TRA("Couldn't uninstall PDF previewer"));
 }
 
 static bool IsProcWithModule(DWORD processId, const char* modulePath) {
@@ -416,8 +408,8 @@ static bool KillProcessesUsingInstallation() {
     if (dir.empty()) {
         return true;
     }
-    AutoFreeStr libmupdf = path::Join(dir, "libmupdf.dll");
-    AutoFreeStr browserPlugin = path::Join(dir, kBrowserPluginName);
+    TempStr libmupdf = path::JoinTemp(dir, "libmupdf.dll");
+    TempStr browserPlugin = path::JoinTemp(dir, kBrowserPluginName);
 
     AutoCloseHandle snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (INVALID_HANDLE_VALUE == snap) {
@@ -468,10 +460,9 @@ static void ProcessesUsingInstallation(StrVec& names) {
         DWORD procID = proc.th32ProcessID;
         if (IsProcessUsingFiles(procID, libmupdf, browserPlugin)) {
             // TODO: this kils ReadableProcName logic
-            char* s = ToUtf8Temp(proc.szExeFile);
-            char* name = str::Format("%s (%d)", s, (int)procID);
+            TempStr s = ToUtf8Temp(proc.szExeFile);
+            TempStr name = str::FormatTemp("%s (%d)", s, (int)procID);
             names.Append(name);
-            str::Free(name);
         }
         proc.dwSize = sizeof(proc);
         ok = Process32Next(snap, &proc);
@@ -511,8 +502,8 @@ static void SetCloseProcessMsg() {
             procNames = str::JoinTemp(procNames, " and ", name);
         }
     }
-    AutoFreeStr s = str::Format(_TRA("Please close %s to proceed!"), procNames);
-    SetMsg(ToWstr(s), COLOR_MSG_FAILED);
+    TempStr s = str::FormatTemp(_TRA("Please close %s to proceed!"), procNames);
+    SetMsg(ToWStrTemp(s), COLOR_MSG_FAILED);
 }
 
 void SetDefaultMsg() {

@@ -281,7 +281,7 @@ bool CrashHandlerDownloadSymbols() {
         return false;
     }
 
-    WCHAR* ws = ToWstrTemp(gSymbolPath);
+    TempWStr ws = ToWStrTemp(gSymbolPath);
     if (!dbghelp::Initialize(ws, false)) {
         log("CrashHandlerDownloadSymbols: dbghelp::Initialize() failed\n");
         return false;
@@ -403,7 +403,7 @@ static DWORD WINAPI CrashDumpThread(LPVOID) {
     // set the SUMATRAPDF_FULLDUMP environment variable for more complete dumps
     DWORD n = GetEnvironmentVariableA("SUMATRAPDF_FULLDUMP", nullptr, 0);
     bool fullDump = (0 != n);
-    WCHAR* ws = ToWstrTemp(gCrashDumpPath);
+    WCHAR* ws = ToWStrTemp(gCrashDumpPath);
     dbghelp::WriteMiniDump(ws, &gMei, fullDump);
     return 0;
 }
@@ -541,7 +541,7 @@ static void GetGraphicsDriverInfo(str::Str& s) {
     //
     // There can be more than one driver, they are in 0000, 0001 etc.
     for (int i = 0;; i++) {
-        AutoFreeStr key(str::Format(GFX_DRIVER_KEY_FMT, i));
+        TempStr key = str::FormatTemp(GFX_DRIVER_KEY_FMT, i);
         char* v = ReadRegStrTemp(HKEY_LOCAL_MACHINE, key, "DriverDesc");
         // I assume that if I can't read the value, there are no more drivers
         if (!v) {

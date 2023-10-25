@@ -464,7 +464,7 @@ STDMETHODIMP HW_IInternetProtocol::Start(LPCWSTR szUrl, IInternetProtocolSink* p
 
     const char* imgExt = GfxFileExtFromData({(u8*)data.data(), data.size()});
     char* mime = MimeFromUrl(urlRestA, imgExt);
-    WCHAR* mimeW = ToWstrTemp(mime);
+    WCHAR* mimeW = ToWStrTemp(mime);
     str::Free(mime);
     pIProtSink->ReportProgress(BINDSTATUS_VERIFIEDMIMETYPEAVAILABLE, mimeW);
 #ifdef _WIN64
@@ -1619,12 +1619,12 @@ void HtmlWindow::SetVisible(bool visible) {
 // Use for urls for which data will be provided by HtmlWindowCallback::GetHtmlForUrl()
 // (will be called from OnBeforeNavigate())
 void HtmlWindow::NavigateToDataUrl(const char* url) {
-    AutoFreeStr fullUrl(str::Format("its://%d/%s", windowId, url));
+    TempStr fullUrl = str::FormatTemp("its://%d/%s", windowId, url);
     NavigateToUrl(fullUrl);
 }
 
 void HtmlWindow::NavigateToUrl(const char* urlA) {
-    WCHAR* url = ToWstrTemp(urlA);
+    WCHAR* url = ToWStrTemp(urlA);
     VARIANT urlVar;
     VariantInitBstr(urlVar, url);
     currentURL.Reset();
@@ -1706,8 +1706,8 @@ void HtmlWindow::SetHtmlReal(const ByteSlice& d) {
     }
     htmlContent = new HtmlMoniker();
     htmlContent->SetHtml(d);
-    AutoFreeWstr baseUrl(str::Format(HW_PROTO_PREFIX L"://%d/", windowId));
-    htmlContent->SetBaseUrl(baseUrl);
+    TempStr baseUrl = str::FormatTemp(HW_PROTO_PREFIXA "://%d/", windowId);
+    htmlContent->SetBaseUrl(ToWStrTemp(baseUrl));
 
     ScopedComPtr<IDispatch> docDispatch;
     HRESULT hr = webBrowser->get_Document(&docDispatch);

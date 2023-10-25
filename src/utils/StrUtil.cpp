@@ -170,8 +170,16 @@ size_t Len(const char* s) {
     return s ? strlen(s) : 0;
 }
 
+int Leni(const char* s) {
+    return s ? (int)strlen(s) : 0;
+}
+
 size_t Len(const WCHAR* s) {
     return s ? wcslen(s) : 0;
+}
+
+int Leni(const WCHAR* s) {
+    return s ? (int)wcslen(s) : 0;
 }
 
 void Free(const char* s) {
@@ -567,7 +575,7 @@ const char* Find(const char* str, const char* find) {
     return strstr(str, find);
 }
 
-// format string to a buffer profided by the caller
+// format string to a buffer provided by the caller
 // the hope here is to avoid allocating memory (assuming vsnprintf
 // doesn't allocate)
 bool BufFmtV(char* buf, size_t bufCchSize, const char* fmt, va_list args) {
@@ -585,7 +593,7 @@ bool BufFmt(char* buf, size_t bufCchSize, const char* fmt, ...) {
 }
 
 // TODO: need to finish StrFormat and use it instead.
-char* FmtV(const char* fmt, va_list args) {
+char* FmtVWithAllocator(Allocator* a, const char* fmt, va_list args) {
     char message[256]{};
     size_t bufCchSize = dimof(message);
     char* buf = message;
@@ -607,17 +615,21 @@ char* FmtV(const char* fmt, va_list args) {
         } else {
             bufCchSize += 1024;
         }
-        buf = AllocArray<char>(bufCchSize);
+        buf = Allocator::AllocArray<char>(a, bufCchSize);
         if (!buf) {
             break;
         }
     }
 
     if (buf == message) {
-        buf = str::Dup(message);
+        buf = str::Dup(a, message);
     }
 
     return buf;
+}
+
+char* FmtV(const char* fmt, va_list args) {
+    return FmtVWithAllocator(nullptr, fmt, args);
 }
 
 // caller needs to str::Free()
@@ -784,25 +796,6 @@ size_t RemoveCharsInPlace(WCHAR* str, const WCHAR* toRemove) {
     return removed;
 }
 
-// append as much of s at the end of dst (which must be properly null-terminated)
-// as will fit.
-size_t BufAppend(char* dst, size_t dstCchSize, const char* s) {
-    CrashAlwaysIf(0 == dstCchSize);
-
-    size_t currDstCchLen = str::Len(dst);
-    if (currDstCchLen + 1 >= dstCchSize) {
-        return 0;
-    }
-    size_t left = dstCchSize - currDstCchLen - 1;
-    size_t srcCchSize = str::Len(s);
-    size_t toCopy = std::min(left, srcCchSize);
-
-    errno_t err = strncat_s(dst, dstCchSize, s, toCopy);
-    CrashIf(err || dst[currDstCchLen + toCopy] != '\0');
-
-    return toCopy;
-}
-
 /* Convert binary data in <buf> of size <len> to a hex-encoded string */
 char* MemToHex(const u8* buf, size_t len) {
     /* 2 hex chars per byte, +1 for terminating 0 */
@@ -848,7 +841,7 @@ static const char* ParseLimitedNumber(const char* str, const char* format, const
     const char* endF = Parse(format, "%u%c", &width, &f2[1]);
     if (endF && FindChar("udx", f2[1]) && width <= Len(str)) {
         char limited[16]; // 32-bit integers are at most 11 characters long
-        str::BufSet(limited, std::min((size_t)width + 1, dimof(limited)), str);
+        str::BufSet(limited, std::min((int)width + 1, dimofi(limited)), str);
         const char* end = Parse(limited, f2, valueOut);
         if (end && !*end) {
             *endOut = str + width;
@@ -2225,45 +2218,64 @@ size_t NormalizeWSInPlace(WCHAR* str) {
 // Note: BufSet() should only be used when absolutely necessary (e.g. when
 // handling buffers in OS-defined structures)
 // returns the number of characters written (without the terminating \0)
-size_t BufSet(char* dst, size_t dstCchSize, const char* src) {
+int BufSet(char* dst, int dstCchSize, const char* src) {
     CrashAlwaysIf(0 == dstCchSize);
 
-    size_t srcCchSize = str::Len(src);
-    size_t toCopy = std::min(dstCchSize - 1, srcCchSize);
+    int srcCchSize = (int)str::Len(src);
+    int toCopy = std::min(dstCchSize - 1, srcCchSize);
 
-    errno_t err = strncpy_s(dst, dstCchSize, src, toCopy);
+    errno_t err = strncpy_s(dst, (size_t)dstCchSize, src, (size_t)toCopy);
     CrashIf(err || dst[toCopy] != '\0');
 
     return toCopy;
 }
 
-size_t BufSet(WCHAR* dst, size_t dstCchSize, const WCHAR* src) {
+int BufSet(WCHAR* dst, int dstCchSize, const WCHAR* src) {
     CrashAlwaysIf(0 == dstCchSize);
 
-    size_t srcCchSize = str::Len(src);
-    size_t toCopy = std::min(dstCchSize - 1, srcCchSize);
+    int srcCchSize = str::Leni(src);
+    int toCopy = std::min(dstCchSize - 1, srcCchSize);
 
     memset(dst, 0, dstCchSize * sizeof(WCHAR));
     memcpy(dst, src, toCopy * sizeof(WCHAR));
     return toCopy;
 }
 
-size_t BufSet(WCHAR* dst, size_t dstCchSize, const char* src) {
-    return BufSet(dst, dstCchSize, ToWstrTemp(src));
+int BufSet(WCHAR* dst, int dstCchSize, const char* src) {
+    return BufSet(dst, dstCchSize, ToWStrTemp(src));
 }
 
-size_t BufAppend(WCHAR* dst, size_t dstCchSize, const WCHAR* s) {
+int BufAppend(WCHAR* dst, int dstCchSize, const WCHAR* s) {
     CrashAlwaysIf(0 == dstCchSize);
 
-    size_t currDstCchLen = str::Len(dst);
+    int currDstCchLen = str::Leni(dst);
     if (currDstCchLen + 1 >= dstCchSize) {
         return 0;
     }
-    size_t left = dstCchSize - currDstCchLen - 1;
-    size_t srcCchSize = str::Len(s);
-    size_t toCopy = std::min(left, srcCchSize);
+    int left = dstCchSize - currDstCchLen - 1;
+    int srcCchSize = str::Leni(s);
+    int toCopy = std::min(left, srcCchSize);
 
     errno_t err = wcsncat_s(dst, dstCchSize, s, toCopy);
+    CrashIf(err || dst[currDstCchLen + toCopy] != '\0');
+
+    return toCopy;
+}
+
+// append as much of s at the end of dst (which must be properly null-terminated)
+// as will fit.
+int BufAppend(char* dst, int dstCchSize, const char* s) {
+    CrashAlwaysIf(0 == dstCchSize);
+
+    int currDstCchLen = str::Leni(dst);
+    if (currDstCchLen + 1 >= dstCchSize) {
+        return 0;
+    }
+    int left = dstCchSize - currDstCchLen - 1;
+    int srcCchSize = str::Leni(s);
+    int toCopy = std::min(left, srcCchSize);
+
+    errno_t err = strncat_s(dst, dstCchSize, s, toCopy);
     CrashIf(err || dst[currDstCchLen + toCopy] != '\0');
 
     return toCopy;
@@ -2286,7 +2298,7 @@ char* FormatNumWithThousandSepTemp(i64 num, LCID locale) {
     for (const char* src = buf; *src;) {
         *next++ = *src++;
         if (*src && i == 2) {
-            next += str::BufSet(next, resLen - (next - res), thousandSep);
+            next += str::BufSet(next, resLen - (int)(next - res), thousandSep);
         }
         i = (i + 1) % 3;
     }
@@ -2322,7 +2334,7 @@ char* FormatFloatWithThousandSepTemp(double number, LCID locale) {
 }
 
 // http://rosettacode.org/wiki/Roman_numerals/Encode#C.2B.2B
-char* FormatRomanNumeral(int number) {
+char* FormatRomanNumeralTemp(int number) {
     if (number < 1) {
         return nullptr;
     }
@@ -2341,7 +2353,8 @@ char* FormatRomanNumeral(int number) {
     }
     CrashIf(len == 0);
 
-    char *roman = AllocArray<char>(len + 1), *c = roman;
+    char* roman = AllocArrayTemp<char>(len + 1);
+    TempStr c = roman;
     for (int n = number, i = 0; i < dimof(romandata); i++) {
         for (; n >= romandata[i].value; n -= romandata[i].value) {
             c += str::BufSet(c, romandata[i].numeral[1] ? 3 : 2, romandata[i].numeral);
@@ -2425,7 +2438,7 @@ static const WCHAR* ParseLimitedNumber(const WCHAR* str, const WCHAR* format, co
     const WCHAR* endF = Parse(format, L"%u%c", &width, &f2[1]);
     if (endF && FindChar(L"udx", f2[1]) && width <= Len(str)) {
         WCHAR limited[16]; // 32-bit integers are at most 11 characters long
-        str::BufSet(limited, std::min((size_t)width + 1, dimof(limited)), str);
+        str::BufSet(limited, std::min((int)width + 1, dimofi(limited)), str);
         const WCHAR* end = Parse(limited, f2, valueOut);
         if (end && !*end) {
             *endOut = str + width;

@@ -34,7 +34,7 @@ TryAgain64Bit:
     for (const char* gsProd : gsProducts) {
         HKEY hkey;
         char* keyName = str::JoinTemp("Software\\", gsProd);
-        WCHAR* keyNameW = ToWstrTemp(keyName);
+        WCHAR* keyNameW = ToWStrTemp(keyName);
         if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, keyNameW, 0, access, &hkey) != ERROR_SUCCESS) {
             continue;
         }
@@ -61,7 +61,7 @@ TryAgain64Bit:
     for (size_t ix = nVers; ix > 0; ix--) {
         for (const char* gsProd : gsProducts) {
             char* ver = versions.at(ix - 1);
-            AutoFreeStr keyName(str::Format("Software\\%s\\%s", gsProd, ver));
+            TempStr keyName = str::FormatTemp("Software\\%s\\%s", gsProd, ver);
             char* GS_DLL = ReadRegStrTemp(HKEY_LOCAL_MACHINE, keyName, "GS_DLL");
             if (!GS_DLL) {
                 continue;
@@ -147,7 +147,7 @@ static EngineBase* ps2pdf(const char* path) {
     AutoFreeStr shortPath = path::ShortPath(path);
     AutoFreeStr tmpFile = path::GetTempFilePath("PsE");
     ScopedFile tmpFileScope(tmpFile);
-    AutoFreeStr gswin32c(GetGhostscriptPath());
+    AutoFreeStr gswin32c = GetGhostscriptPath();
     if (!shortPath || !tmpFile || !gswin32c) {
         return nullptr;
     }
@@ -161,7 +161,7 @@ static EngineBase* ps2pdf(const char* path) {
     // way to do it
     // https://github.com/GravityMedia/Ghostscript/issues/6
     // https://github.com/sumatrapdfreader/sumatrapdf/issues/1923
-    AutoFreeStr cmdLine = str::Format(
+    TempStr cmdLine = str::FormatTemp(
         "\"%s\" -q -dSAFER -dNOPAUSE -dBATCH -dEPSCrop -sOutputFile=\"%s\" -sDEVICE=pdfwrite "
         "-f \"%s\"",
         gswin32c.Get(), tmpFile.Get(), shortPath.Get());
@@ -210,19 +210,19 @@ static EngineBase* ps2pdf(const char* path) {
 }
 
 static EngineBase* psgz2pdf(const char* fileName) {
-    AutoFreeStr tmpFile(path::GetTempFilePath("PsE"));
+    AutoFreeStr tmpFile = path::GetTempFilePath("PsE");
     ScopedFile tmpFileScope(tmpFile);
     if (!tmpFile) {
         return nullptr;
     }
 
-    WCHAR* path = ToWstrTemp(fileName);
+    WCHAR* path = ToWStrTemp(fileName);
     gzFile inFile = gzopen_w(path, "rb");
     if (!inFile) {
         return nullptr;
     }
     FILE* outFile = nullptr;
-    WCHAR* tmpFileW = ToWstrTemp(tmpFile);
+    WCHAR* tmpFileW = ToWStrTemp(tmpFile);
     errno_t err = _wfopen_s(&outFile, tmpFileW, L"wb");
     if (err != 0 || !outFile) {
         gzclose(inFile);
@@ -388,7 +388,7 @@ EngineBase* EnginePs::CreateFromFile(const char* fileName) {
 }
 
 bool IsEnginePsAvailable() {
-    AutoFreeStr gswin32c(GetGhostscriptPath());
+    AutoFreeStr gswin32c = GetGhostscriptPath();
     return gswin32c.Get() != nullptr;
 }
 

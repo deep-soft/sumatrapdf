@@ -98,7 +98,7 @@ void SetAppDataPath(const char* path) {
 
 // Generate the full path for a filename used by the app in the userdata path
 // Caller needs to free() the result
-char* AppGenDataFilenameTemp(const char* fileName) {
+TempStr AppGenDataFilenameTemp(const char* fileName) {
     if (!fileName) {
         return nullptr;
     }
@@ -109,8 +109,7 @@ char* AppGenDataFilenameTemp(const char* fileName) {
 
     if (IsRunningInPortableMode()) {
         /* Use the same path as the binary */
-        AutoFreeStr res = path::GetPathOfFileInAppDir(fileName);
-        return str::DupTemp(res);
+        return path::GetPathOfFileInAppDirTemp(fileName);
     }
 
     char* path = GetSpecialFolderTemp(CSIDL_LOCAL_APPDATA, true);
@@ -516,7 +515,7 @@ void SaveCallstackLogs() {
     if (s.empty()) {
         return;
     }
-    char* filePath = AppGenDataFilenameTemp("callstacks.txt");
+    TempStr filePath = AppGenDataFilenameTemp("callstacks.txt");
     file::WriteFile(filePath, s);
     s.Free();
 }
@@ -708,7 +707,7 @@ TempStr FormatFileSizeTemp(i64 size) {
 // as "1.29 MB (1,348,258 Bytes)"
 TempStr FormatFileSizeNoTransTemp(i64 size) {
     if (size <= 0) {
-        return str::Format("%d", (int)size);
+        return str::FormatTemp("%d", (int)size);
     }
     char* n1 = FormatSizeSuccintNoTransTemp(size);
     char* n2 = str::FormatNumWithThousandSepTemp(size);
@@ -823,7 +822,7 @@ bool IsUntrustedFile(const char* filePath, const char* fileURL) {
     }
 
     // check all parents of embedded files and ADSs as well
-    AutoFreeStr path(str::Dup(filePath));
+    TempStr path = str::DupTemp(filePath);
     while (str::Len(path) > 2 && str::FindChar(path + 2, ':')) {
         *str::FindCharLast(path, ':') = '\0';
         if (file::GetZoneIdentifier(path) >= URLZONE_INTERNET) {

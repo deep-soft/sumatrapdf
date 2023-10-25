@@ -208,7 +208,7 @@ static bool InstanceInit() {
 }
 
 static void SendMyselfDDE(const char* cmdA, HWND targetHwnd) {
-    WCHAR* cmd = ToWstrTemp(cmdA);
+    WCHAR* cmd = ToWStrTemp(cmdA);
     if (targetHwnd) {
         // try WM_COPYDATA first, as that allows targetting a specific window
         size_t cbData = (str::Len(cmd) + 1) * sizeof(WCHAR);
@@ -242,7 +242,7 @@ static void OpenUsingDDE(HWND targetHwnd, const char* path, Flags& i, bool isFir
          i.startScroll.x != -1 && i.startScroll.y != -1) &&
         isFirstWin) {
         const char* viewModeStr = DisplayModeToString(i.startView);
-        auto viewMode = ToWstrTemp(viewModeStr);
+        auto viewMode = ToWStrTemp(viewModeStr);
         cmd.AppendFmt("[SetView(\"%s\", \"%s\", %.2f, %d, %d)]", fullPath, viewMode, i.startZoom, i.startScroll.x,
                       i.startScroll.y);
     }
@@ -259,6 +259,18 @@ static void OpenUsingDDE(HWND targetHwnd, const char* path, Flags& i, bool isFir
         targetHwnd = nullptr; // force DDEExecute
     }
     SendMyselfDDE(cmd.Get(), targetHwnd);
+}
+
+static void FlagsEnterFullscreen(const Flags& flags, MainWindow* win) {
+    if (!win) {
+        return;
+    }
+    if (flags.enterPresentation || flags.enterFullScreen) {
+        if (flags.enterPresentation && win->isFullScreen || flags.enterFullScreen && win->presentation) {
+            ExitFullScreen(win);
+        }
+        EnterFullScreen(win, flags.enterPresentation);
+    }
 }
 
 static MainWindow* LoadOnStartup(const char* filePath, const Flags& flags, bool isFirstWin) {
@@ -284,13 +296,7 @@ static MainWindow* LoadOnStartup(const char* filePath, const Flags& flags, bool 
     if (!win->IsDocLoaded() || !isFirstWin) {
         return win;
     }
-
-    if (flags.enterPresentation || flags.enterFullScreen) {
-        if (flags.enterPresentation && win->isFullScreen || flags.enterFullScreen && win->presentation) {
-            ExitFullScreen(win);
-        }
-        EnterFullScreen(win, flags.enterPresentation);
-    }
+    FlagsEnterFullscreen(flags, win);
     if (flags.startView != DisplayMode::Automatic) {
         SwitchToDisplayMode(win, flags.startView);
     }
@@ -445,9 +451,9 @@ static bool SetupPluginMode(Flags& i) {
 }
 
 static void SetupCrashHandler() {
-    char* symDir = AppGenDataFilenameTemp("crashinfo");
-    char* crashDumpPath = path::JoinTemp(symDir, "sumatrapdfcrash.dmp");
-    char* crashFilePath = path::JoinTemp(symDir, "sumatrapdfcrash.txt");
+    TempStr symDir = AppGenDataFilenameTemp("crashinfo");
+    TempStr crashDumpPath = path::JoinTemp(symDir, "sumatrapdfcrash.dmp");
+    TempStr crashFilePath = path::JoinTemp(symDir, "sumatrapdfcrash.txt");
     InstallCrashHandler(crashDumpPath, crashFilePath, symDir);
 }
 
@@ -457,7 +463,7 @@ static HWND FindPrevInstWindow(HANDLE* hMutex) {
     char* exePath = GetExePathTemp();
     str::ToLowerInPlace(exePath);
     u32 hash = MurmurHash2(exePath, str::Len(exePath));
-    AutoFreeWstr mapId = str::Format(L"SumatraPDF-%08x", hash);
+    TempStr mapId = str::FormatTemp("SumatraPDF-%08x", hash);
 
     int retriesLeft = 3;
     HANDLE hMap = nullptr;
@@ -468,7 +474,7 @@ static HWND FindPrevInstWindow(HANDLE* hMutex) {
     DWORD lastErr = 0;
 Retry:
     // use a memory mapping containing a process id as mutex
-    hMap = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, sizeof(DWORD), mapId);
+    hMap = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, sizeof(DWORD), ToWStrTemp(mapId));
     if (!hMap) {
         goto Error;
     }
@@ -597,8 +603,8 @@ static void ReplaceColor(char** col, char* maybeColor) {
     ParsedColor c;
     ParseColor(c, maybeColor);
     if (c.parsedOk) {
-        char* colNewStr = SerializeColor(c.col);
-        str::ReplacePtr(col, colNewStr);
+        TempStr colNewStr = SerializeColorTemp(c.col);
+        str::ReplaceWithCopy(col, colNewStr);
     }
 }
 
@@ -720,28 +726,31 @@ static HRESULT CALLBACK TaskdialogHandleLinkscallback(HWND hwnd, UINT msg, WPARA
 // in Installer.cpp
 u32 GetLibmupdfDllSize();
 
-// verify that libmupdf.dll has the same size as the one embedded in exe
-static void VerifyNoLibmupdfMismatch() {
-    FARPROC addr = nullptr;
-    if (gIsAsanBuild) {
-        return;
-    }
+// a single exe is both an installer and the app (if libmupdf.dll has been extracted)
+// if we don't find libmupdf.dll alongside us, we assume this is installer
+// if libmupdf.dll is present but different that ours, it's a damaged installation
+static bool ForceRunningAsInstaller() {
     if (!ExeHasInstallerResources()) {
         // this is not a version that needs libmupdf.dll
-        return;
+        return false;
     }
+
     u32 expectedSize = GetLibmupdfDllSize();
     ReportIf(0 == expectedSize);
     if (0 == expectedSize) {
-        return;
+        // shouldn't happen
+        return false;
     }
 
-    char* exePath = GetExePathTemp();
-    char* dir = path::GetDirTemp(exePath);
-    char* path = path::JoinTemp(dir, "libmupdf.dll");
+    TempStr exePath = GetExePathTemp();
+    TempStr dir = path::GetDirTemp(exePath);
+    TempStr path = path::JoinTemp(dir, "libmupdf.dll");
     auto realSize = file::GetSize(path);
+    if (realSize < 0) {
+        return true;
+    }
     if (realSize == (i64)expectedSize) {
-        return;
+        return false;
     }
 
     constexpr const char* corruptedInstallationConsole = R"(
@@ -768,7 +777,7 @@ Learn more at https://www.sumatrapdfreader.org/docs/Corrupted-installation
     }
     dialogConfig.cbSize = sizeof(TASKDIALOGCONFIG);
     dialogConfig.pszWindowTitle = title;
-    dialogConfig.pszMainInstruction = ToWstrTemp(corruptedInstallation);
+    dialogConfig.pszMainInstruction = ToWStrTemp(corruptedInstallation);
     dialogConfig.pszContent =
         LR"(Learn more at <a href="https://www.sumatrapdfreader.org/docs/Corrupted-installation">www.sumatrapdfreader.org/docs/Corrupted-installation</a>.)";
     dialogConfig.nDefaultButton = IDOK;
@@ -822,7 +831,7 @@ static void ShowInstallerHelp() {
     }
     dialogConfig.cbSize = sizeof(TASKDIALOGCONFIG);
     dialogConfig.pszWindowTitle = title;
-    dialogConfig.pszMainInstruction = ToWstrTemp(msg);
+    dialogConfig.pszMainInstruction = ToWStrTemp(msg);
     dialogConfig.pszContent =
         LR"(<a href="https://www.sumatrapdfreader.org/docs/Installer-cmd-line-arguments">Read more on website</a>)";
     dialogConfig.nDefaultButton = IDOK;
@@ -934,32 +943,6 @@ static void testLogf() {
 // in mupdf_load_system_font.c
 extern "C" void destroy_system_font_list();
 
-// in MemLeakDetect.cpp
-extern bool MemLeakInit();
-extern void DumpMemLeaks();
-
-bool gEnableMemLeak = false;
-
-// some libc functions internally allocate stuff that shows up
-// as leaks in MemLeakDetect even though it's probably freed at shutdown
-// call this function before MemLeakInit() so that those allocations
-// don't show up
-static void ForceStartupLeaks() {
-    time_t secs = 0;
-    struct tm tm {
-        0
-    };
-    secs = mktime(&tm);
-    gmtime_s(&tm, &secs);
-    gmtime(&secs);
-    char* path = GetExePathTemp();
-    WCHAR* pathW = ToWstrTemp(path);
-    FILE* fp = _wfopen(pathW, L"rb");
-    if (fp) {
-        fclose(fp);
-    }
-}
-
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     int exitCode = 1; // by default it's error
     int nWithDde = 0;
@@ -973,18 +956,6 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     Vec<SessionData*>* sessionData = nullptr;
 
     CrashIf(hInstance != GetInstance());
-
-    // TODO: decide if we should enable mem leak detection
-#if defined(DEBUG)
-    gEnableMemLeak = true;
-#endif
-    if (IsDebuggerPresent()) {
-        gEnableMemLeak = true;
-    }
-    gEnableMemLeak = false;
-    if (gEnableMemLeak) {
-        fastExit = false;
-    }
 
     supressThrowFromNew();
 
@@ -1001,16 +972,6 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     SetErrorMode(SEM_NOOPENFILEERRORBOX | SEM_FAILCRITICALERRORS);
 
     srand((unsigned int)time(nullptr));
-
-    ForceStartupLeaks();
-
-    // for testing mem leak detection
-    void* maybeLeak = nullptr;
-    if (gEnableMemLeak) {
-        MemLeakInit();
-        maybeLeak = malloc(10);
-    }
-    // maybeLeak = malloc(10);
 
     if (!gIsAsanBuild) {
         SetupCrashHandler();
@@ -1092,7 +1053,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         exitCode = RunInstaller();
         // exit immediately. for some reason exit handlers try to
         // pull in libmupdf.dll which we don't have access to in the installer
-        return exitCode;
+        ::ExitProcess(exitCode);
     }
 
     if (isUninstaller) {
@@ -1129,7 +1090,13 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         }
     }
 
-    VerifyNoLibmupdfMismatch();
+    if (ForceRunningAsInstaller()) {
+        logf("forcing running as an installer\n");
+        exitCode = RunInstaller();
+        // exit immediately. for some reason exit handlers try to
+        // pull in libmupdf.dll which we don't have access to in the installer
+        ::ExitProcess(exitCode);
+    }
 
     // do this before running installer etc. so that we have disk / net permissions
     // (default policy is to disallow everything)
@@ -1373,6 +1340,9 @@ ContinueOpenWindow:
             goto Exit;
         }
     }
+    if (flags.fileNames.Size() == 0) {
+        FlagsEnterFullscreen(flags, win);
+    }
 
     if (flags.stressTestPath) {
         // don't save file history and preference changes
@@ -1480,19 +1450,6 @@ Exit:
 
     DestroyLogging();
     DestroyTempAllocator();
-
-    if (gEnableMemLeak) {
-        // free(maybeLeak);
-        DumpMemLeaks();
-    }
-
-#if 0 // no longer seems to be needed in latest vs build, was probably early asan bug
-    if (gIsAsanBuild) {
-        // TODO: crashes in wild places without this
-        // Note: ::ExitProcess(0) also crashes
-        ::TerminateProcess(GetCurrentProcess(), 0);
-    }
-#endif
 
     return exitCode;
 }

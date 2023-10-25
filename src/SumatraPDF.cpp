@@ -204,7 +204,7 @@ void InitializePolicies(bool restrict) {
     // allow to restrict SumatraPDF's functionality from an INI file in the
     // same directory as SumatraPDF.exe (see ../docs/sumatrapdfrestrict.ini)
     // (if the file isn't there, everything is allowed)
-    AutoFreeStr restrictPath(path::GetPathOfFileInAppDir(kRestrictionsFileName));
+    TempStr restrictPath = path::GetPathOfFileInAppDirTemp(kRestrictionsFileName);
     if (!file::Exists(restrictPath)) {
         gPolicyRestrictions = Perm::All;
         Split(gAllowedLinkProtocols, DEFAULT_LINK_PROTOCOLS, ",");
@@ -555,8 +555,8 @@ void MessageBoxWarning(HWND hwnd, const char* msg, const char* title) {
     if (!title) {
         title = _TRA("Warning");
     }
-    WCHAR* msgW = ToWstrTemp(msg);
-    WCHAR* titleW = ToWstrTemp(title);
+    WCHAR* msgW = ToWStrTemp(msg);
+    WCHAR* titleW = ToWStrTemp(title);
     MessageBoxW(hwnd, msgW, titleW, type);
 }
 
@@ -827,10 +827,11 @@ static void UpdatePageInfoHelper(DocController* ctrl, NotificationWnd* wnd, int 
     if (!ctrl->ValidPageNo(pageNo)) {
         pageNo = ctrl->CurrentPageNo();
     }
-    AutoFreeStr pageInfo = str::Format("%s %d / %d", _TRA("Page:"), pageNo, ctrl->PageCount());
+    int nPages = ctrl->PageCount();
+    TempStr pageInfo = str::FormatTemp("%s %d / %d", _TRA("Page:"), pageNo, nPages);
     if (ctrl->HasPageLabels()) {
-        AutoFreeStr label = ctrl->GetPageLabel(pageNo);
-        pageInfo = str::Format("%s %s (%d / %d)", _TRA("Page:"), label.Get(), pageNo, ctrl->PageCount());
+        TempStr label = ctrl->GetPageLabeTemp(pageNo);
+        pageInfo = str::FormatTemp("%s %s (%d / %d)", _TRA("Page:"), label, pageNo, nPages);
     }
     NotificationUpdateMessage(wnd, pageInfo);
 }
@@ -864,9 +865,8 @@ void ControllerCallbackHandler::PageNoChanged(DocController* ctrl, int pageNo) {
     }
 
     if (kInvalidPageNo != pageNo) {
-        char* label = win->ctrl->GetPageLabel(pageNo);
+        TempStr label = win->ctrl->GetPageLabeTemp(pageNo);
         HwndSetText(win->hwndPageEdit, label);
-        str::Free(label);
         ToolbarUpdateStateForWindow(win, false);
         if (win->ctrl->HasPageLabels()) {
             UpdateToolbarPageText(win, win->ctrl->PageCount(), true);
@@ -976,28 +976,30 @@ static void SetFrameTitleForTab(WindowTab* tab, bool needRefresh) {
         titlePath = path::GetBaseNameTemp(titlePath);
     }
 
-    AutoFreeStr docTitle(str::Dup(""));
+    TempStr docTitle = (TempStr) "";
     if (tab->ctrl) {
         char* title = tab->ctrl->GetProperty(DocumentProperty::Title);
         if (title != nullptr) {
             str::NormalizeWSInPlace(title);
-            docTitle.Set(title);
+            docTitle = str::DupTemp(title);
             if (!str::IsEmpty(title)) {
-                docTitle.Set(str::Format("- [%s] ", title));
+                docTitle = str::FormatTemp("- [%s] ", title);
             }
         }
     }
 
+    TempStr s = nullptr;
     if (!IsUIRightToLeft()) {
-        tab->frameTitle.Set(str::Format("%s %s- %s", titlePath, docTitle.Get(), kSumatraWindowTitle));
+        s = str::FormatTemp("%s %s- %s", titlePath, docTitle, kSumatraWindowTitle);
     } else {
         // explicitly revert the title, so that filenames aren't garbled
-        tab->frameTitle.Set(str::Format("%s %s- %s", kSumatraWindowTitle, docTitle.Get(), titlePath));
+        s = str::FormatTemp("%s %s- %s", kSumatraWindowTitle, docTitle, titlePath);
     }
     if (needRefresh && tab->ctrl) {
         // TODO: this isn't visible when tabs are used
-        tab->frameTitle.Set(str::Format(_TRA("[Changes detected; refreshing] %s"), tab->frameTitle.Get()));
+        s = str::FormatTemp(_TRA("[Changes detected; refreshing] %s"), tab->frameTitle.Get());
     }
+    tab->frameTitle.SetCopy(s);
 }
 
 static void UpdateUiForCurrentTab(MainWindow* win) {
@@ -1232,17 +1234,18 @@ static void ReplaceDocumentInCurrentTab(LoadArgs* args, DocController* ctrl, Fil
         return;
     }
 
-    AutoFreeStr unsupported(win->ctrl->GetProperty(DocumentProperty::UnsupportedFeatures));
+    char* unsupported = win->ctrl->GetProperty(DocumentProperty::UnsupportedFeatures);
     if (unsupported) {
-        unsupported.Set(str::Format(_TRA("This document uses unsupported features (%s) and might not render properly"),
-                                    unsupported.Get()));
+        const char* s = _TRA("This document uses unsupported features (%s) and might not render properly");
+        TempStr msg = str::FormatTemp(s, unsupported);
         NotificationCreateArgs nargs;
         nargs.hwndParent = win->hwndCanvas;
         nargs.warning = true;
         nargs.timeoutMs = 0;
         nargs.groupId = kNotifGroupPersistentWarning;
-        nargs.msg = unsupported;
+        nargs.msg = msg;
         ShowNotification(nargs);
+        str::Free(unsupported);
     }
 
     // This should only happen after everything else is ready
@@ -1452,7 +1455,7 @@ static MainWindow* CreateMainWindow() {
     if (!win->isMenuHidden) {
         SetMenu(win->hwndFrame, win->menu);
     }
-    win->brControlBgColor = CreateSolidBrush(gCurrentTheme->window.controlBackgroundColor);
+    win->brControlBgColor = CreateSolidBrush(GetControlBackgroundColor());
 
     ShowWindow(win->hwndCanvas, SW_SHOW);
     UpdateWindow(win->hwndCanvas);
@@ -1541,7 +1544,7 @@ void DeleteMainWindow(MainWindow* win) {
 
 static void UpdateThemeForWindow(MainWindow* win) {
     DeleteObject(win->brControlBgColor);
-    win->brControlBgColor = CreateSolidBrush(gCurrentTheme->window.controlBackgroundColor);
+    win->brControlBgColor = CreateSolidBrush(GetControlBackgroundColor());
 
     UpdateControlsColors(win);
     RebuildMenuBarForWindow(win);
@@ -1664,11 +1667,10 @@ static void LoadDocumentMarkNotExist(MainWindow* win, const char* path, bool noS
 }
 
 static void ShowFileNotFound(MainWindow* win, const char* path, bool noSavePrefs) {
-    AutoFreeStr msg(str::Format(_TRA("File %s not found"), path));
     NotificationCreateArgs nargs;
     nargs.hwndParent = win->hwndCanvas;
     nargs.warning = true;
-    nargs.msg = msg;
+    nargs.msg = str::FormatTemp(_TRA("File %s not found"), path);
     ShowNotification(nargs);
     LoadDocumentMarkNotExist(win, path, noSavePrefs);
 }
@@ -1676,14 +1678,11 @@ static void ShowFileNotFound(MainWindow* win, const char* path, bool noSavePrefs
 static void ShowErrorLoading(MainWindow* win, const char* path, bool noSavePrefs) {
     // TODO: same message as in Canvas.cpp to not introduce
     // new translation. Find a better message e.g. why failed.
-    char* msg = str::Format(_TRA("Error loading %s"), path);
     NotificationCreateArgs nargs;
     nargs.hwndParent = win->hwndCanvas;
-    nargs.msg = msg;
+    nargs.msg = str::FormatTemp(_TRA("Error loading %s"), path);
     nargs.warning = true;
     ShowNotification(nargs);
-    str::Free(msg);
-
     LoadDocumentMarkNotExist(win, path, noSavePrefs);
 }
 
@@ -1795,11 +1794,10 @@ MainWindow* LoadDocumentFinish(LoadArgs* args, bool lazyLoad) {
 }
 
 static NotificationWnd* ShowLoadingNotif(MainWindow* win, const char* path) {
-    AutoFreeStr msg(str::Format(_TRA("Loading %s ..."), path));
     NotificationCreateArgs nargs;
     nargs.hwndParent = win->hwndCanvas;
     nargs.groupId = path;
-    nargs.msg = msg;
+    nargs.msg = str::FormatTemp(_TRA("Loading %s ..."), path);
     return ShowNotification(nargs);
 }
 
@@ -1979,13 +1977,11 @@ void LoadModelIntoTab(WindowTab* tab) {
 
     MainWindow* win = tab->win;
     if (gEnableLazyLoad && win->ctrl && !tab->ctrl && !tab->IsAboutTab()) {
-        char* msg = str::Format(_TRA("Please wait - loading..."));
         NotificationCreateArgs args;
         args.hwndParent = win->hwndCanvas;
-        args.msg = msg;
+        args.msg = str::FormatTemp(_TRA("Please wait - loading..."));
         args.warning = true;
         ShowNotification(args);
-        str::Free(msg);
         ShowWindow(win->hwndFrame, SW_SHOW);
         // display the notification ASAP
         win->RedrawAll(true);
@@ -2390,9 +2386,9 @@ enum class SaveChoice {
 };
 
 SaveChoice ShouldSaveAnnotationsDialog(HWND hwndParent, const char* filePath) {
-    const char* fileName = path::GetBaseNameTemp(filePath);
-    char* mainInstrA = str::Format(_TRA("Unsaved annotations in '%s'"), fileName);
-    WCHAR* mainInstr = ToWstrTemp(mainInstrA);
+    TempStr fileName = (TempStr)path::GetBaseNameTemp(filePath);
+    TempStr mainInstrA = str::FormatTemp(_TRA("Unsaved annotations in '%s'"), fileName);
+    TempWStr mainInstr = ToWStrTemp(mainInstrA);
     const WCHAR* content = _TR("Save annotations?");
 
     constexpr int kBtnIdDiscard = 100;
@@ -2690,7 +2686,7 @@ static bool AppendFileFilterForDoc(DocController* ctrl, str::WStr& fileFilter) {
     } else if (type == kindEngineComicBooks) {
         fileFilter.Append(_TR("Comic books"));
     } else if (type == kindEngineImage) {
-        WCHAR* extW = ToWstrTemp(ctrl->GetDefaultFileExt() + 1);
+        WCHAR* extW = ToWStrTemp(ctrl->GetDefaultFileExt() + 1);
         fileFilter.AppendFmt(_TR("Image files (*.%s)"), extW);
     } else if (type == kindEngineImageDir) {
         return false; // only show "All files"
@@ -2745,7 +2741,7 @@ static void SaveCurrentFileAs(MainWindow* win) {
         return;
     }
 
-    TempWstr defExt = ToWstrTemp(ctrl->GetDefaultFileExt());
+    TempWStr defExt = ToWStrTemp(ctrl->GetDefaultFileExt());
     // Prepare the file filters (use \1 instead of \0 so that the
     // double-zero terminated string isn't cut by the string handling
     // methods too early on)
@@ -2804,7 +2800,7 @@ static void SaveCurrentFileAs(MainWindow* win) {
 
     // Make sure that the file has a valid extension
     if (!str::EndsWithI(dstFileName, defExt)) {
-        TempWstr s = str::JoinTemp(dstFileName, defExt);
+        TempWStr s = str::JoinTemp(dstFileName, defExt);
         realDstFileName = ToUtf8(dstFileName);
     }
 
@@ -2884,7 +2880,7 @@ static void RenameCurrentFile(MainWindow* win) {
     // Prepare the file filters (use \1 instead of \0 so that the
     // double-zero terminated string isn't cut by the string handling
     // methods too early on)
-    const WCHAR* defExt = ToWstrTemp(ctrl->GetDefaultFileExt());
+    const WCHAR* defExt = ToWStrTemp(ctrl->GetDefaultFileExt());
     str::WStr fileFilter(256);
     bool ok = AppendFileFilterForDoc(ctrl, fileFilter);
     CrashIf(!ok);
@@ -2898,7 +2894,7 @@ static void RenameCurrentFile(MainWindow* win) {
         dstFileName[str::Len(dstFileName) - str::Len(defExt)] = '\0';
     }
 
-    WCHAR* srcPathW = ToWstrTemp(srcPath);
+    WCHAR* srcPathW = ToWStrTemp(srcPath);
     WCHAR* initDir = path::GetDirTemp(srcPathW);
 
     OPENFILENAME ofn{};
@@ -2956,11 +2952,13 @@ static void CreateLnkShortcut(MainWindow* win) {
     }
 
     auto* ctrl = win->ctrl;
-    const WCHAR* defExt = ToWstrTemp(ctrl->GetDefaultFileExt());
+    const char* path = ctrl->GetFilePath();
 
-    WCHAR dstFileName[MAX_PATH];
+    const WCHAR* defExt = ToWStrTemp(ctrl->GetDefaultFileExt());
+
+    WCHAR dstFileName[MAX_PATH] = {0};
     // Remove the extension so that it can be replaced with .lnk
-    const char* name = path::GetBaseNameTemp(ctrl->GetFilePath());
+    const char* name = path::GetBaseNameTemp(path);
     str::BufSet(dstFileName, dimof(dstFileName), name);
     str::TransCharsInPlace(dstFileName, L":", L"_");
     if (str::EndsWithI(dstFileName, defExt)) {
@@ -2996,22 +2994,20 @@ static void CreateLnkShortcut(MainWindow* win) {
     if (win->AsFixed()) {
         ss = win->AsFixed()->GetScrollState();
     }
-    const char* viewModeStr = DisplayModeToString(ctrl->GetDisplayMode());
-    AutoFreeWstr ZoomVirtual(str::Format(L"%.2f", ctrl->GetZoomVirtual()));
+    const char* viewMode = DisplayModeToString(ctrl->GetDisplayMode());
+    TempStr zoomVirtual = str::FormatTemp("%.2f", ctrl->GetZoomVirtual());
     if (kZoomFitPage == ctrl->GetZoomVirtual()) {
-        ZoomVirtual.SetCopy(L"fitpage");
+        zoomVirtual = (TempStr) "fitpage";
     } else if (kZoomFitWidth == ctrl->GetZoomVirtual()) {
-        ZoomVirtual.SetCopy(L"fitwidth");
+        zoomVirtual = (TempStr) "fitwidth";
     } else if (kZoomFitContent == ctrl->GetZoomVirtual()) {
-        ZoomVirtual.SetCopy(L"fitcontent");
+        zoomVirtual = (TempStr) "fitcontent";
     }
 
-    auto viewMode = ToWstrTemp(viewModeStr);
-    AutoFreeStr args = str::Format("\"%s\" -page %d -view \"%s\" -zoom %s -scroll %d,%d", ctrl->GetFilePath(), ss.page,
-                                   viewMode, ZoomVirtual.Get(), (int)ss.x, (int)ss.y);
-    AutoFreeStr label = ctrl->GetPageLabel(ss.page);
-    const char* path = path::GetBaseNameTemp(ctrl->GetFilePath());
-    AutoFreeStr desc = str::Format(_TRA("Bookmark shortcut to page %s of %s"), label.Get(), path);
+    TempStr args = str::FormatTemp("\"%s\" -page %d -view \"%s\" -zoom %s -scroll %d,%d", path, ss.page, viewMode,
+                                   zoomVirtual, (int)ss.x, (int)ss.y);
+    TempStr label = ctrl->GetPageLabeTemp(ss.page);
+    TempStr desc = str::FormatTemp(_TRA("Bookmark shortcut to page %s of %s"), label, path);
     auto exePath = GetExePathTemp();
     CreateShortcut(fileName, exePath, args, desc, 1);
 }
@@ -3657,8 +3653,8 @@ static void OnMenuGoToPage(MainWindow* win) {
     }
 
     auto* ctrl = win->ctrl;
-    AutoFreeStr label = ctrl->GetPageLabel(ctrl->CurrentPageNo());
-    AutoFreeStr newPageLabel(Dialog_GoToPage(win->hwndFrame, label, ctrl->PageCount(), !ctrl->HasPageLabels()));
+    TempStr label = ctrl->GetPageLabeTemp(ctrl->CurrentPageNo());
+    AutoFreeStr newPageLabel = Dialog_GoToPage(win->hwndFrame, label, ctrl->PageCount(), !ctrl->HasPageLabels());
     if (!newPageLabel) {
         return;
     }
@@ -4450,7 +4446,7 @@ static void LaunchBrowserWithSelection(WindowTab* tab, const WCHAR* urlPattern) 
         return;
     }
     // TODO: limit the size of the selection to e.g. 1 kB?
-    WCHAR* selTextW = ToWstrTemp(selText);
+    WCHAR* selTextW = ToWStrTemp(selText);
     str::WStr encodedSelection = URLEncode(selTextW);
     str::WStr url(urlPattern);
     // assume that user might typo and use e.g. ${userLang} in url
@@ -4461,7 +4457,7 @@ static void LaunchBrowserWithSelection(WindowTab* tab, const WCHAR* urlPattern) 
     }
     Replace(url, kSelectionStr, encodedSelection.Get());
     const char* lang = trans::GetCurrentLangCode();
-    auto langW = ToWstrTemp(lang);
+    auto langW = ToWStrTemp(lang);
     Replace(url, kUserLangStr, langW);
     char* uri = ToUtf8Temp(url.Get());
     LaunchBrowser(uri);
@@ -4583,22 +4579,21 @@ void ClearHistory(MainWindow* win) {
     auto notifWnd = ShowTemporaryNotification(win->hwndCanvas, msg, kNotif5SecsTimeOut);
 
     DeleteThumbnailCacheDirectory();
-    char* symDir = AppGenDataFilenameTemp("crashinfo");
+    TempStr symDir = AppGenDataFilenameTemp("crashinfo");
     dir::RemoveAll(symDir);
 
     RemoveNotification(notifWnd);
     ::InvalidateRect(win->hwndCanvas, nullptr, true);
     ::UpdateWindow(win->hwndCanvas);
-    char* msg2 = str::Format(_TRA("Cleared history of %d files, deleted thumbnails."), nFiles);
+    TempStr msg2 = str::FormatTemp(_TRA("Cleared history of %d files, deleted thumbnails."), nFiles);
     ShowTemporaryNotification(win->hwndCanvas, msg2, kNotif5SecsTimeOut);
-    str::Free(msg2);
 
     // TODO: deletion takes time so run it async
 
     /*
     RunAsync([nFiles, win, notifWnd]() {
         DeleteThumbnailCacheDirectory();
-        char* symDir = AppGenDataFilenameTemp("crashinfo");
+        TempStr symDir = AppGenDataFilenameTemp("crashinfo");
         dir::RemoveAll(symDir);
 
         uitask::Post([nFiles, win, notifWnd]() {
@@ -4691,7 +4686,7 @@ static LRESULT FrameOnCommand(MainWindow* win, HWND hwnd, UINT msg, WPARAM wp, L
             logf("FrameOnCommand: missing selectedSH for wmId %d\n", wmId);
             return 0;
         }
-        WCHAR* url = ToWstrTemp(selectedSH->url);
+        WCHAR* url = ToWStrTemp(selectedSH->url);
         // try to auto-fix url
         bool isValidURL = str::Find(url, L"://") != nullptr;
         if (!isValidURL) {
@@ -5784,19 +5779,18 @@ void ShowCrashHandlerMessage() {
 
 static void DownloadDebugSymbols() {
     // over-ride the default symbols directory to be more useful
-    char* symDir = AppGenDataFilenameTemp("crashinfo");
+    TempStr symDir = AppGenDataFilenameTemp("crashinfo");
     SetSymbolsDir(symDir);
 
     bool ok = CrashHandlerDownloadSymbols();
-    char* msg = nullptr;
+    TempStr msg = nullptr;
     if (ok) {
-        msg = str::Format("Downloaded symbols! to %s", symDir);
+        msg = str::FormatTemp("Downloaded symbols! to %s", symDir);
     } else {
-        msg = str::Dup("Failed to download symbols.");
+        msg = str::DupTemp("Failed to download symbols.");
     }
     uint flags = MB_ICONINFORMATION | MB_OK | MbRtlReadingMaybe();
     MessageBoxA(nullptr, msg, "Downloading symbols", flags);
-    free(msg);
 }
 
 void ShutdownCleanup() {

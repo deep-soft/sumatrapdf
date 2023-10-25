@@ -1009,38 +1009,35 @@ static void AddFileMenuItem(HMENU menuFile, const char* filePath, int index) {
         return;
     }
 
-    const char* menuString = path::GetBaseNameTemp(filePath);
+    TempStr menuString = (TempStr)path::GetBaseNameTemp(filePath);
 
     // If the name is too long, save only the ends glued together
     // E.g. 'Very Long PDF Name (3).pdf' -> 'Very Long...e (3).pdf'
     const size_t MAX_LEN = 70;
     size_t menuStrLen = str::Len(menuString);
     if (menuStrLen > MAX_LEN) {
-        const char* tmpStr = menuString;
-        char* newStr = AllocArray<char>(MAX_LEN);
+        char* newStr = AllocArrayTemp<char>(MAX_LEN);
         const size_t half = MAX_LEN / 2;
         const size_t strSize = menuStrLen + 1; // size()+1 because wcslen() doesn't include \0
         // Copy first N/2 characters, move last N/2 characters to the halfway point
         for (size_t i = 0; i < half; i++) {
-            newStr[i] = tmpStr[i];
-            newStr[i + half] = tmpStr[strSize - half + i];
+            newStr[i] = menuString[i];
+            newStr[i + half] = menuString[strSize - half + i];
         }
         // Add ellipsis
         newStr[half - 2] = newStr[half - 1] = newStr[half] = '.';
         // Ensure null-terminated string
         newStr[MAX_LEN - 1] = '\0';
         // Save truncated string
-        menuString = str::DupTemp(newStr);
-        str::Free(newStr);
+        menuString = newStr;
     }
 
     TempStr fileName = MenuToSafeStringTemp(menuString);
     int menuIdx = (int)((index + 1) % 10);
-    menuString = str::Format("&%d) %s", menuIdx, fileName);
+    menuString = str::FormatTemp("&%d) %s", menuIdx, fileName);
     uint menuId = CmdFileHistoryFirst + index;
     uint flags = MF_BYCOMMAND | MF_ENABLED | MF_STRING;
-    InsertMenuW(menuFile, CmdExit, flags, menuId, ToWstrTemp(menuString));
-    str::Free(menuString);
+    InsertMenuW(menuFile, CmdExit, flags, menuId, ToWStrTemp(menuString));
 }
 
 static void AppendRecentFilesToMenu(HMENU m) {
@@ -1109,7 +1106,7 @@ static void AppendSelectionHandlersToMenu(HMENU m, bool isEnabled) {
         if (n >= maxEntries) {
             break;
         }
-        WCHAR* name = ToWstrTemp(sh->name);
+        WCHAR* name = ToWStrTemp(sh->name);
         sh->cmdID = (int)CmdSelectionHandlerFirst + n;
         UINT flags = MF_STRING;
         flags |= isEnabled ? MF_ENABLED : MF_DISABLED;
@@ -1142,7 +1139,7 @@ static void AppendExternalViewersToMenu(HMENU menuFile, const char* filePath) {
 
         char* name = ev->name;
         if (str::EmptyOrWhiteSpaceOnly(name)) {
-            CmdLineArgsIter args(ToWstrTemp(ev->commandLine));
+            CmdLineArgsIter args(ToWStrTemp(ev->commandLine));
             int nArgs = args.nArgs - 2;
             if (nArgs <= 0) {
                 continue;
@@ -1155,9 +1152,9 @@ static void AppendExternalViewersToMenu(HMENU menuFile, const char* filePath) {
             }
         }
 
-        AutoFreeStr menuString = str::Format(_TRA("Open in %s"), name);
+        TempStr menuString = str::FormatTemp(_TRA("Open in %s"), name);
         uint menuId = CmdOpenWithExternalFirst + count;
-        WCHAR* ws = ToWstrTemp(menuString);
+        TempWStr ws = ToWStrTemp(menuString);
         InsertMenuW(menuFile, menuId, MF_BYCOMMAND | MF_ENABLED | MF_STRING, menuId, ws);
         if (!filePath) {
             MenuSetEnabled(menuFile, menuId, false);
@@ -1323,7 +1320,7 @@ HMENU BuildMenuFromMenuDef(MenuDef* menuDef, HMENU menu, BuildMenuCtx* ctx) {
             if (subMenuDef == menuDefFile) {
                 DynamicPartOfFileMenu(subMenu, ctx);
             }
-            WCHAR* ws = ToWstrTemp(title);
+            WCHAR* ws = ToWStrTemp(title);
             AppendMenuW(menu, flags, (UINT_PTR)subMenu, ws);
         } else {
             str::Str title2 = title;
@@ -1334,7 +1331,7 @@ HMENU BuildMenuFromMenuDef(MenuDef* menuDef, HMENU menu, BuildMenuCtx* ctx) {
                 }
             }
             UINT flags = MF_STRING | (disableMenu ? MF_DISABLED : MF_ENABLED);
-            WCHAR* ws = ToWstrTemp(title2.Get());
+            WCHAR* ws = ToWStrTemp(title2.Get());
             AppendMenuW(menu, flags, md.idOrSubmenu, ws);
         }
 
@@ -1440,7 +1437,7 @@ void MenuUpdatePrintItem(MainWindow* win, HMENU menu, bool disableOnly = false) 
             }
         }
         if (!filePrintAllowed || !disableOnly) {
-            WCHAR* ws = ToWstrTemp(printItem.Get());
+            WCHAR* ws = ToWStrTemp(printItem.Get());
             ModifyMenuW(menu, CmdPrint, MF_BYCOMMAND | MF_STRING, (UINT_PTR)CmdPrint, ws);
         }
         MenuSetEnabled(menu, CmdPrint, filePrintEnabled && filePrintAllowed);
@@ -1690,14 +1687,14 @@ void OnWindowContextMenu(MainWindow* win, int x, int y) {
     bool favsSupported = HasPermission(Perm::SavePreferences) && HasPermission(Perm::DiskAccess);
     if (favsSupported) {
         if (pageNoUnderCursor > 0) {
-            AutoFreeStr pageLabel = win->ctrl->GetPageLabel(pageNoUnderCursor);
+            TempStr pageLabel = win->ctrl->GetPageLabeTemp(pageNoUnderCursor);
             bool isBookmarked = gFavorites.IsPageInFavorites(filePath, pageNoUnderCursor);
             if (isBookmarked) {
                 MenuRemove(popup, CmdFavoriteAdd);
 
                 // %s and not %d because re-using translation from RebuildFavMenu()
                 const char* tr = _TRA("Remove page %s from favorites");
-                AutoFreeStr s = str::Format(tr, pageLabel.Get());
+                TempStr s = str::FormatTemp(tr, pageLabel);
                 MenuSetText(popup, CmdFavoriteDel, s);
             } else {
                 MenuRemove(popup, CmdFavoriteDel);
@@ -1709,7 +1706,7 @@ void OnWindowContextMenu(MainWindow* win, int x, int y) {
                 if (ok) {
                     AppendAccelKeyToMenuString(str, a);
                 }
-                AutoFreeStr s = str::Format(str.Get(), pageLabel.Get());
+                TempStr s = str::FormatTemp(str.Get(), pageLabel);
                 MenuSetText(popup, CmdFavoriteAdd, s);
             }
         } else {
@@ -1979,8 +1976,8 @@ void MarkMenuOwnerDraw(HMENU hmenu) {
     }
 }
 
-constexpr int kMenuPaddingY = 2;
-constexpr int kMenuPaddingX = 2;
+constexpr int kMenuPaddingY = 4;
+constexpr int kMenuPaddingX = 8;
 
 void MenuCustomDrawMesureItem(HWND hwnd, MEASUREITEMSTRUCT* mis) {
     if (ODT_MENU != mis->CtlType) {

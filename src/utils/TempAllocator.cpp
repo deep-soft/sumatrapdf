@@ -12,7 +12,7 @@ It's a very fast bump allocator.
 
 You must periodically call ResetTempAllocator()
 to free memory used by allocator.
-A safe place to call it is inside message windows loop.
+A good place to do it is at the beginning of window message loop.
 */
 
 thread_local static PoolAllocator* gTempAllocator = nullptr;
@@ -45,7 +45,7 @@ TempStr DupTemp(const char* s, size_t cb) {
     return str::Dup(GetTempAllocator(), s, cb);
 }
 
-TempWstr DupTemp(const WCHAR* s, size_t cch) {
+TempWStr DupTemp(const WCHAR* s, size_t cch) {
     return str::Dup(GetTempAllocator(), s, cch);
 }
 
@@ -53,18 +53,16 @@ TempStr JoinTemp(const char* s1, const char* s2, const char* s3) {
     return Join(GetTempAllocator(), s1, s2, s3);
 }
 
-TempWstr JoinTemp(const WCHAR* s1, const WCHAR* s2, const WCHAR* s3) {
+TempWStr JoinTemp(const WCHAR* s1, const WCHAR* s2, const WCHAR* s3) {
     return Join(GetTempAllocator(), s1, s2, s3);
 }
 
 TempStr FormatTemp(const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
-    char* res = FmtV(fmt, args);
+    char* res = FmtVWithAllocator(GetTempAllocator(), fmt, args);
     va_end(args);
-    TempStr tmp = DupTemp(res);
-    str::Free(res);
-    return tmp;
+    return res;
 }
 
 TempStr ReplaceTemp(const char* s, const char* toReplace, const char* replaceWith) {
@@ -105,7 +103,7 @@ TempStr ToUtf8Temp(const WCHAR* s, size_t cch) {
     return strconv::WstrToUtf8(s, cch, GetTempAllocator());
 }
 
-TempWstr ToWstrTemp(const char* s, size_t cb) {
+TempWStr ToWStrTemp(const char* s, size_t cb) {
     if (!s) {
         CrashIf((int)cb > 0);
         return nullptr;

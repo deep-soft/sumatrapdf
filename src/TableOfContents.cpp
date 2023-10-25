@@ -96,8 +96,8 @@ static void TocCustomizeTooltip(TreeItemGetTooltipEvent* ev) {
     }
 
     if (kindDestinationLaunchEmbedded == k || kindDestinationAttachment == k) {
-        AutoFreeStr tmp = str::Format(_TRA("Attachment: %s"), path);
-        infotip.Append(tmp.Get());
+        TempStr tmp = str::FormatTemp(_TRA("Attachment: %s"), path);
+        infotip.Append(tmp);
     } else {
         infotip.Append(path);
     }
@@ -136,10 +136,10 @@ static void RelayoutTocItem(LPNMTVCUSTOMDRAW ntvcd) {
     // Draw the page number right-aligned (if there is one)
     MainWindow* win = FindMainWindowByHwnd(hTV);
     TocItem* tocItem = (TocItem*)item.lParam;
-    AutoFreeWstr label;
+    TempStr label = nullptr;
     if (tocItem->pageNo && win && win->IsDocLoaded()) {
-        label.Set(win->ctrl->GetPageLabel(tocItem->pageNo));
-        label.Set(str::Join(L"  ", label));
+        label = win->ctrl->GetPageLabeTemp(tocItem->pageNo);
+        label = str::JoinTemp("  ", label);
     }
     if (label && str::EndsWith(item.pszText, label)) {
         RECT rcPageNo = rcFullWidth;
@@ -378,7 +378,7 @@ next:
         return;
     }
     if (node->title) {
-        WCHAR* ws = ToWstrTemp(node->title);
+        WCHAR* ws = ToWStrTemp(node->title);
         for (const WCHAR* c = ws; *c; c++) {
             if (isLeftToRightChar(*c)) {
                 l2r++;
@@ -413,7 +413,7 @@ static void AddFavoriteFromToc(MainWindow* win, TocItem* dti) {
         pageNo = dti->dest->GetPageNo();
     }
     char* name = dti->title;
-    AutoFreeStr pageLabel = win->ctrl->GetPageLabel(pageNo);
+    TempStr pageLabel = win->ctrl->GetPageLabeTemp(pageNo);
     AddFavoriteWithLabelAndName(win, pageNo, pageLabel, name);
 }
 
@@ -425,7 +425,7 @@ static void SaveAttachment(WindowTab* tab, const char* fileName, int attachmentN
     }
     char* dir = path::GetDirTemp(tab->filePath);
     fileName = path::GetBaseNameTemp(fileName);
-    AutoFreeStr dstPath = path::Join(dir, fileName);
+    TempStr dstPath = path::JoinTemp(dir, fileName);
     SaveDataToFile(tab->win->hwndFrame, dstPath, data);
     str::Free(data.data());
 }
@@ -469,7 +469,7 @@ static void SaveEmbeddedFile(WindowTab* tab, const char* srcPath, const char* fi
     }
     char* dir = path::GetDirTemp(tab->filePath);
     fileName = path::GetBaseNameTemp(fileName);
-    AutoFreeStr dstPath = path::Join(dir, fileName);
+    TempStr dstPath = path::JoinTemp(dir, fileName);
     SaveDataToFile(tab->win->hwndFrame, dstPath, data);
     str::Free(data.data());
 }
@@ -586,14 +586,14 @@ static void TocContextMenu(ContextMenuEvent* ev) {
     }
 
     if (pageNo > 0) {
-        AutoFreeStr pageLabel = win->ctrl->GetPageLabel(pageNo);
+        TempStr pageLabel = win->ctrl->GetPageLabeTemp(pageNo);
         bool isBookmarked = gFavorites.IsPageInFavorites(filePath, pageNo);
         if (isBookmarked) {
             MenuRemove(popup, CmdFavoriteAdd);
 
             // %s and not %d because re-using translation from RebuildFavMenu()
             const char* tr = _TRA("Remove page %s from favorites");
-            AutoFreeStr s = str::Format(tr, pageLabel.Get());
+            TempStr s = str::FormatTemp(tr, pageLabel);
             MenuSetText(popup, CmdFavoriteDel, s);
         } else {
             MenuRemove(popup, CmdFavoriteDel);
@@ -604,7 +604,7 @@ static void TocContextMenu(ContextMenuEvent* ev) {
             if (ok) {
                 AppendAccelKeyToMenuString(str, a);
             }
-            AutoFreeStr s(str::Format(str.Get(), pageLabel.Get()));
+            TempStr s = str::FormatTemp(str.Get(), pageLabel);
             MenuSetText(popup, CmdFavoriteAdd, s);
         }
     } else {

@@ -161,18 +161,15 @@ UINT gWinMessageIDs[] = {WIN_MESSAGES(MSG_ID)};
 SeqStrings gWinMessageNames = WIN_MESSAGES(MSG_NAME) "\0";
 #undef MSG_NAME
 
-const char* WinMsgName(UINT msg) {
+TempStr WinMsgNameTemp(UINT msg) {
     int n = dimof(gWinMessageIDs);
     for (int i = 0; i < n; i++) {
         UINT m = gWinMessageIDs[i];
         if (m == msg) {
-            return seqstrings::IdxToStr(gWinMessageNames, i);
+            return (TempStr)seqstrings::IdxToStr(gWinMessageNames, i);
         }
     }
-    char* s = str::Format("0x%x", (int)msg);
-    char* res = str::DupTemp(s);
-    str::Free(s);
-    return res;
+    return str::FormatTemp("0x%x", (int)msg);
 }
 
 // TODO:
@@ -1060,7 +1057,7 @@ HWND Wnd::CreateCustom(const CreateCustomArgs& args) {
     }
     HINSTANCE inst = GetInstance();
     void* createParams = this;
-    WCHAR* titleW = ToWstrTemp(args.title);
+    WCHAR* titleW = ToWStrTemp(args.title);
 
     HWND hwndTmp = ::CreateWindowExW(exStyle, className, titleW, style, x, y, dx, dy, parent, m, inst, createParams);
 
@@ -1454,7 +1451,7 @@ void TooltipAddTools(HWND hwnd, HWND owner, TooltipInfo* tools, int nTools) {
     for (int i = 0; i < nTools; i++) {
         TooltipInfo& tti = tools[i];
 
-        WCHAR* ws = ToWstrTemp(tti.s);
+        WCHAR* ws = ToWStrTemp(tti.s);
         TOOLINFOW ti = {0};
         ti.cbSize = sizeof(ti);
         ti.hwnd = owner;
@@ -1496,7 +1493,7 @@ static bool TooltipUpdateText(HWND hwnd, HWND owner, int id, const char* s, bool
     }
 
     SetMaxWidthForText(hwnd, s, multiline);
-    WCHAR* ws = ToWstrTemp(s);
+    WCHAR* ws = ToWStrTemp(s);
     TOOLINFOW ti = {0};
     ti.cbSize = sizeof(ti);
     ti.hwnd = owner;
@@ -1545,7 +1542,7 @@ void Tooltip::SetMaxWidth(int dx) {
 int Tooltip::Add(const char* s, const Rect& rc, bool multiline) {
     int id = GetNextTooltipID();
     SetMaxWidthForText(hwnd, s, multiline);
-    WCHAR* ws = ToWstrTemp(s);
+    WCHAR* ws = ToWStrTemp(s);
     TOOLINFOW ti = {0};
     ti.cbSize = sizeof(ti);
     ti.hwnd = parent;
@@ -1650,7 +1647,7 @@ static bool EditSetCueText(HWND hwnd, const char* s) {
     if (!hwnd) {
         return false;
     }
-    WCHAR* ws = ToWstrTemp(s);
+    WCHAR* ws = ToWStrTemp(s);
     bool ok = Edit_SetCueBannerText(hwnd, ws) == TRUE;
     return ok;
 }
@@ -2067,7 +2064,7 @@ static void SetDropDownItems(HWND hwnd, StrVec& items) {
     int n = items.Size();
     for (int i = 0; i < n; i++) {
         char* s = items[i];
-        WCHAR* ws = ToWstrTemp(s);
+        WCHAR* ws = ToWStrTemp(s);
         ComboBox_AddString(hwnd, ws);
     }
 }
@@ -2118,7 +2115,7 @@ void DropDown::SetCurrentSelection(int n) {
 }
 
 void DropDown::SetCueBanner(const char* sv) {
-    auto ws = ToWstrTemp(sv);
+    auto ws = ToWStrTemp(sv);
     ComboBox_SetCueBannerText(hwnd, ws);
 }
 
@@ -2152,7 +2149,7 @@ Size DropDown::GetIdealSize() {
     int n = items.Size();
     for (int i = 0; i < n; i++) {
         char* s = items[i];
-        WCHAR* ws = ToWstrTemp(s);
+        WCHAR* ws = ToWStrTemp(s);
         Size s2 = TextSizeInHwnd(hwnd, ws, hfont);
         s1.dx = std::max(s1.dx, s2.dx);
         s1.dy = std::max(s1.dy, s2.dy);
@@ -2599,7 +2596,7 @@ void Webview2Wnd::UpdateWebviewSize() {
 }
 
 void Webview2Wnd::Eval(const char* js) {
-    WCHAR* ws = ToWstrTemp(js);
+    WCHAR* ws = ToWStrTemp(js);
     webview->ExecuteScript(ws, nullptr);
 }
 
@@ -2607,21 +2604,21 @@ void Webview2Wnd::SetHtml(const char* html) {
 #if 0
         std::string s = "data:text/html,";
         s += url_encode(html);
-        WCHAR* html2 = ToWstrTemp(s.c_str());
+        WCHAR* html2 = ToWStrTemp(s.c_str());
         m_webview->Navigate(html2);
 #else
-    WCHAR* html2 = ToWstrTemp(html);
+    WCHAR* html2 = ToWStrTemp(html);
     webview->NavigateToString(html2);
 #endif
 }
 
 void Webview2Wnd::Init(const char* js) {
-    WCHAR* ws = ToWstrTemp(js);
+    WCHAR* ws = ToWStrTemp(js);
     webview->AddScriptToExecuteOnDocumentCreated(ws, nullptr);
 }
 
 void Webview2Wnd::Navigate(const char* url) {
-    WCHAR* ws = ToWstrTemp(url);
+    WCHAR* ws = ToWStrTemp(url);
     webview->Navigate(ws);
 }
 
@@ -2642,7 +2639,7 @@ bool Webview2Wnd::Embed(WebViewMsgCb cb) {
     // called on a different thread?
     LONG flag = 0;
     // InterlockedCompareExchange()
-    WCHAR* userDataFolder = ToWstrTemp(dataDir);
+    WCHAR* userDataFolder = ToWStrTemp(dataDir);
     HRESULT hr = CreateCoreWebView2EnvironmentWithOptions(
         nullptr, userDataFolder, nullptr, new webview2_com_handler(hwnd, cb, [&](ICoreWebView2Controller* ctrl) {
             controller = ctrl;
@@ -3021,7 +3018,7 @@ static void FillTVITEM(TVITEMEXW* tvitem, TreeModel* tm, TreeItem ti) {
     tvitem->stateMask = stateMask;
     tvitem->lParam = static_cast<LPARAM>(ti);
     char* title = tm->Text(ti);
-    tvitem->pszText = ToWstrTemp(title);
+    tvitem->pszText = ToWStrTemp(title);
 }
 
 // inserting in front is faster:
@@ -3449,7 +3446,7 @@ void TabsCtrl::Paint(HDC hdc, RECT& rc) {
     gfx.SetPageUnit(UnitPixel);
 
     Theme* theme = gCurrentTheme;
-    SolidBrush br(GdipCol(theme->window.controlBackgroundColor));
+    SolidBrush br(GdipCol(GetControlBackgroundColor()));
 
     Font f(hdc, GetDefaultGuiFont());
 
@@ -3467,7 +3464,7 @@ void TabsCtrl::Paint(HDC hdc, RECT& rc) {
     Gdiplus::RectF rTxt;
 
     COLORREF textColor = theme->window.textColor;
-    COLORREF tabBgSelected = theme->window.controlBackgroundColor;
+    COLORREF tabBgSelected = GetControlBackgroundColor();
     COLORREF tabBgHighlight;
     COLORREF tabBgBackground;
     if (IsLightColor(tabBgSelected)) {
@@ -3526,7 +3523,7 @@ void TabsCtrl::Paint(HDC hdc, RECT& rc) {
         rTxt.X += 8;
         rTxt.Width -= (8 + r.dx + 8);
         br.SetColor(GdipCol(textColor));
-        WCHAR* ws = ToWstrTemp(ti->text);
+        WCHAR* ws = ToWStrTemp(ti->text);
         gfx.DrawString(ws, -1, &f, rTxt, &sf, &br);
     }
 }
@@ -3562,7 +3559,7 @@ HBITMAP TabsCtrl::RenderForDragging(int idx) {
     rTxt.X += 8;
     rTxt.Width -= (8 + 8);
     br.SetColor(GdipCol(textCol));
-    WCHAR* ws = ToWstrTemp(ti->text);
+    WCHAR* ws = ToWStrTemp(ti->text);
     gfx->DrawString(ws, -1, &f, rTxt, &sf, &br);
 
     HBITMAP ret;
@@ -3700,7 +3697,7 @@ LRESULT TabsCtrl::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         canClose = tabState.tabInfo && tabState.tabInfo->canClose;
         overClose = tabState.overClose && canClose;
         lastMousePos = mousePos;
-        // const char* msgName = WinMsgName(msg);
+        // TempStr msgName = WinMsgNameTemp(msg);
         //  logfa("msg; %s, tabUnderMouse: %d, overClose: %d\n", msgName, tabUnderMouse, (int)overClose);
     }
 
@@ -3709,7 +3706,7 @@ LRESULT TabsCtrl::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         p.x = mousePos.x;
         p.y = mousePos.y;
         MapWindowPoints(hwnd, NULL, &p, 1);
-        // logfa("%s moving to: %d %d\n", WinMsgName(msg), p.x, p.y);
+        // logfa("%s moving to: %d %d\n", WinMsgNameTemp(msg), p.x, p.y);
         ImageList_DragMove(p.x, p.y);
         return 0;
     }
@@ -4000,7 +3997,7 @@ int TabsCtrl::InsertTab(int idx, TabInfo* tab) {
     CrashIf(idx < 0);
     TCITEMW item{0};
     item.mask = TCIF_TEXT;
-    item.pszText = ToWstrTemp(tab->text);
+    item.pszText = ToWStrTemp(tab->text);
     int insertedIdx = TabCtrl_InsertItem(hwnd, idx, &item);
     tabs.InsertAt(idx, tab);
 
@@ -4018,6 +4015,7 @@ int TabsCtrl::InsertTab(int idx, TabInfo* tab) {
 }
 
 void TabsCtrl::SetTextAndTooltip(int idx, const char* text, const char* tooltip) {
+    logfa("TabsCtrl::SetTextAndTooltip: text: '%s', tooltip: '%s'\n", text, tooltip);
     TabInfo* tab = GetTab(idx);
     str::ReplaceWithCopy(&tab->text, text);
     str::ReplaceWithCopy(&tab->tooltip, tooltip);

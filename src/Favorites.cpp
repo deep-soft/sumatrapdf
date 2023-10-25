@@ -33,6 +33,7 @@
 #include "SumatraDialogs.h"
 #include "Tabs.h"
 #include "Translations.h"
+#include "Accelerators.h"
 
 struct FavTreeItem {
     ~FavTreeItem();
@@ -287,32 +288,29 @@ bool HasFavorites() {
 }
 
 // caller has to free() the result
-static char* FavReadableName(Favorite* fn) {
-    const char* toFree = nullptr;
+static TempStr FavReadableNameTemp(Favorite* fn) {
     const char* label = fn->pageLabel;
     if (!label) {
-        label = str::Format("%d", fn->pageNo);
-        toFree = label;
+        label = str::FormatTemp("%d", fn->pageNo);
     }
     char* res = nullptr;
     if (fn->name) {
-        AutoFreeStr pageNo(str::Format(_TRA("(page %s)"), label));
-        res = str::Join(fn->name, " ", pageNo);
+        TempStr pageNo = str::FormatTemp(_TRA("(page %s)"), label);
+        res = str::JoinTemp(fn->name, " ", pageNo);
     } else {
-        res = str::Format(_TRA("Page %s"), label);
+        res = str::FormatTemp(_TRA("Page %s"), label);
     }
-    str::Free(toFree);
     return res;
 }
 
 // caller has to free() the result
-static char* FavCompactReadableName(FileState* fav, Favorite* fn, bool isCurrent = false) {
-    AutoFreeStr rn(FavReadableName(fn));
+static TempStr FavCompactReadableNameTemp(FileState* fav, Favorite* fn, bool isCurrent = false) {
+    TempStr rn = FavReadableNameTemp(fn);
     if (isCurrent) {
-        return str::Format("%s : %s", _TRA("Current file"), rn.Get());
+        return str::FormatTemp("%s : %s", _TRA("Current file"), rn);
     }
     const char* fp = path::GetBaseNameTemp(fav->filePath);
-    return str::Format("%s : %s", fp, rn.Get());
+    return str::FormatTemp("%s : %s", fp, rn);
 }
 
 static void AppendFavMenuItems(HMENU m, FileState* f, int& idx, bool combined, bool isCurrent) {
@@ -326,14 +324,14 @@ static void AppendFavMenuItems(HMENU m, FileState* f, int& idx, bool combined, b
         }
         Favorite* fn = f->favorites->at(i);
         fn->menuId = idx++;
-        AutoFreeStr s;
+        TempStr s;
         if (combined) {
-            s = FavCompactReadableName(f, fn, isCurrent);
+            s = FavCompactReadableNameTemp(f, fn, isCurrent);
         } else {
-            s = FavReadableName(fn);
+            s = FavReadableNameTemp(fn);
         }
         auto safeStr = MenuToSafeStringTemp(s);
-        WCHAR* ws = ToWstrTemp(safeStr);
+        WCHAR* ws = ToWStrTemp(safeStr);
         AppendMenuW(m, MF_STRING, (UINT_PTR)fn->menuId, ws);
     }
 }
@@ -425,13 +423,11 @@ static void AppendFavMenus(HMENU m, const char* currFilePath) {
                 AppendMenuW(m, MF_POPUP | MF_STRING, (UINT_PTR)sub, _TR("Current file"));
             } else {
                 TempStr fileName = MenuToSafeStringTemp(path::GetBaseNameTemp(filePath));
-                AppendMenuW(m, MF_POPUP | MF_STRING, (UINT_PTR)sub, ToWstrTemp(fileName));
+                AppendMenuW(m, MF_POPUP | MF_STRING, (UINT_PTR)sub, ToWStrTemp(fileName));
             }
         }
     }
 }
-
-#include "Accelerators.h"
 
 // Called when a user opens "Favorites" top-level menu. We need to construct
 // the menu:
@@ -446,11 +442,11 @@ void RebuildFavMenu(MainWindow* win, HMENU menu) {
         MenuSetEnabled(menu, CmdFavoriteDel, false);
         AppendFavMenus(menu, (const char*)nullptr);
     } else {
-        AutoFreeStr label(win->ctrl->GetPageLabel(win->currPageNo));
+        TempStr label = win->ctrl->GetPageLabeTemp(win->currPageNo);
         bool isBookmarked = gFavorites.IsPageInFavorites(win->ctrl->GetFilePath(), win->currPageNo);
         if (isBookmarked) {
             MenuSetEnabled(menu, CmdFavoriteAdd, false);
-            AutoFreeStr s(str::Format(_TRA("Remove page %s from favorites"), label.Get()));
+            TempStr s = str::FormatTemp(_TRA("Remove page %s from favorites"), label);
             MenuSetText(menu, CmdFavoriteDel, s);
         } else {
             MenuSetEnabled(menu, CmdFavoriteDel, false);
@@ -460,7 +456,7 @@ void RebuildFavMenu(MainWindow* win, HMENU menu) {
             if (ok) {
                 AppendAccelKeyToMenuString(str, a);
             }
-            AutoFreeStr s(str::Format(str.Get(), label.Get()));
+            TempStr s = str::FormatTemp(str.Get(), label);
             MenuSetText(menu, CmdFavoriteAdd, s);
         }
         AppendFavMenus(menu, win->ctrl->GetFilePath());
@@ -577,12 +573,14 @@ static FavTreeItem* MakeFavTopLevelItem(FileState* fav, bool isExpanded) {
     }
     res->isExpanded = isExpanded;
 
+    TempStr text = nullptr;
     if (isCollapsed) {
-        res->text = FavCompactReadableName(fav, fn);
+        text = FavCompactReadableNameTemp(fav, fn);
     } else {
         char* fp = fav->filePath;
-        res->text = str::Dup(path::GetBaseNameTemp(fp));
+        text = (TempStr)path::GetBaseNameTemp(fp);
     }
+    res->text = str::Dup(text);
     return res;
 }
 
@@ -591,7 +589,7 @@ static void MakeFavSecondLevel(FavTreeItem* parent, FileState* f) {
     for (size_t i = 0; i < n; i++) {
         Favorite* fn = f->favorites->at(i);
         auto* ti = new FavTreeItem();
-        ti->text = FavReadableName(fn);
+        ti->text = str::Dup(FavReadableNameTemp(fn));
         ti->parent = parent;
         ti->favorite = fn;
         parent->children.Append(ti);
@@ -678,7 +676,7 @@ void AddFavoriteWithLabelAndName(MainWindow* win, int pageNo, const char* pageLa
         return;
     }
 
-    AutoFreeStr plainLabel(str::Format("%d", pageNo));
+    TempStr plainLabel = str::FormatTemp("%d", pageNo);
     bool needsLabel = !str::Eq(plainLabel, pageLabel);
 
     RememberFavTreeExpansionStateForAllWindows();
@@ -711,8 +709,8 @@ void AddFavoriteForCurrentPage(MainWindow* win, int pageNo) {
             name = item->title;
         }
     }
-    AutoFreeStr pageLabel = ctrl->GetPageLabel(pageNo);
-    AddFavoriteWithLabelAndName(win, pageNo, pageLabel.Get(), name);
+    TempStr pageLabel = ctrl->GetPageLabeTemp(pageNo);
+    AddFavoriteWithLabelAndName(win, pageNo, pageLabel, name);
 }
 
 void AddFavoriteForCurrentPage(MainWindow* win) {
@@ -876,11 +874,11 @@ HFONT GetTreeFont() {
     int fntSize = GetSizeOfDefaultGuiFont();
     int fntSizeUser = gGlobalPrefs->treeFontSize;
     int fntWeightOffsetUser = gGlobalPrefs->treeFontWeightOffset;
-    char* fntNameUser_utf8 = gGlobalPrefs->treeFontName;
+    char* fntNameUser = gGlobalPrefs->treeFontName;
     if (fntSizeUser > 5) {
         fntSize = fntSizeUser;
     }
-    gTreeFont = GetUserGuiFont(fntSize, fntWeightOffsetUser, fntNameUser_utf8);
+    gTreeFont = GetUserGuiFont(fntSize, fntWeightOffsetUser, fntNameUser);
     CrashIf(!gTreeFont);
     return gTreeFont;
 }

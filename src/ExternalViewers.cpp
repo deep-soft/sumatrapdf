@@ -302,7 +302,7 @@ bool CanViewWithKnownExternalViewer(WindowTab* tab, int cmd) {
     }
     ExternalViewerInfo* ev = FindExternalViewerInfoByCmd(cmd);
     if (!ev || ev->exeFullPath == nullptr) {
-        logfa("CanViewWithKnownExternalViewer cmd: %d, !ev || ev->exeFullPath == nullptr\n", cmd);
+        // logfa("CanViewWithKnownExternalViewer cmd: %d, !ev || ev->exeFullPath == nullptr\n", cmd);
         return false;
     }
     // must match file extension
@@ -312,7 +312,7 @@ bool CanViewWithKnownExternalViewer(WindowTab* tab, int cmd) {
         char* ext = path::GetExtTemp(filePath);
         const char* pos = str::FindI(ev->exts, ext);
         if (!pos) {
-            logfa("CanViewWithKnownExternalViewer cmd: %d, !pos\n", cmd);
+            // logfa("CanViewWithKnownExternalViewer cmd: %d, !pos\n", cmd);
             return false;
         }
     }
@@ -415,7 +415,7 @@ bool ViewWithExternalViewer(WindowTab* tab, size_t idx) {
         return false;
     }
 
-    CmdLineArgsIter args(ToWstrTemp(ev->commandLine));
+    CmdLineArgsIter args(ToWStrTemp(ev->commandLine));
     if (args.nArgs == 0) {
         return false;
     }

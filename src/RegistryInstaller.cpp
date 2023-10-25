@@ -228,7 +228,7 @@ bool ListAsDefaultProgramPreWin10(HKEY hkey) {
     WCHAR* openWithVal = str::JoinTemp(L"\\OpenWithList\\", kExeName);
     auto exts = gSupportedExts;
     while (exts) {
-        WCHAR* ext = ToWstrTemp(exts);
+        WCHAR* ext = ToWStrTemp(exts);
         WCHAR* name = str::JoinTemp(L"Software\\Classes\\", ext, openWithVal);
         ok &= CreateRegKey(hkey, name);
         seqstrings::Next(exts);
@@ -533,7 +533,7 @@ static void UnregisterFromBeingDefaultViewer(HKEY hkey) {
 // delete registry key but only if it's empty
 static bool DeleteEmptyRegKey(HKEY root, const char* keyName) {
     HKEY hkey;
-    WCHAR* keyNameW = ToWstrTemp(keyName);
+    WCHAR* keyNameW = ToWStrTemp(keyName);
     LSTATUS status = RegOpenKeyExW(root, keyNameW, 0, KEY_READ, &hkey);
     if (status != ERROR_SUCCESS) {
         return true;
@@ -604,8 +604,8 @@ void RemoveInstallRegistryKeys(HKEY hkey) {
     // those were introduced in 3.4
     exts = gSupportedExts;
     while (exts) {
-        char* progIDName = str::JoinTemp(kAppName, exts);
-        char* key = str::JoinTemp("Software\\Classes\\", progIDName);
+        TempStr progIDName = str::JoinTemp(kAppName, exts);
+        TempStr key = str::JoinTemp("Software\\Classes\\", progIDName);
 
         LoggedDeleteRegKey(hkey, key);
 
@@ -617,7 +617,7 @@ void RemoveInstallRegistryKeys(HKEY hkey) {
 
     // delete keys written in ListAsDefaultProgramWin10()
     LoggedDeleteRegValue(hkey, "SOFTWARE\\RegisteredApplications", kAppName);
-    AutoFreeStr keyName = str::Format("SOFTWARE\\%s\\Capabilities", kAppName);
+    TempStr keyName = str::FormatTemp("SOFTWARE\\%s\\Capabilities", kAppName);
     LoggedDeleteRegKey(hkey, keyName);
 
     ShellNotifyAssociationsChanged();

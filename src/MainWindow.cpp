@@ -517,7 +517,7 @@ void LinkHandler::LaunchFile(const char* pathOrig, IPageDestination* link) {
         // consider bad UI and thus simply don't)
         bool ok = OpenFileExternally(fullPath);
         if (!ok) {
-            AutoFreeStr msg(str::Format(_TRA("Error loading %s"), fullPath));
+            TempStr msg = str::FormatTemp(_TRA("Error loading %s"), fullPath);
             NotificationCreateArgs nargs;
             nargs.hwndParent = win->hwndCanvas;
             nargs.warning = true;
@@ -572,7 +572,7 @@ static bool MatchFuzzy(const char* s1, const char* s2, bool partially) {
 IPageDestination* LinkHandler::FindTocItem(TocItem* item, const char* name, bool partially) {
     for (; item; item = item->next) {
         if (item->title) {
-            AutoFreeStr fuzTitle(NormalizeFuzzy(item->title));
+            AutoFreeStr fuzTitle = NormalizeFuzzy(item->title);
             if (MatchFuzzy(fuzTitle, name, partially)) {
                 return item->GetPageDestination();
             }
@@ -605,7 +605,7 @@ void LinkHandler::GotoNamedDest(const char* name) {
     } else if (ctrl->HasToc()) {
         auto* docTree = ctrl->GetToc();
         TocItem* root = docTree->root;
-        AutoFreeStr fuzName(NormalizeFuzzy(name));
+        AutoFreeStr fuzName = NormalizeFuzzy(name);
         dest = FindTocItem(root, fuzName, false);
         if (!dest) {
             dest = FindTocItem(root, fuzName, true);
@@ -624,7 +624,7 @@ void LinkHandler::GotoNamedDest(const char* name) {
 }
 
 void UpdateControlsColors(MainWindow* win) {
-    COLORREF bgCol = gCurrentTheme->window.controlBackgroundColor;
+    COLORREF bgCol = GetControlBackgroundColor();
     COLORREF txtCol = gCurrentTheme->window.textColor;
 
     // logfa("retrieved doc colors in tree control: 0x%x 0x%x\n", treeTxtCol, treeBgCol);

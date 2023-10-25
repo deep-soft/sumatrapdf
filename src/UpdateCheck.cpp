@@ -204,7 +204,7 @@ static bool ShouldCheckForUpdate(UpdateCheck updateCheckType) {
 
 static void NotifyUserOfUpdate(UpdateInfo* updateInfo) {
     const WCHAR* mainInstr = _TR("New version available");
-    WCHAR* verTmp = ToWstrTemp(updateInfo->latestVer);
+    WCHAR* verTmp = ToWStrTemp(updateInfo->latestVer);
     WCHAR* content =
         str::Format(_TR("You have version '%s' and version '%s' is available.\nDo you want to install new version?"),
                     CURR_VERSION_STR, verTmp);
@@ -479,7 +479,7 @@ void UpdateSelfTo(const char* path) {
     // had time to exit so that we can overwrite it
     ::Sleep(gCli->sleepMs);
 
-    const char* srcPath = GetExePathTemp();
+    TempStr srcPath = GetExePathTemp();
     bool ok = file::Copy(path, srcPath, false);
     // TODO: maybe retry if copy fails under the theory that the file
     // might be temporarily locked
@@ -489,6 +489,6 @@ void UpdateSelfTo(const char* path) {
     }
     logf("UpdateSelfTo: copied self to file\n");
 
-    AutoFreeStr args = str::Format(R"(-sleep-ms 500 -delete-file "%s")", srcPath);
-    CreateProcessHelper(path, args.Get());
+    TempStr args = str::FormatTemp(R"(-sleep-ms 500 -delete-file "%s")", srcPath);
+    CreateProcessHelper(path, args);
 }

@@ -164,7 +164,7 @@ void CaptionInfo::UpdateColors(bool activeWindow) {
                                                                   : GetSysColor(COLOR_INACTIVECAPTIONTEXT);
     }
     if (gGlobalPrefs->useTabs) {
-        COLORREF col = gCurrentTheme->window.controlBackgroundColor;
+        COLORREF col = GetControlBackgroundColor();
         dwm::SetCaptionColor(::GetParent(hwnd), col);
     }
 }
@@ -560,7 +560,8 @@ static void DrawCaptionButton(DRAWITEMSTRUCT* item, MainWindow* win) {
             gfx.FillRectangle(&br, rc.x, rc.y, rc.dx, rc.dy);
         }
         // draw the three lines
-        COLORREF c = win->caption->textColor;
+        // COLORREF c = win->caption->textColor;
+        COLORREF c = gCurrentTheme->window.textColor;
         u8 r, g, b;
         UnpackColor(c, r, g, b);
         float width = floor((float)rc.dy / 8.0f);

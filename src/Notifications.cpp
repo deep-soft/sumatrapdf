@@ -37,7 +37,7 @@ struct NotificationWnd : ProgressUpdateUI, Wnd {
     NotificationWnd() = default;
     ~NotificationWnd() override;
 
-    HWND Create(NotificationCreateArgs&);
+    HWND Create(const NotificationCreateArgs&);
 
     void OnPaint(HDC hdc, PAINTSTRUCT* ps) override;
     void OnTimer(UINT_PTR event_id) override;
@@ -166,12 +166,12 @@ NotificationWnd::~NotificationWnd() {
     auto fontToDelete = font;
     Destroy();
     str::Free(progressMsg);
-    if (fontToDelete) {
+    if (false && fontToDelete) {
         DeleteObject(fontToDelete);
     }
 }
 
-HWND NotificationWnd::Create(NotificationCreateArgs& args) {
+HWND NotificationWnd::Create(const NotificationCreateArgs& args) {
     if (args.progressMsg != nullptr) {
         progressMsg = str::Dup(args.progressMsg);
     }
@@ -227,9 +227,8 @@ void NotificationWnd::UpdateProgress(int current, int total) {
     }
     progress = limitValue(100 * current / total, 0, 100);
     if (HasProgress()) {
-        char* msg = str::Format(progressMsg, current, total);
+        TempStr msg = str::FormatTemp(progressMsg, current, total);
         UpdateMessage(msg);
-        str::Free(msg);
     }
 }
 
@@ -490,7 +489,7 @@ NotificationWnd* NotifsGetForGroup(Vec<NotificationWnd*>& wnds, Kind groupId) {
     return nullptr;
 }
 
-NotificationWnd* ShowNotification(NotificationCreateArgs& args) {
+NotificationWnd* ShowNotification(const NotificationCreateArgs& args) {
     CrashIf(!args.hwndParent);
 
     NotificationWnd* wnd = new NotificationWnd();

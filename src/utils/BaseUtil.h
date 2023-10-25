@@ -165,6 +165,8 @@ using uint = unsigned int;
 
 #define NoOp() ((void)0)
 #define dimof(array) (sizeof(DimofSizeHelper(array)))
+#define dimofi(array) (int)(sizeof(DimofSizeHelper(array)))
+
 template <typename T, size_t N>
 char (&DimofSizeHelper(T (&array)[N]))[N];
 
@@ -362,7 +364,7 @@ struct Allocator {
     static void* Alloc(Allocator* a, size_t size);
 
     template <typename T>
-    static T* Alloc(Allocator* a, size_t n = 1) {
+    static T* AllocArray(Allocator* a, size_t n = 1) {
         size_t size = n * sizeof(T);
         return (T*)AllocZero(a, size);
     }
@@ -585,8 +587,8 @@ defer { instance->Release(); };
 #include "StrUtil.h"
 #include "StrconvUtil.h"
 #include "Scoped.h"
-#include "ColorUtil.h"
 #include "TempAllocator.h"
+#include "ColorUtil.h"
 
 // lstrcpy is dangerous so forbid using it
 #ifdef lstrcpy

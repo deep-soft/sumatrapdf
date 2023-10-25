@@ -30,11 +30,12 @@ LRESULT CALLBACK PluginParentWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) 
     if (WM_CREATE == msg) {
         // run SumatraPDF.exe with the -plugin command line argument
         PluginStartData* data = (PluginStartData*)((CREATESTRUCT*)lp)->lpCreateParams;
-        AutoFreeStr cmdLine(str::Format("-plugin %d \"%s\"", hwnd, data->filePath));
+        auto path = data->filePath;
+        TempStr cmdLine = str::FormatTemp("-plugin %d \"%s\"", hwnd, path);
         if (data->fileOriginUrl) {
-            cmdLine.Set(str::Format("-plugin \"%s\" %d \"%s\"", data->fileOriginUrl, hwnd, data->filePath));
+            cmdLine = str::FormatTemp("-plugin \"%s\" %d \"%s\"", data->fileOriginUrl, hwnd, path);
         }
-        ShellExecute(hwnd, L"open", ToWstrTemp(data->sumatraPath), ToWstrTemp(cmdLine), nullptr, SW_SHOW);
+        ShellExecute(hwnd, L"open", ToWStrTemp(data->sumatraPath), ToWStrTemp(cmdLine), nullptr, SW_SHOW);
     } else if (WM_SIZE == msg) {
         // resize the SumatraPDF window
         HWND hChild = FindWindowEx(hwnd, nullptr, nullptr, nullptr);
@@ -50,7 +51,7 @@ LRESULT CALLBACK PluginParentWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) 
         HWND hChild = FindWindowEx(hwnd, nullptr, nullptr, nullptr);
         COPYDATASTRUCT* cds = (COPYDATASTRUCT*)lp;
         if (cds && 0x4C5255 /* URL */ == cds->dwData && (HWND)wp == hChild) {
-            auto url(ToWstrTemp((const char*)cds->lpData));
+            auto url(ToWStrTemp((const char*)cds->lpData));
             ShellExecute(hChild, L"open", url, nullptr, nullptr, SW_SHOW);
             return TRUE;
         }
@@ -83,9 +84,10 @@ LRESULT CALLBACK PluginParentWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) 
 
 WCHAR* GetSumatraExePath() {
     // run SumatraPDF.exe either from plugin-test.exe's or the current directory
-    char* path = path::GetPathOfFileInAppDir("SumatraPDF.exe");
-    if (!file::Exists(path))
+    TempStr path = path::GetPathOfFileInAppDirTemp("SumatraPDF.exe");
+    if (!file::Exists(path)) {
         return str::Dup(L"SumatraPDF.exe");
+    }
     return ToWstr(path);
 }
 

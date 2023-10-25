@@ -5,6 +5,7 @@ extern "C" {
 #include <mupdf/fitz.h>
 #include <mupdf/pdf.h>
 #include "../mupdf/source/fitz/color-imp.h"
+#include "../mupdf/source/pdf/pdf-annot-imp.h"
 }
 
 #include "utils/BaseUtil.h"
@@ -286,9 +287,9 @@ static WCHAR* PdfToWstr(fz_context* ctx, pdf_obj* obj) {
     return res;
 }
 
-static char* PdfToUtf8(fz_context* ctx, pdf_obj* obj) {
+static TempStr PdfToUtf8Temp(fz_context* ctx, pdf_obj* obj) {
     char* s = pdf_new_utf8_from_pdf_string_obj(ctx, obj);
-    char* res = str::Dup(s);
+    TempStr res = str::DupTemp(s);
     fz_free(ctx, s);
     return res;
 }
@@ -419,7 +420,7 @@ static fz_stream* FzOpenFile2(fz_context* ctx, const char* path) {
         return stm;
     }
 
-    WCHAR* pathW = ToWstrTemp(path);
+    WCHAR* pathW = ToWStrTemp(path);
     fz_try(ctx) {
         stm = fz_open_file_w(ctx, pathW);
     }
@@ -1305,21 +1306,21 @@ int CmpPageLabelInfo(const void* a, const void* b) {
     return ((PageLabelInfo*)a)->startAt - ((PageLabelInfo*)b)->startAt;
 }
 
-static char* FormatPageLabel(const char* type, int pageNo, const char* prefix) {
+static TempStr FormatPageLabelTemp(const char* type, int pageNo, const char* prefix) {
     if (str::Eq(type, "D")) {
-        return str::Format("%s%d", prefix, pageNo);
+        return str::FormatTemp("%s%d", prefix, pageNo);
     }
     if (str::EqI(type, "R")) {
         // roman numbering style
-        AutoFreeStr number(str::FormatRomanNumeral(pageNo));
+        TempStr number = str::FormatRomanNumeralTemp(pageNo);
         if (*type == 'r') {
-            str::ToLowerInPlace(number.Get());
+            str::ToLowerInPlace(number);
         }
-        return str::Format("%s%s", prefix, number.Get());
+        return str::FormatTemp("%s%s", prefix, number);
     }
     if (str::EqI(type, "A")) {
         // alphabetic numbering style (A..Z, AA..ZZ, AAA..ZZZ, ...)
-        str::WStr number;
+        str::Str number;
         number.AppendChar('A' + (pageNo - 1) % 26);
         for (int i = 0; i < (pageNo - 1) / 26; i++) {
             number.AppendChar(number.at(0));
@@ -1327,9 +1328,9 @@ static char* FormatPageLabel(const char* type, int pageNo, const char* prefix) {
         if (*type == 'a') {
             str::ToLowerInPlace(number.Get());
         }
-        return str::Format("%s%s", prefix, number.Get());
+        return str::FormatTemp("%s%s", prefix, number.Get());
     }
-    return str::Dup(prefix);
+    return str::DupTemp(prefix);
 }
 
 void BuildPageLabelRec(fz_context* ctx, pdf_obj* node, int pageCount, Vec<PageLabelInfo>& data) {
@@ -1385,11 +1386,11 @@ static void EnsureLabelsUnique(StrVec* labels) {
         }
         int idx = labels->Find(dups.at(i)), counter = 0;
         while ((idx = labels->Find(dups.at(i), idx + 1)) != -1) {
-            AutoFreeStr unique;
+            TempStr unique = nullptr;
             do {
-                unique.Set(str::Format("%s.%d", dups.at(i), ++counter));
+                unique = str::FormatTemp("%s.%d", dups.at(i), ++counter);
             } while (labels->Contains(unique));
-            labels->SetAt(idx, unique.Get());
+            labels->SetAt(idx, unique);
         }
         nDups = dups.Size();
         for (; i + 1 < nDups && str::Eq(dups.at(i), dups.at(i + 1)); i++) {
@@ -1428,12 +1429,11 @@ static StrVec* BuildPageLabelVec(fz_context* ctx, pdf_obj* root, int pageCount) 
         if (i < n - 1 && data.at(i + 1).startAt <= pageCount) {
             secLen = data.at(i + 1).startAt - pli.startAt;
         }
-        AutoFreeStr prefix(PdfToUtf8(ctx, data.at(i).prefix));
+        TempStr prefix = PdfToUtf8Temp(ctx, data.at(i).prefix);
         for (int j = 0; j < secLen; j++) {
             int idx = pli.startAt + j - 1;
-            char* label = FormatPageLabel(pli.type, pli.countFrom + j, prefix);
+            TempStr label = FormatPageLabelTemp(pli.type, pli.countFrom + j, prefix);
             labels->SetAt(idx, label);
-            str::Free(label);
         }
     }
 
@@ -2049,7 +2049,7 @@ static void FinishNonPDFLoading(EngineMupdf* e) {
         fz_try(ctx) {
             page = nullptr;
             page = fz_load_page(ctx, e->_doc, i);
-            mbox = fz_bound_page(ctx, page);
+            mbox = fz_bound_page_box(ctx, page, FZ_MEDIA_BOX);
         }
         fz_always(ctx) {
             fz_drop_page(ctx, page);
@@ -2611,7 +2611,7 @@ RectF EngineMupdf::PageContentBox(int pageNo, RenderTarget target) {
     fz_device* dev = nullptr;
     fz_display_list* list = nullptr;
 
-    fz_rect pagerect = fz_bound_page(ctx, pageInfo->page);
+    fz_rect pagerect = fz_bound_page_box(ctx, pageInfo->page, FZ_MEDIA_BOX);
 
     fz_var(dev);
     fz_var(list);
@@ -2696,7 +2696,7 @@ RenderedBitmap* EngineMupdf::RenderPage(RenderPageArgs& args) {
         pRect = ToFzRect(*pageRect);
     } else {
         // TODO(port): use pageInfo->mediabox?
-        pRect = fz_bound_page(ctx, page);
+        pRect = fz_bound_page_box(ctx, page, FZ_MEDIA_BOX);
     }
     fz_matrix ctm = viewctm(page, zoom, rotation);
     fz_irect bbox = fz_round_rect(fz_transform_rect(pRect, ctm));
@@ -2860,7 +2860,7 @@ fz_matrix EngineMupdf::viewctm(fz_page* page, float zoom, int rotation) const {
     fz_rect bounds;
     fz_var(bounds);
     fz_try(ctx) {
-        bounds = fz_bound_page(ctx, page);
+        bounds = fz_bound_page_box(ctx, page, FZ_MEDIA_BOX);
     }
     fz_catch(ctx) {
         bounds = {};
@@ -3010,7 +3010,6 @@ char* EngineMupdf::ExtractFontList() {
     StrVec fonts;
     for (size_t i = 0; i < fontList.size(); i++) {
         const char *name = nullptr, *type = nullptr, *encoding = nullptr;
-        AutoFreeStr anonFontName;
         bool embedded = false;
         fz_try(ctx) {
             pdf_obj* font = fontList.at(i);
@@ -3026,8 +3025,7 @@ char* EngineMupdf::ExtractFontList() {
                 needAnonName = str::IsEmpty(name);
             }
             if (needAnonName) {
-                anonFontName.Set(str::Format("<#%d>", pdf_obj_parent_num(ctx, font2)));
-                name = anonFontName;
+                name = str::FormatTemp("<#%d>", pdf_obj_parent_num(ctx, font2));
             }
             embedded = false;
             pdf_obj* desc = pdf_dict_gets(ctx, font2, "FontDescriptor");
@@ -3364,13 +3362,13 @@ bool EngineMupdf::HasClipOptimizations(int pageNo) {
     return true;
 }
 
-char* EngineMupdf::GetPageLabel(int pageNo) const {
+TempStr EngineMupdf::GetPageLabeTemp(int pageNo) const {
     if (!pageLabels || pageNo < 1 || PageCount() < pageNo) {
-        return EngineBase::GetPageLabel(pageNo);
+        return EngineBase::GetPageLabeTemp(pageNo);
     }
 
     char* res = pageLabels->at(pageNo - 1);
-    return str::Dup(res);
+    return res;
 }
 
 int EngineMupdf::GetPageByLabel(const char* label) const {

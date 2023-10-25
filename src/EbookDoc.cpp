@@ -39,11 +39,11 @@ static uint GetCodepageFromPI(const char* xmlPI) {
         return CP_ACP;
     }
 
-    AutoFreeStr encoding = str::Dup(enc->val, enc->valLen);
+    TempStr encoding = str::DupTemp(enc->val, enc->valLen);
     struct {
         const char* namePart;
         uint codePage;
-    } encodings[] = {
+    } static encodings[] = {
         {"UTF", CP_UTF8}, {"utf", CP_UTF8}, {"1252", 1252}, {"1251", 1251},
         // TODO: any other commonly used codepages?
     };
@@ -651,7 +651,7 @@ bool EpubDoc::ParseNavToc(const char* data, size_t dataLen, const char* pagePath
             if (!text) {
                 continue;
             }
-            auto itemText = ToWstrTemp(text.Get());
+            auto itemText = ToWStrTemp(text.Get());
             str::NormalizeWSInPlace(itemText);
             AutoFreeWstr itemSrc;
             if (href) {
@@ -1033,7 +1033,7 @@ bool Fb2Doc::ParseToc(EbookTocVisitor* visitor) const {
                 str::NormalizeWSInPlace(itemText);
             }
             if (!str::IsEmpty(itemText.Get())) {
-                AutoFreeStr url(str::Format(FB2_TOC_ENTRY_MARK "%d", titleCount));
+                TempStr url = str::FormatTemp(FB2_TOC_ENTRY_MARK "%d", titleCount);
                 char* txt = ToUtf8Temp(itemText);
                 visitor->Visit(txt, url, level);
                 itemText.Reset();
@@ -1226,7 +1226,7 @@ bool PalmDoc::HasToc() const {
 
 bool PalmDoc::ParseToc(EbookTocVisitor* visitor) {
     for (int i = 0; i < tocEntries.Size(); i++) {
-        AutoFreeStr url(str::Format(PDB_TOC_ENTRY_MARK "%d", i + 1));
+        TempStr url = str::FormatTemp(PDB_TOC_ENTRY_MARK "%d", i + 1);
         char* name = tocEntries[i];
         visitor->Visit(name, url, 1);
     }

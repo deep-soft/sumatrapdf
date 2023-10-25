@@ -148,7 +148,7 @@ Rect ChildPosWithinParent(HWND);
 int GetSizeOfDefaultGuiFont();
 HFONT GetDefaultGuiFont(bool bold = false, bool italic = false);
 HFONT GetDefaultGuiFontOfSize(int size);
-HFONT GetUserGuiFont(int size, int weight_offset, char* fontname_utf8);
+HFONT GetUserGuiFont(int size, int weight_offset, char* fontName);
 
 IStream* CreateStreamFromData(const ByteSlice&);
 ByteSlice GetDataFromStream(IStream* stream, HRESULT* resOpt);
@@ -296,7 +296,7 @@ bool IsValidDelayType(int type);
 void HwndResizeClientSize(HWND, int, int);
 
 size_t HwndGetTextLen(HWND hwnd);
-TempWstr HwndGetTextWTemp(HWND hwnd);
+TempWStr HwndGetTextWTemp(HWND hwnd);
 TempStr HwndGetTextTemp(HWND hwnd);
 void HwndSetText(HWND, const char* s);
 void HwndSetText(HWND, const WCHAR*);
@@ -338,13 +338,3 @@ void TbGetRect(HWND hwnd, int buttonId, RECT* rc);
 
 void TreeViewExpandRecursively(HWND hTree, HTREEITEM hItem, uint flag, bool subtree);
 void AddPathToRecentDocs(const char*);
-
-int GetGdiObjectsCount();
-
-struct CheckGdiLeaks {
-    int initialCount = GetGdiObjectsCount();
-    ~CheckGdiLeaks() {
-        int currCount = GetGdiObjectsCount();
-        CrashIf(currCount > initialCount);
-    }
-};

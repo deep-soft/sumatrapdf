@@ -89,6 +89,9 @@ enum class TrimOpt { Left, Right, Both };
 size_t Len(const WCHAR*);
 size_t Len(const char* s);
 
+int Leni(const WCHAR*);
+int Leni(const char* s);
+
 void Free(const char*);
 void Free(const u8*);
 
@@ -173,6 +176,7 @@ bool ContainsI(const char* s, const char* txt);
 
 bool BufFmtV(char* buf, size_t bufCchSize, const char* fmt, va_list args);
 bool BufFmt(char* buf, size_t bufCchSize, const char* fmt, ...);
+char* FmtVWithAllocator(Allocator* a, const char* fmt, va_list args);
 char* FmtV(const char* fmt, va_list args);
 char* Format(const char* fmt, ...);
 
@@ -207,11 +211,11 @@ size_t NormalizeNewlinesInPlace(char* s);
 size_t RemoveCharsInPlace(char* str, const char* toRemove);
 size_t RemoveCharsInPlace(WCHAR* str, const WCHAR* toRemove);
 
-size_t BufSet(char* dst, size_t dstCchSize, const char* src);
-size_t BufSet(WCHAR* dst, size_t dstCchSize, const WCHAR* src);
-size_t BufSet(WCHAR* dst, size_t dstCchSize, const char* src);
-size_t BufAppend(char* dst, size_t dstCchSize, const char* s);
-size_t BufAppend(WCHAR* dst, size_t dstCchSize, const WCHAR* s);
+int BufSet(char* dst, int dstCchSize, const char* src);
+int BufSet(WCHAR* dst, int dstCchSize, const WCHAR* src);
+int BufSet(WCHAR* dst, int dstCchSize, const char* src);
+int BufAppend(char* dst, int dstCchSize, const char* s);
+int BufAppend(WCHAR* dst, int dstCchSize, const WCHAR* s);
 
 char* MemToHex(const u8* buf, size_t len);
 bool HexToMem(const char* s, u8* buf, size_t bufLen);
@@ -225,7 +229,7 @@ int CmpNatural(const WCHAR*, const WCHAR*);
 
 char* FormatFloatWithThousandSepTemp(double number, LCID locale = LOCALE_USER_DEFAULT);
 char* FormatNumWithThousandSepTemp(i64 num, LCID locale = LOCALE_USER_DEFAULT);
-char* FormatRomanNumeral(int number);
+char* FormatRomanNumeralTemp(int number);
 
 bool EmptyOrWhiteSpaceOnly(const char* sv);
 } // namespace str

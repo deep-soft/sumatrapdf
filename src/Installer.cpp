@@ -115,16 +115,15 @@ static bool ExtractFiles(lzma::SimpleArchive* archive, const char* destDir) {
                 _TRA("The installer has been corrupted. Please download it again.\nSorry for the inconvenience!"));
             return false;
         }
-        char* filePath = path::JoinTemp(destDir, fi->name);
+        TempStr filePath = path::JoinTemp(destDir, fi->name);
 
         ByteSlice d = {uncompressed, fi->uncompressedSize};
         bool ok = file::WriteFile(filePath, d);
         free(uncompressed);
 
         if (!ok) {
-            char* msg = str::Format(_TRA("Couldn't write %s to disk"), filePath);
+            TempStr msg = str::FormatTemp(_TRA("Couldn't write %s to disk"), filePath);
             NotifyFailed(msg);
-            str::Free(msg);
             return false;
         }
         logf("  extracted '%s'\n", filePath);
@@ -272,12 +271,12 @@ static DWORD WINAPI InstallerThread(void*) {
 
     ok = WriteUninstallerRegistryInfo(key, allUsers);
     if (!ok) {
-        NotifyFailed(_TR("Failed to write the uninstallation information to the registry"));
+        NotifyFailed(_TRA("Failed to write the uninstallation information to the registry"));
     }
 
     ok = WriteExtendedFileExtensionInfo(key);
     if (!ok) {
-        NotifyFailed(_TR("Failed to write the extended file extension information to the registry"));
+        NotifyFailed(_TRA("Failed to write the extended file extension information to the registry"));
     }
 
     ProgressStep();
@@ -513,11 +512,11 @@ static int CALLBACK BrowseCallbackProc(HWND hwnd, UINT msg, LPARAM lp, LPARAM lp
 }
 
 static TempStr BrowseForFolderTemp(HWND hwnd, const char* initialFolderA, const char* caption) {
-    WCHAR* initialFolder = ToWstrTemp(initialFolderA);
+    WCHAR* initialFolder = ToWStrTemp(initialFolderA);
     BROWSEINFO bi = {0};
     bi.hwndOwner = hwnd;
     bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
-    bi.lpszTitle = ToWstrTemp(caption);
+    bi.lpszTitle = ToWStrTemp(caption);
     bi.lpfn = BrowseCallbackProc;
     bi.lParam = (LPARAM)initialFolder;
 
@@ -771,7 +770,7 @@ static void CreateInstallerWindowControls(InstallerWnd* wnd) {
 #define kInstallerWindowClassName L"SUMATRA_PDF_INSTALLER_FRAME"
 
 static HWND CreateInstallerHwnd() {
-    AutoFreeWstr title(str::Format(_TR("SumatraPDF %s Installer"), CURR_VERSION_STR));
+    TempStr title = str::FormatTemp(_TRA("SumatraPDF %s Installer"), CURR_VERSION_STRA);
 
     DWORD exStyle = 0;
     if (trans::IsCurrLangRtl()) {
@@ -784,7 +783,8 @@ static HWND CreateInstallerHwnd() {
     int dy = kInstallerWinDy;
     DWORD dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN;
     HMODULE h = GetModuleHandleW(nullptr);
-    HWND hwnd = CreateWindowExW(exStyle, winCls, title.Get(), dwStyle, x, y, dx, dy, nullptr, nullptr, h, nullptr);
+    TempWStr titleW = ToWStrTemp(title);
+    HWND hwnd = CreateWindowExW(exStyle, winCls, titleW, dwStyle, x, y, dx, dy, nullptr, nullptr, h, nullptr);
     gWnd->hwnd = hwnd;
     DpiScale(hwnd, dx, dy);
     HwndResizeClientSize(hwnd, dx, dy);
@@ -981,7 +981,7 @@ bool ExtractInstallerFiles(char* dir) {
     if (!ok) {
         log("  dir::CreateAll() failed\n");
         LogLastError();
-        NotifyFailed(_TR("Couldn't create the installation directory"));
+        NotifyFailed(_TRA("Couldn't create the installation directory"));
         return false;
     }
 
