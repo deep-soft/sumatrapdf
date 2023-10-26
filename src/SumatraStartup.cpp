@@ -273,10 +273,20 @@ static void FlagsEnterFullscreen(const Flags& flags, MainWindow* win) {
     }
 }
 
+static void MaybeStartSearch(MainWindow* win, const char* searchTerm) {
+    if (!win || !searchTerm) {
+        return;
+    }
+    HwndSetText(win->hwndFindEdit, searchTerm);
+    bool wasModified = true;
+    bool showProgress = true;
+    FindTextOnThread(win, TextSearchDirection::Forward, searchTerm, wasModified, showProgress);
+}
+
 static MainWindow* LoadOnStartup(const char* filePath, const Flags& flags, bool isFirstWin) {
     LoadArgs args(filePath, nullptr);
     args.showWin = !(flags.printDialog && flags.exitWhenDone) && !gPluginMode;
-    MainWindow* win = LoadDocument(&args, false, false);
+    MainWindow* win = LoadDocument(&args);
     if (!win) {
         return win;
     }
@@ -317,11 +327,7 @@ static MainWindow* LoadOnStartup(const char* filePath, const Flags& flags, bool 
         int ret = win->AsFixed()->pdfSync->SourceToDoc(srcPath, flags.forwardSearchLine, 0, &page, rects);
         ShowForwardSearchResult(win, srcPath, flags.forwardSearchLine, 0, ret, page, rects);
     }
-    if (flags.search != nullptr) {
-        bool wasModified = true;
-        bool showProgress = true;
-        FindTextOnThread(win, TextSearchDirection::Forward, flags.search, wasModified, showProgress);
-    }
+    MaybeStartSearch(win, flags.search);
     return win;
 }
 
@@ -382,7 +388,8 @@ static void RestoreTabOnStartup(MainWindow* win, TabState* state, bool lazyLoad 
     if (lazyLoad) {
         args.tabState = state;
     }
-    if (!LoadDocument(&args, lazyLoad, false)) {
+    args.lazyLoad = lazyLoad;
+    if (!LoadDocument(&args)) {
         return;
     }
     WindowTab* tab = win->CurrentTab();
@@ -1280,10 +1287,10 @@ ContinueOpenWindow:
                     logf("WinMain: skipping RestoreTabOnStartup() because state->filePath is empty\n");
                     continue;
                 }
-                RestoreTabOnStartup(win, state, gEnableLazyLoad);
+                RestoreTabOnStartup(win, state, gGlobalPrefs->lazyLoading);
             }
             TabsSelect(win, data->tabIndex - 1);
-            if (gEnableLazyLoad) {
+            if (gGlobalPrefs->lazyLoading) {
                 ReloadDocument(win, false);
             }
         }
@@ -1306,7 +1313,10 @@ ContinueOpenWindow:
             PrintCurrentFile(win, flags.exitWhenDone);
         }
     }
-    SelectTabInWindow(tabToSelect);
+    if (tabToSelect) {
+        SelectTabInWindow(tabToSelect);
+        MaybeStartSearch(tabToSelect->win, flags.search);
+    }
 
     nWithDde = (int)gDdeOpenOnStartup.size();
     if (nWithDde > 0) {

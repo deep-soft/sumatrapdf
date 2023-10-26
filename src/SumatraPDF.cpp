@@ -94,16 +94,9 @@ constexpr const char* kRestrictionsFileName = "sumatrapdfrestrict.ini";
 constexpr const char* kSumatraWindowTitle = "SumatraPDF";
 constexpr const WCHAR* kSumatraWindowTitleW = L"SumatraPDF";
 
-/* if true, we're in debug mode where we show links as blue rectangle on
-   the screen. Makes debugging code related to links easier. */
-bool gDebugShowLinks = false;
-
 // used to show it in debug, but is not very useful,
 // so always disable
 bool gShowFrameRate = false;
-
-// if true, Enable lazyload session tabs on startup
-bool gEnableLazyLoad = true;
 
 // in plugin mode, the window's frame isn't drawn and closing and
 // fullscreen are disabled, so that SumatraPDF can be displayed
@@ -1269,7 +1262,7 @@ void ReloadDocument(MainWindow* win, bool autoRefresh) {
         return;
     }
     // TODO: maybe should ensure it never is called for IsAboutTab() ?
-    // This only happens if gEnableLazyLoad is true
+    // This only happens if gLazyLoading is true
     if (tab->IsAboutTab()) {
         return;
     }
@@ -1286,7 +1279,7 @@ void ReloadDocument(MainWindow* win, bool autoRefresh) {
             args.forceReuse = true;
             args.noSavePrefs = true;
             args.tabState = tab->tabState;
-            LoadDocument(&args, false, false);
+            LoadDocument(&args);
         }
         return;
     }
@@ -1688,7 +1681,7 @@ static void ShowErrorLoading(MainWindow* win, const char* path, bool noSavePrefs
 
 extern void SetTabState(WindowTab* tab, TabState* state);
 
-MainWindow* LoadDocumentFinish(LoadArgs* args, bool lazyLoad) {
+MainWindow* LoadDocumentFinish(LoadArgs* args) {
     MainWindow* win = args->win;
     const char* fullPath = args->FilePath();
 
@@ -1733,6 +1726,7 @@ MainWindow* LoadDocumentFinish(LoadArgs* args, bool lazyLoad) {
 
     // TODO: stop remembering/restoring window positions when using tabs?
     args->placeWindow = !gGlobalPrefs->useTabs;
+    bool lazyLoad = args->lazyLoad;
     if (!lazyLoad) {
         ReplaceDocumentInCurrentTab(args, args->ctrl, nullptr);
     }
@@ -1834,7 +1828,7 @@ static MainWindow* MaybeCreateWindowForFileLoad(LoadArgs* args) {
     return win;
 }
 
-void LoadDocumentAsync(LoadArgs* argsIn, bool activateExisting) {
+void LoadDocumentAsync(LoadArgs* argsIn) {
     MainWindow* win = argsIn->win;
     bool failEarly = AdjustPathForMaybeMovedFile(argsIn);
     const char* path = argsIn->FilePath();
@@ -1843,7 +1837,7 @@ void LoadDocumentAsync(LoadArgs* argsIn, bool activateExisting) {
         return;
     }
 
-    if (activateExisting) {
+    if (argsIn->activateExisting) {
         MainWindow* existing = FindMainWindowByFile(path, true);
         if (existing) {
             existing->Focus();
@@ -1878,7 +1872,8 @@ void LoadDocumentAsync(LoadArgs* argsIn, bool activateExisting) {
                 delete args;
                 return;
             }
-            LoadDocumentFinish(args, false);
+            args->activateExisting = false;
+            LoadDocumentFinish(args);
             delete args;
             return;
         }
@@ -1906,7 +1901,8 @@ void LoadDocumentAsync(LoadArgs* argsIn, bool activateExisting) {
                 delete args;
                 return;
             }
-            LoadDocumentFinish(args, false);
+            args->activateExisting = false;
+            LoadDocumentFinish(args);
             delete args;
         });
         DecDangerousThreadCount();
@@ -1917,11 +1913,11 @@ void LoadDocumentAsync(LoadArgs* argsIn, bool activateExisting) {
 // open a file doesn't block next/prev file in
 static StrVec gFilesFailedToOpen;
 
-MainWindow* LoadDocument(LoadArgs* args, bool lazyLoad, bool activateExisting) {
+MainWindow* LoadDocument(LoadArgs* args) {
     CrashAlwaysIf(gCrashOnOpen);
 
     const char* path = args->FilePath();
-    if (activateExisting) {
+    if (args->activateExisting) {
         MainWindow* existing = FindMainWindowByFile(path, true);
         if (existing) {
             existing->Focus();
@@ -1947,7 +1943,7 @@ MainWindow* LoadDocument(LoadArgs* args, bool lazyLoad, bool activateExisting) {
     auto timeStart = TimeGet();
     HwndPasswordUI pwdUI(win->hwndFrame);
     DocController* ctrl = nullptr;
-    if (!lazyLoad) {
+    if (!args->lazyLoad) {
         ctrl = CreateControllerForEngineOrFile(args->engine, path, &pwdUI, win);
         {
             auto durMs = TimeSinceInMs(timeStart);
@@ -1966,7 +1962,7 @@ MainWindow* LoadDocument(LoadArgs* args, bool lazyLoad, bool activateExisting) {
         }
     }
     args->ctrl = ctrl;
-    return LoadDocumentFinish(args, lazyLoad);
+    return LoadDocumentFinish(args);
 }
 
 // Loads document data into the MainWindow.
@@ -1976,7 +1972,7 @@ void LoadModelIntoTab(WindowTab* tab) {
     }
 
     MainWindow* win = tab->win;
-    if (gEnableLazyLoad && win->ctrl && !tab->ctrl && !tab->IsAboutTab()) {
+    if (gGlobalPrefs->lazyLoading && win->ctrl && !tab->ctrl && !tab->IsAboutTab()) {
         NotificationCreateArgs args;
         args.hwndParent = win->hwndCanvas;
         args.msg = str::FormatTemp(_TRA("Please wait - loading..."));
@@ -2027,7 +2023,7 @@ void LoadModelIntoTab(WindowTab* tab) {
 
     SetFocus(win->hwndFrame);
     if (!tab->IsAboutTab()) {
-        if (gEnableLazyLoad && !tab->ctrl) {
+        if (gGlobalPrefs->lazyLoading && !tab->ctrl) {
             ReloadDocument(win, false);
         } else {
             if (tab->reloadOnFocus) {
@@ -2369,7 +2365,7 @@ bool SaveAnnotationsToMaybeNewPdfFile(WindowTab* tab) {
 
     LoadArgs args(newPath, win);
     args.forceReuse = true;
-    LoadDocument(&args, false, false);
+    LoadDocument(&args);
 
     ShowSavedAnnotationsNotification(win->hwndCanvas, newPath);
     if (hadEditAnnotations) {
@@ -2925,7 +2921,7 @@ static void RenameCurrentFile(MainWindow* win) {
         LogLastError();
         LoadArgs args(srcPath, win);
         args.forceReuse = true;
-        LoadDocument(&args, false, false);
+        LoadDocument(&args);
         NotificationCreateArgs nargs;
         nargs.hwndParent = win->hwndCanvas;
         nargs.msg = _TRA("Failed to rename the file!");
@@ -2940,7 +2936,7 @@ static void RenameCurrentFile(MainWindow* win) {
 
     LoadArgs args(newPath, win);
     args.forceReuse = true;
-    LoadDocument(&args, false, false);
+    LoadDocument(&args);
 }
 
 static void CreateLnkShortcut(MainWindow* win) {
@@ -3060,7 +3056,7 @@ void DuplicateTabInNewWindow(WindowTab* tab) {
     LoadArgs args(path, newWin);
     args.showWin = true;
     args.noPlaceWindow = true;
-    LoadDocument(&args, false, false);
+    LoadDocument(&args);
 }
 
 // create a new window and load currently shown document into it
@@ -3120,7 +3116,7 @@ static void OpenFolder(MainWindow* win) {
     }
     LoadArgs args(dir, win);
     args.engine = engine;
-    LoadDocument(&args, false, false);
+    LoadDocument(&args);
 }
 
 static void GetFilesFromGetOpenFileName(OPENFILENAMEW* ofn, StrVec& filesOut) {
@@ -3231,7 +3227,7 @@ static void OpenFile(MainWindow* win) {
     GetFilesFromGetOpenFileName(&ofn, files);
     for (char* path : files) {
         LoadArgs args(path, win);
-        LoadDocument(&args, false, false);
+        LoadDocument(&args);
     }
 }
 
@@ -3314,7 +3310,7 @@ static void OpenNextPrevFileInFolder(MainWindow* win, bool forward) {
     // we could automatically go to next file
     LoadArgs args(path, win);
     args.forceReuse = true;
-    LoadDocument(&args, false, false);
+    LoadDocument(&args);
 }
 
 constexpr int kSplitterDx = 5;
@@ -4532,7 +4528,7 @@ void ReopenLastClosedFile(MainWindow* win) {
         return;
     }
     LoadArgs args(path, win);
-    LoadDocument(&args, false, false);
+    LoadDocument(&args);
 }
 
 void CopyFilePath(WindowTab* tab) {
@@ -4639,7 +4635,7 @@ static LRESULT FrameOnCommand(MainWindow* win, HWND hwnd, UINT msg, WPARAM wp, L
         FileState* state = gFileHistory.Get(wmId - CmdFileHistoryFirst);
         if (state && HasPermission(Perm::DiskAccess)) {
             LoadArgs args(state->filePath, win);
-            LoadDocument(&args, false, false);
+            LoadDocument(&args);
         }
         return 0;
     }
@@ -5200,8 +5196,8 @@ static LRESULT FrameOnCommand(MainWindow* win, HWND hwnd, UINT msg, WPARAM wp, L
             DownloadDebugSymbols();
             break;
 
-        case CmdDebugShowLinks:
-            gDebugShowLinks = !gDebugShowLinks;
+        case CmdToggleLinks:
+            gGlobalPrefs->showLinks = !gGlobalPrefs->showLinks;
             for (auto& w : gWindows) {
                 w->RedrawAll(true);
             }

@@ -310,8 +310,6 @@ static bool AllowCommand(const CommandPaletteBuildCtx& ctx, i32 cmdId) {
     }
 
     switch (cmdId) {
-        case CmdDebugShowLinks:
-            return gIsDebugBuild || gIsPreReleaseBuild;
         case CmdDebugTestApp:
         case CmdDebugShowNotif:
         case CmdDebugStartStressTest:
@@ -657,7 +655,7 @@ void CommandPaletteWnd::ExecuteCurrentSelection() {
         if (str::Eq(s, converted)) {
             LoadArgs args(path, win);
             args.forceReuse = false; // open in a new tab
-            LoadDocument(&args, false, false);
+            LoadDocumentAsync(&args);
             ScheduleDelete();
             return;
         }
