@@ -2838,19 +2838,19 @@ SIZE TextSizeInHwnd2(HWND hwnd, const WCHAR* txt, HFONT font) {
 Size HwndMeasureText(HWND hwnd, const char* txt, HFONT font) {
     SIZE sz{};
     size_t txtLen = str::Len(txt);
-    HDC dc = GetWindowDC(hwnd);
+
+    AutoReleaseDC dc(hwnd);
     /* GetWindowDC() returns dc with default state, so we have to first set
        window's current font into dc */
     if (font == nullptr) {
         font = (HFONT)SendMessageW(hwnd, WM_GETFONT, 0, 0);
     }
-    HGDIOBJ prev = SelectObject(dc, font);
+    ScopedSelectFont prev(dc, font);
 
     RECT r{};
     uint fmt = DT_CALCRECT | DT_LEFT | DT_NOCLIP | DT_EDITCONTROL;
     HdcDrawText(dc, txt, (int)txtLen, &r, fmt);
-    SelectObject(dc, prev);
-    ReleaseDC(hwnd, dc);
+
     int dx = RectDx(r);
     int dy = RectDy(r);
     return {dx, dy};
@@ -2903,4 +2903,47 @@ void TreeViewExpandRecursively(HWND hTree, HTREEITEM hItem, uint flag, bool subt
 void AddPathToRecentDocs(const char* path) {
     WCHAR* pathW = ToWStrTemp(path);
     SHAddToRecentDocs(SHARD_PATH, pathW);
+}
+
+TempStr HGLOBALToStrTemp(HGLOBAL h, bool isUnicode) {
+    void* mem = GlobalLock(h);
+    if (!mem) {
+        return nullptr;
+    }
+
+    TempStr res;
+    if (isUnicode) {
+        res = ToUtf8Temp((WCHAR*)mem);
+    } else {
+        res = str::DupTemp((char*)mem);
+    }
+    GlobalUnlock(h);
+    return res;
+}
+
+HGLOBAL MemToHGLOBAL(void* src, int n, UINT flags) {
+    HGLOBAL h = GlobalAlloc(flags, n);
+    if (!h) {
+        return 0;
+    }
+    void* d = GlobalLock(h);
+    if (d) {
+        memcpy(d, src, n);
+    }
+    GlobalUnlock(h);
+    return h;
+}
+
+HGLOBAL StrToHGLOBAL(const char* s, UINT flags) {
+    int cb = str::Len(s) + 1;
+    return MemToHGLOBAL((void*)s, cb, flags);
+}
+
+TempStr AtomToStrTemp(ATOM a) {
+    WCHAR buf[1024];
+    UINT cch = GlobalGetAtomNameW(a, buf, dimofi(buf));
+    if (cch == 0) {
+        return nullptr;
+    }
+    return ToUtf8Temp(buf, cch);
 }

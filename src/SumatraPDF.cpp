@@ -70,7 +70,7 @@
 #include "SearchAndDDE.h"
 #include "Selection.h"
 #include "StressTesting.h"
-#include "SumatraAbout.h"
+#include "HomePage.h"
 #include "SumatraDialogs.h"
 #include "SumatraProperties.h"
 #include "TableOfContents.h"
@@ -4906,6 +4906,12 @@ static LRESULT FrameOnCommand(MainWindow* win, HWND hwnd, UINT msg, WPARAM wp, L
             if (tab) {
                 SaveAnnotationsToExistingFile(tab);
             }
+            break;
+        }
+
+        case CmdToggleFrequentlyRead: {
+            gGlobalPrefs->showStartPage = !gGlobalPrefs->showStartPage;
+            win->RedrawAll(true);
             break;
         }
 
