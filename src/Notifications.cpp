@@ -163,12 +163,8 @@ int GetWndX(NotificationWnd* wnd) {
 }
 
 NotificationWnd::~NotificationWnd() {
-    auto fontToDelete = font;
     Destroy();
     str::Free(progressMsg);
-    if (false && fontToDelete) {
-        DeleteObject(fontToDelete);
-    }
 }
 
 HWND NotificationWnd::Create(const NotificationCreateArgs& args) {
@@ -358,7 +354,7 @@ void NotificationWnd::OnPaint(HDC hdcIn, PAINTSTRUCT* ps) {
     char* text = HwndGetTextTemp(hwnd);
     uint format = DT_SINGLELINE | DT_NOPREFIX;
     RECT rTmp = ToRECT(rTxt);
-    HdcDrawText(hdc, text, -1, &rTmp, format);
+    HdcDrawText(hdc, text, &rTmp, format);
 
     if (HasClose()) {
         Point curPos = HwndGetCursorPos(hwnd);

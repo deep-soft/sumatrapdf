@@ -6,9 +6,9 @@
 struct MainWindow;
 
 constexpr const char* kLeftTextFont = "Arial";
-constexpr int kLeftTextFontSize = 12;
+constexpr int kLeftTextFontSize = 14;
 constexpr const char* kRightTextFont = "Arial Black";
-constexpr int kRightTextFontSize = 12;
+constexpr int kRightTextFontSize = 14;
 
 void ShowAboutWindow(MainWindow*);
 
@@ -20,4 +20,4 @@ constexpr const char* kLinkOpenFile = "<File,Open>";
 constexpr const char* kLinkShowList = "<View,ShowList>";
 constexpr const char* kLinkHideList = "<View,HideList>";
 
-void DrawHomePage(MainWindow* win, HDC hdc, FileHistory& fileHistory, COLORREF textColor, COLORREF backgroundColor);
+void DrawHomePage(MainWindow* win, HDC hdc, const FileHistory& fileHistory, COLORREF textColor, COLORREF backgroundColor);

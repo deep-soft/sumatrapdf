@@ -374,7 +374,7 @@ int Wnd::OnCreate(CREATESTRUCT*) {
     /*
     LOGFONT logfont;
     ::GetObject(::GetStockObject(DEFAULT_GUI_FONT), sizeof(logfont), &logfont);
-    font = ::CreateFontIndirect(&logfont);
+    font = ::CreateFontIndirectW(&logfont);
     ::SendMessage(hwnd, WM_SETFONT, reinterpret_cast<WPARAM>(font), FALSE);
     */
 
@@ -584,7 +584,7 @@ void Wnd::SetBounds(Rect bounds) {
     bounds.dx -= (insets.right + insets.left);
     bounds.dy -= (insets.bottom + insets.top);
 
-    auto r = RectToRECT(bounds);
+    auto r = ToRECT(bounds);
     ::MoveWindow(hwnd, &r);
     // TODO: optimize if doesn't change position
     ::InvalidateRect(hwnd, nullptr, TRUE);
@@ -1857,7 +1857,7 @@ int ListBox::GetItemHeight(int idx) {
         // if failed for some reason, fallback to measuring text in default font
         // HFONT f = GetFont();
         HFONT f = GetDefaultGuiFont();
-        Size sz = HwndMeasureText(hwnd, L"A", f);
+        Size sz = HwndMeasureText(hwnd, "A", f);
         res = sz.dy;
     }
     return res;

@@ -27,6 +27,7 @@
 #include "Translations.h"
 #include "Version.h"
 #include "Theme.h"
+#include "Widget.h"
 
 #ifndef ABOUT_USE_LESS_COLORS
 #define ABOUT_LINE_OUTER_SIZE 2
@@ -35,14 +36,15 @@
 #endif
 #define ABOUT_LINE_SEP_SIZE 1
 
-#define ABOUT_BORDER_COL RGB(0, 0, 0)
+constexpr COLORREF kAboutBorderCol = RGB(0, 0, 0);
 
-constexpr int ABOUT_LEFT_RIGHT_SPACE_DX = 8;
-constexpr int ABOUT_MARGIN_DX = 10;
-constexpr int ABOUT_BOX_MARGIN_DY = 6;
-constexpr int ABOUT_TXT_DY = 6;
-constexpr int ABOUT_RECT_PADDING = 8;
-#define kInnerPadding 8
+constexpr int kAboutLeftRightSpaceDx = 8;
+constexpr int kAboutMarginDx = 10;
+constexpr int kAboutBoxMarginDy = 6;
+constexpr int kAboutTxtDy = 6;
+constexpr int kAboutRectPadding = 8;
+
+constexpr int kInnerPadding = 8;
 
 constexpr const char* kSumatraTxtFont = "Arial Black";
 constexpr int kSumatraTxtFontSize = 24;
@@ -59,10 +61,6 @@ constexpr int kVersionTxtFontSize = 12;
 #ifdef GIT_COMMIT_ID
 #define GIT_COMMIT_ID_STR QM(GIT_COMMIT_ID)
 #endif
-
-#define URL_LICENSE "https://github.com/sumatrapdfreader/sumatrapdf/blob/master/AUTHORS"
-#define URL_AUTHORS "https://github.com/sumatrapdfreader/sumatrapdf/blob/master/AUTHORS"
-#define URL_TRANSLATORS "https://github.com/sumatrapdfreader/sumatrapdf/blob/master/TRANSLATORS"
 
 #define LAYOUT_LTR 0
 
@@ -86,9 +84,9 @@ static AboutLayoutInfoEl gAboutLayoutInfo[] = {
     {"website", "SumatraPDF website", kWebsiteURL},
     {"manual", "SumatraPDF manual", kManualURL},
     {"forums", "SumatraPDF forums", "https://github.com/sumatrapdfreader/sumatrapdf/discussions"},
-    {"programming", "The Programmers", URL_AUTHORS},
-    {"translations", "The Translators", URL_TRANSLATORS},
-    {"licenses", "Various Open Source", URL_LICENSE},
+    {"programming", "The Programmers", "https://github.com/sumatrapdfreader/sumatrapdf/blob/master/AUTHORS"},
+    {"translations", "The Translators", "https://github.com/sumatrapdfreader/sumatrapdf/blob/master/TRANSLATORS"},
+    {"licenses", "Various Open Source", "https://github.com/sumatrapdfreader/sumatrapdf/blob/master/AUTHORS"},
 #ifdef GIT_COMMIT_ID
     // TODO: use short ID for rightTxt (only first 7 digits) with less hackery
     {"last change", "git commit " GIT_COMMIT_ID_STR,
@@ -110,90 +108,23 @@ static Vec<StaticLinkInfo*> gStaticLinks;
 #define COL4 RGB(69, 132, 190)
 #define COL5 RGB(112, 115, 207)
 
-Kind kindHwndWidgetText = "hwndWidgetText";
-
-struct HwndWidgetText : LayoutBase {
-    const char* s = nullptr;
-    HWND hwnd = nullptr;
-    HFONT font = nullptr;
-    bool withUnderline = false;
-    bool isRtl = false;
-
-    Size sz = {0, 0};
-
-    HwndWidgetText(const char* s, HWND hwnd, HFONT font = nullptr);
-
-    // ILayout
-    int MinIntrinsicHeight(int width) override;
-    int MinIntrinsicWidth(int height) override;
-    Size Layout(const Constraints bc) override;
-
-    Size MinIntrinsicSize(int width, int height);
-    Size Measure(bool onlyIfEmpty = false);
-    void Draw(HDC dc);
-};
-
-HwndWidgetText::HwndWidgetText(const char* s, HWND hwnd, HFONT font) : s(s), hwnd(hwnd), font(font) {
-    kind = kindHwndWidgetText;
-}
-
-Size HwndWidgetText::Layout(const Constraints bc) {
-    Measure();
-    return bc.Constrain({sz.dx, sz.dy});
-}
-
-Size HwndWidgetText::Measure(bool onlyIfEmpty) {
-    if (onlyIfEmpty && !sz.IsEmpty()) {
-        return sz;
-    }
-    sz = HwndMeasureText(hwnd, s, font);
-    return sz;
-}
-
-int HwndWidgetText::MinIntrinsicHeight(int width) {
-    Measure(true);
-    return sz.dy;
-}
-
-int HwndWidgetText::MinIntrinsicWidth(int height) {
-    Measure(true);
-    return sz.dx;
-}
-
-Size HwndWidgetText::MinIntrinsicSize(int width, int height) {
-    int dx = MinIntrinsicWidth(height);
-    int dy = MinIntrinsicHeight(width);
-    return {dx, dy};
-}
-
-void HwndWidgetText::Draw(HDC hdc) {
-    CrashIf(lastBounds.IsEmpty());
-    ScopedSelectFont f(hdc, font);
-    UINT fmt = DT_NOPREFIX | (isRtl ? DT_RTLREADING : DT_LEFT);
-    RECT dr = RectToRECT(lastBounds);
-    HdcDrawText(hdc, s, -1, &dr, fmt);
-    if (withUnderline) {
-        auto& r = lastBounds;
-        Rect lineRect = {r.x, r.y + sz.dy, sz.dx, 0};
-        DrawLine(hdc, lineRect);
-    }
-}
-
-static void DrawAppName(HDC hdc, Point pt) {
+static void DrawAppName(HDC hdc, Point pt, HFONT font) {
     const char* txt = kAppName;
     // colorful version
     COLORREF cols[] = {COL1, COL2, COL3, COL4, COL5, COL5, COL4, COL3, COL2, COL1};
+    char buf[2] = {0};
+    uint fmt = DT_LEFT | DT_NOCLIP;
     for (size_t i = 0; i < str::Len(txt); i++) {
         SetTextColor(hdc, cols[i % dimof(cols)]);
-        TextOutUtf8(hdc, pt.x, pt.y, txt + i, 1);
-
-        SIZE txtSize;
-        GetTextExtentPoint32A(hdc, txt + i, 1, &txtSize);
-        pt.x += txtSize.cx;
+        Rect r{pt.x, pt.y, 1024, 1024};
+        buf[0] = txt[i];
+        HdcDrawText(hdc, buf, r, fmt, font);
+        Size txtSize = HdcMeasureText(hdc, buf, fmt, font);
+        pt.x += txtSize.dx;
     }
 }
 
-static char* GetAppVersionTemp() {
+static TempStr GetAppVersionTemp() {
     char* s = str::DupTemp("v" CURR_VERSION_STRA);
     if (IsProcess64()) {
         s = str::JoinTemp(s, " 64-bit");
@@ -204,59 +135,52 @@ static char* GetAppVersionTemp() {
     return s;
 }
 
-static Size CalcSumatraVersionSize(HWND hwnd, HDC hdc) {
+static Size CalcSumatraVersionSize(HDC hdc) {
     Size result{};
 
-    AutoDeleteFont fontSumatraTxt(CreateSimpleFont(hdc, kSumatraTxtFont, kSumatraTxtFontSize));
-    AutoDeleteFont fontVersionTxt(CreateSimpleFont(hdc, kVersionTxtFont, kVersionTxtFontSize));
-    ScopedSelectObject selFont(hdc, fontSumatraTxt);
+    HFONT fontSumatraTxt = CreateSimpleFont(hdc, kSumatraTxtFont, kSumatraTxtFontSize);
+    HFONT fontVersionTxt = CreateSimpleFont(hdc, kVersionTxtFont, kVersionTxtFontSize);
 
-    SIZE txtSize{};
     /* calculate minimal top box size */
-    const char* txt = kAppName;
-
-    GetTextExtentPoint32Utf8(hdc, txt, (int)str::Len(txt), &txtSize);
-    result.dy = txtSize.cy + DpiScale(hwnd, ABOUT_BOX_MARGIN_DY * 2);
-    result.dx = txtSize.cx;
+    Size txtSize = HdcMeasureText(hdc, kAppName, fontSumatraTxt);
+    result.dy = txtSize.dy + DpiScale(hdc, kAboutBoxMarginDy * 2);
+    result.dx = txtSize.dx;
 
     /* consider version and version-sub strings */
-    SelectObject(hdc, fontVersionTxt);
-    char* ver = GetAppVersionTemp();
-    GetTextExtentPoint32Utf8(hdc, ver, (int)str::Len(ver), &txtSize);
-    LONG minWidth = txtSize.cx + DpiScale(hwnd, 8);
-    txt = VERSION_SUB_TXT;
-    GetTextExtentPoint32Utf8(hdc, txt, (int)str::Len(txt), &txtSize);
-    txtSize.cx = std::max(txtSize.cx, minWidth);
-    result.dx += 2 * (txtSize.cx + DpiScale(hwnd, kInnerPadding));
-
+    TempStr ver = GetAppVersionTemp();
+    txtSize = HdcMeasureText(hdc, ver, fontVersionTxt);
+    int minWidth = txtSize.dx + DpiScale(hdc, 8);
+    int dx = std::max(txtSize.dx, minWidth);
+    result.dx += 2 * (dx + DpiScale(hdc, kInnerPadding));
     return result;
 }
 
 static void DrawSumatraVersion(HWND hwnd, HDC hdc, Rect rect) {
-    AutoDeleteFont fontSumatraTxt(CreateSimpleFont(hdc, kSumatraTxtFont, kSumatraTxtFontSize));
-    AutoDeleteFont fontVersionTxt(CreateSimpleFont(hdc, kVersionTxtFont, kVersionTxtFontSize));
+    uint fmt = DT_LEFT | DT_NOCLIP;
+    HFONT fontSumatraTxt = CreateSimpleFont(hdc, kSumatraTxtFont, kSumatraTxtFontSize);
+    HFONT fontVersionTxt = CreateSimpleFont(hdc, kVersionTxtFont, kVersionTxtFontSize);
 
     SetBkMode(hdc, TRANSPARENT);
 
-    SIZE txtSize;
     const char* txt = kAppName;
-    GetTextExtentPoint32Utf8(hdc, txt, (int)str::Len(txt), &txtSize);
-    Rect mainRect(rect.x + (rect.dx - txtSize.cx) / 2, rect.y + (rect.dy - txtSize.cy) / 2, txtSize.cx, txtSize.cy);
-    DrawAppName(hdc, mainRect.TL());
+    Size txtSize = HdcMeasureText(hdc, txt, fmt, fontSumatraTxt);
+    Rect mainRect(rect.x + (rect.dx - txtSize.dx) / 2, rect.y + (rect.dy - txtSize.dy) / 2, txtSize.dx, txtSize.dy);
+    DrawAppName(hdc, mainRect.TL(), fontSumatraTxt);
 
     SetTextColor(hdc, gCurrentTheme->window.textColor);
-    ScopedSelectFont restoreFont(hdc, fontVersionTxt);
-    Point pt(mainRect.x + mainRect.dx + DpiScale(hwnd, kInnerPadding), mainRect.y);
+    int x = mainRect.x + mainRect.dx + DpiScale(hwnd, kInnerPadding);
+    int y = mainRect.y;
 
     char* ver = GetAppVersionTemp();
-    TextOutUtf8(hdc, pt.x, pt.y, ver, (int)str::Len(ver));
-    txt = VERSION_SUB_TXT;
-    TextOutUtf8(hdc, pt.x, pt.y + DpiScale(hwnd, 13), txt, (int)str::Len(txt));
+    Rect r = {x, y, 1024, 1024};
+    HdcDrawText(hdc, ver, r, fmt, fontVersionTxt);
+    r.y += DpiScale(hwnd, 13);
+    HdcDrawText(hdc, VERSION_SUB_TXT, r, fmt);
 }
 
 // draw on the bottom right
 static Rect DrawHideFrequentlyReadLink(HWND hwnd, HDC hdc, const char* txt) {
-    AutoDeleteFont fontLeftTxt(CreateSimpleFont(hdc, "MS Shell Dlg", 16));
+    HFONT fontLeftTxt = CreateSimpleFont(hdc, "MS Shell Dlg", 16);
 
     HwndWidgetText w(txt, hwnd, fontLeftTxt);
     w.isRtl = IsUIRightToLeft();
@@ -271,15 +195,24 @@ static Rect DrawHideFrequentlyReadLink(HWND hwnd, HDC hdc, const char* txt) {
     Rect rc = ClientRect(hwnd);
 
     int innerPadding = DpiScale(hwnd, kInnerPadding);
-    int x = rc.dx - txtSize.dx - innerPadding;
-    int y = rc.y + rc.dy - txtSize.dy - innerPadding;
-    Rect rect(x, y, txtSize.dx, txtSize.dy);
-    w.SetBounds(rect);
+    Rect r = {0, 0, txtSize.dx, txtSize.dy};
+    PositionRB(rc, r);
+    MoveXY(r, -innerPadding, -innerPadding);
+    w.SetBounds(r);
     w.Draw(hdc);
 
     // make the click target larger
-    rect.Inflate(innerPadding, innerPadding);
-    return rect;
+    r.Inflate(innerPadding, innerPadding);
+    return r;
+}
+
+static TempStr TrimGitTemp(char* s) {
+    if (gitCommidId && str::EndsWith(s, gitCommidId)) {
+        auto sLen = str::Len(s);
+        auto gitLen = str::Len(gitCommidId);
+        s = str::DupTemp(s, sLen - gitLen - 7);
+    }
+    return s;
 }
 
 /* Draws the about screen and remembers some state for hyperlinking.
@@ -292,22 +225,20 @@ static void DrawAbout(HWND hwnd, HDC hdc, Rect rect, Vec<StaticLinkInfo*>& stati
     col = gCurrentTheme->window.linkColor;
     AutoDeletePen penLinkLine(CreatePen(PS_SOLID, ABOUT_LINE_SEP_SIZE, col));
 
-    AutoDeleteFont fontLeftTxt(CreateSimpleFont(hdc, kLeftTextFont, kLeftTextFontSize));
-    AutoDeleteFont fontRightTxt(CreateSimpleFont(hdc, kRightTextFont, kRightTextFontSize));
+    HFONT fontLeftTxt = CreateSimpleFont(hdc, kLeftTextFont, kLeftTextFontSize);
+    HFONT fontRightTxt = CreateSimpleFont(hdc, kRightTextFont, kRightTextFontSize);
 
     ScopedSelectObject font(hdc, fontLeftTxt); /* Just to remember the orig font */
 
     Rect rc = ClientRect(hwnd);
-    RECT rTmp = ToRECT(rc);
     col = GetMainWindowBackgroundColor();
-    ScopedGdiObj<HBRUSH> brushAboutBg(CreateSolidBrush(col));
-    FillRect(hdc, &rTmp, brushAboutBg);
+    AutoDeleteBrush brushAboutBg = CreateSolidBrush(col);
+    FillRect(hdc, rc, brushAboutBg);
 
     /* render title */
-    Rect titleRect(rect.TL(), CalcSumatraVersionSize(hwnd, hdc));
+    Rect titleRect(rect.TL(), CalcSumatraVersionSize(hdc));
 
-    AutoDeleteBrush bgBrush(CreateSolidBrush(col));
-    ScopedSelectObject brush(hdc, bgBrush);
+    ScopedSelectObject brush(hdc, CreateSolidBrush(col), true);
     ScopedSelectObject pen(hdc, penBorder);
 #ifndef ABOUT_USE_LESS_COLORS
     Rectangle(hdc, rect.x, rect.y + ABOUT_LINE_OUTER_SIZE, rect.x + rect.dx,
@@ -334,8 +265,11 @@ static void DrawAbout(HWND hwnd, HDC hdc, Rect rect, Vec<StaticLinkInfo*>& stati
 
     /* render text on the left*/
     SelectObject(hdc, fontLeftTxt);
+    uint fmt = DT_LEFT | DT_NOCLIP;
     for (AboutLayoutInfoEl* el = gAboutLayoutInfo; el->leftTxt; el++) {
-        TextOutUtf8(hdc, el->leftPos.x, el->leftPos.y, el->leftTxt, (int)str::Len(el->leftTxt));
+        auto& pos = el->leftPos;
+        Rect r{pos.x, pos.y, 1024, 1024};
+        HdcDrawText(hdc, el->leftTxt, r, fmt);
     }
 
     /* render text on the right */
@@ -350,46 +284,44 @@ static void DrawAbout(HWND hwnd, HDC hdc, Rect rect, Vec<StaticLinkInfo*>& stati
             col = gCurrentTheme->window.textColor;
         }
         SetTextColor(hdc, col);
-        size_t txtLen = str::Len(el->rightTxt);
-        if (gitCommidId) {
-            if (str::EndsWith(el->rightTxt, gitCommidId)) {
-                txtLen -= str::Len(gitCommidId) - 7;
-            }
-        }
-        TextOutUtf8(hdc, el->rightPos.x, el->rightPos.y, el->rightTxt, (int)txtLen);
+        char* s = (char*)el->rightTxt;
+        s = TrimGitTemp(s);
+        auto& pos = el->rightPos;
+        Rect r{pos.x, pos.y, 1024, 1024};
+        HdcDrawText(hdc, s, r, fmt);
 
         if (hasUrl) {
-            int underlineY = el->rightPos.y + el->rightPos.dy - 3;
-            DrawLine(hdc, Rect(el->rightPos.x, underlineY, el->rightPos.dx, 0));
-            auto sl = new StaticLinkInfo(el->rightPos, el->url, el->url);
+            int underlineY = pos.y + pos.dy - 3;
+            DrawLine(hdc, Rect(pos.x, underlineY, pos.dx, 0));
+            auto sl = new StaticLinkInfo(pos, el->url, el->url);
             staticLinks.Append(sl);
         }
     }
 
     SelectObject(hdc, penDivideLine);
-    Rect divideLine(gAboutLayoutInfo[0].rightPos.x - DpiScale(hwnd, ABOUT_LEFT_RIGHT_SPACE_DX),
-                    rect.y + titleRect.dy + 4, 0, rect.y + rect.dy - 4 - gAboutLayoutInfo[0].rightPos.y);
+    Rect divideLine(gAboutLayoutInfo[0].rightPos.x - DpiScale(hwnd, kAboutLeftRightSpaceDx), rect.y + titleRect.dy + 4,
+                    0, rect.y + rect.dy - 4 - gAboutLayoutInfo[0].rightPos.y);
     DrawLine(hdc, divideLine);
 }
 
 static void UpdateAboutLayoutInfo(HWND hwnd, HDC hdc, Rect* rect) {
-    AutoDeleteFont fontLeftTxt(CreateSimpleFont(hdc, kLeftTextFont, kLeftTextFontSize));
-    AutoDeleteFont fontRightTxt(CreateSimpleFont(hdc, kRightTextFont, kRightTextFontSize));
+    HFONT fontLeftTxt = CreateSimpleFont(hdc, kLeftTextFont, kLeftTextFontSize);
+    HFONT fontRightTxt = CreateSimpleFont(hdc, kRightTextFont, kRightTextFontSize);
 
     HGDIOBJ origFont = SelectObject(hdc, fontLeftTxt);
 
     /* calculate minimal top box size */
-    Size headerSize = CalcSumatraVersionSize(hwnd, hdc);
+    Size headerSize = CalcSumatraVersionSize(hdc);
 
     /* calculate left text dimensions */
     SelectObject(hdc, fontLeftTxt);
     int leftLargestDx = 0;
     int leftDy = 0;
+    uint fmt = DT_LEFT;
     for (AboutLayoutInfoEl* el = gAboutLayoutInfo; el->leftTxt; el++) {
-        SIZE txtSize;
-        GetTextExtentPoint32Utf8(hdc, el->leftTxt, (int)str::Len(el->leftTxt), &txtSize);
-        el->leftPos.dx = txtSize.cx;
-        el->leftPos.dy = txtSize.cy;
+        Size txtSize = HdcMeasureText(hdc, el->leftTxt, fmt);
+        el->leftPos.dx = txtSize.dx;
+        el->leftPos.dy = txtSize.dy;
 
         if (el == &gAboutLayoutInfo[0]) {
             leftDy = el->leftPos.dy;
@@ -406,16 +338,11 @@ static void UpdateAboutLayoutInfo(HWND hwnd, HDC hdc, Rect* rect) {
     int rightLargestDx = 0;
     int rightDy = 0;
     for (AboutLayoutInfoEl* el = gAboutLayoutInfo; el->leftTxt; el++) {
-        SIZE txtSize;
-        size_t txtLen = str::Len(el->rightTxt);
-        if (gitCommidId) {
-            if (str::EndsWith(el->rightTxt, gitCommidId)) {
-                txtLen -= str::Len(gitCommidId) - 7;
-            }
-        }
-        GetTextExtentPoint32Utf8(hdc, el->rightTxt, (int)txtLen, &txtSize);
-        el->rightPos.dx = txtSize.cx;
-        el->rightPos.dy = txtSize.cy;
+        char* s = (char*)el->rightTxt;
+        s = TrimGitTemp(s);
+        Size txtSize = HdcMeasureText(hdc, s, fmt);
+        el->rightPos.dx = txtSize.dx;
+        el->rightPos.dy = txtSize.dy;
 
         if (el == &gAboutLayoutInfo[0]) {
             rightDy = el->rightPos.dy;
@@ -427,9 +354,9 @@ static void UpdateAboutLayoutInfo(HWND hwnd, HDC hdc, Rect* rect) {
         }
     }
 
-    int leftRightSpaceDx = DpiScale(hwnd, ABOUT_LEFT_RIGHT_SPACE_DX);
-    int marginDx = DpiScale(hwnd, ABOUT_MARGIN_DX);
-    int aboutTxtDy = DpiScale(hwnd, ABOUT_TXT_DY);
+    int leftRightSpaceDx = DpiScale(hwnd, kAboutLeftRightSpaceDx);
+    int marginDx = DpiScale(hwnd, kAboutMarginDx);
+    int aboutTxtDy = DpiScale(hwnd, kAboutTxtDy);
     /* calculate total dimension and position */
     Rect minRect;
     minRect.dx = leftRightSpaceDx + leftLargestDx + ABOUT_LINE_SEP_SIZE + rightLargestDx + leftRightSpaceDx;
@@ -645,7 +572,7 @@ void ShowAboutWindow(MainWindow* win) {
     SetLayout(hdc, LAYOUT_LTR);
     UpdateAboutLayoutInfo(gHwndAbout, hdc, &rc);
     EndPaint(gHwndAbout, &ps);
-    int rectPadding = DpiScale(gHwndAbout, ABOUT_RECT_PADDING);
+    int rectPadding = DpiScale(gHwndAbout, kAboutRectPadding);
     rc.Inflate(rectPadding, rectPadding);
 
     // resize the new window to just match these dimensions
@@ -672,44 +599,61 @@ void DrawAboutPage(MainWindow* win, HDC hdc) {
 
 /* alternate static page to display when no document is loaded */
 
-constexpr int kDocListSeparatorDy = 2;
-constexpr int kDocListThumbnailBorderDx = 1;
-#define kDocListMarginLeft DpiScale(win->hwndFrame, 40)
-#define kDocListMarginBetweenX DpiScale(win->hwndFrame, 30)
-#define kDocListMarginBetweenY DpiScale(win->hwndFrame, 50)
-#define kDocListMarginRight DpiScale(win->hwndFrame, 40)
-#define kDocListMarginTop DpiScale(win->hwndFrame, 60)
-#define kDocListMarginBottom DpiScale(win->hwndFrame, 40)
-constexpr int kDocListMaxThumbnailsX = 5;
-#define kDocListBottomBoxDy DpiScale(win->hwndFrame, 50)
+constexpr int kThumbsMaxCols = 5;
+constexpr int kThumbsSeparatorDy = 2;
+constexpr int kThumbsBorderDx = 1;
+#define kThumbsMarginLeft DpiScale(hdc, 40)
+#define kThumbsMarginRight DpiScale(hdc, 40)
+#define kThumbsMarginTop DpiScale(hdc, 60)
+#define kThumbsMarginBottom DpiScale(hdc, 40)
+#define kThumbsSpaceBetweenX DpiScale(hdc, 30)
+#define kThumbsSpaceBetweenY DpiScale(hdc, 50)
+#define kThumbsBottomBoxDy DpiScale(hdc, 50)
 
-void DrawHomePage(MainWindow* win, HDC hdc, FileHistory& fileHistory, COLORREF textColor, COLORREF backgroundColor) {
+struct ThumbnailLayot {
+    Rect bThumb;
+    Rect bIcon;
+    Rect bName;
+};
+
+struct HomePageLayout {
+    Rect bApp;
+    Rect bAppVer;
+    Rect bLine;
+
+    Rect bFreqRead;
+
+    Rect bOpenDocIcon;
+    Rect bOpenDoc;
+
+    Rect bHideFreqRead;
+    Vec<ThumbnailLayot> thumbnails;
+};
+
+void LaoutHomePage(HDC hdc, Rect r, const FileHistory& fileHistory, HomePageLayout& l) {
+    // TODO: write me
+}
+
+void DrawHomePage(MainWindow* win, HDC hdc, const FileHistory& fileHistory, COLORREF textColor, COLORREF backgroundColor) {
     HWND hwnd = win->hwndFrame;
-    auto col = gCurrentTheme->window.textColor;
-    AutoDeletePen penBorder(CreatePen(PS_SOLID, kDocListSeparatorDy, col));
-    AutoDeletePen penThumbBorder(CreatePen(PS_SOLID, kDocListThumbnailBorderDx, col));
-    col = gCurrentTheme->window.linkColor;
-    AutoDeletePen penLinkLine(CreatePen(PS_SOLID, 1, col));
+    auto color = gCurrentTheme->window.textColor;
+    AutoDeletePen penBorder(CreatePen(PS_SOLID, kThumbsSeparatorDy, color));
+    AutoDeletePen penThumbBorder(CreatePen(PS_SOLID, kThumbsBorderDx, color));
+    color = gCurrentTheme->window.linkColor;
+    AutoDeletePen penLinkLine(CreatePen(PS_SOLID, 1, color));
 
-    AutoDeleteFont fontSumatraTxt(CreateSimpleFont(hdc, "MS Shell Dlg", 24));
-    AutoDeleteFont fontFrequentlyRead(CreateSimpleFont(hdc, "MS Shell Dlg", 24));
-    AutoDeleteFont fontText(CreateSimpleFont(hdc, "MS Shell Dlg", 14));
-
-    ScopedSelectObject font(hdc, fontSumatraTxt);
+    HFONT fontText = CreateSimpleFont(hdc, "MS Shell Dlg", 14);
 
     Rect rc = ClientRect(win->hwndCanvas);
-    RECT rTmp = ToRECT(rc);
-    col = GetMainWindowBackgroundColor();
-    AutoDeleteBrush brushLogoBg(CreateSolidBrush(col));
-    FillRect(hdc, &rTmp, brushLogoBg);
+    color = GetMainWindowBackgroundColor();
+    FillRect(hdc, rc, color);
 
-    ScopedSelectObject brush(hdc, brushLogoBg);
     ScopedSelectObject pen(hdc, penBorder);
 
     bool isRtl = IsUIRightToLeft();
 
     /* render title */
-    Rect titleBox = Rect(Point(0, 0), CalcSumatraVersionSize(win->hwndCanvas, hdc));
+    Rect titleBox = Rect(Point(0, 0), CalcSumatraVersionSize(hdc));
     titleBox.x = rc.dx - titleBox.dx - 3;
     DrawSumatraVersion(win->hwndCanvas, hdc, titleBox);
     DrawLine(hdc, Rect(0, titleBox.dy, rc.dx, 0));
@@ -717,64 +661,62 @@ void DrawHomePage(MainWindow* win, HDC hdc, FileHistory& fileHistory, COLORREF t
     /* render recent files list */
     SelectObject(hdc, penThumbBorder);
     SetBkMode(hdc, TRANSPARENT);
-    col = gCurrentTheme->window.textColor;
-    SetTextColor(hdc, col);
+    color = gCurrentTheme->window.textColor;
+    SetTextColor(hdc, color);
 
     rc.y += titleBox.dy;
     rc.dy -= titleBox.dy;
-    rTmp = ToRECT(rc);
-    col = GetMainWindowBackgroundColor();
-    ScopedGdiObj<HBRUSH> brushAboutBg(CreateSolidBrush(col));
-    FillRect(hdc, &rTmp, brushAboutBg);
-    rc.dy -= kDocListBottomBoxDy;
+    color = GetMainWindowBackgroundColor();
+    FillRect(hdc, rc, color);
+    rc.dy -= kThumbsBottomBoxDy;
 
     Vec<FileState*> list;
     fileHistory.GetFrequencyOrder(list);
 
-    int dx = (rc.dx - kDocListMarginLeft - kDocListMarginRight + kDocListMarginBetweenX) /
-             (kThumbnailDx + kDocListMarginBetweenX);
-    int width = limitValue(dx, 1, kDocListMaxThumbnailsX);
-    int dy = (rc.dy - kDocListMarginTop - kDocListMarginBottom + kDocListMarginBetweenY) /
-             (kThumbnailDy + kDocListMarginBetweenY);
-    int height = std::min(dy, kFileHistoryMaxFrequent / width);
-    int x = rc.x + kDocListMarginLeft +
-            (rc.dx - width * kThumbnailDx - (width - 1) * kDocListMarginBetweenX - kDocListMarginLeft -
-             kDocListMarginRight) /
+    int dx = (rc.dx - kThumbsMarginLeft - kThumbsMarginRight + kThumbsSpaceBetweenX) /
+             (kThumbnailDx + kThumbsSpaceBetweenX);
+    int thumbsCols = limitValue(dx, 1, kThumbsMaxCols);
+    int dy = (rc.dy - kThumbsMarginTop - kThumbsMarginBottom + kThumbsSpaceBetweenY) /
+             (kThumbnailDy + kThumbsSpaceBetweenY);
+    int thumbsRows = std::min(dy, kFileHistoryMaxFrequent / thumbsCols);
+    int x = rc.x + kThumbsMarginLeft +
+            (rc.dx - thumbsCols * kThumbnailDx - (thumbsCols - 1) * kThumbsSpaceBetweenX - kThumbsMarginLeft -
+             kThumbsMarginRight) /
                 2;
-    Point offset(x, rc.y + kDocListMarginTop);
+    Point offset(x, rc.y + kThumbsMarginTop);
     if (offset.x < DpiScale(hwnd, kInnerPadding)) {
         offset.x = DpiScale(hwnd, kInnerPadding);
     } else if (list.size() == 0) {
-        offset.x = kDocListMarginLeft;
+        offset.x = kThumbsMarginLeft;
     }
 
     const char* txt = _TRA("Frequently Read");
+    HFONT fontFrequentlyRead = CreateSimpleFont(hdc, "MS Shell Dlg", 24);
     HwndWidgetText freqRead(txt, hwnd, fontFrequentlyRead);
     freqRead.isRtl = isRtl;
     Size txtSize = freqRead.Measure(true);
 
-    Rect headerRect(offset.x, rc.y + (kDocListMarginTop - txtSize.dy) / 2, txtSize.dx, txtSize.dy);
+    Rect headerRect(offset.x, rc.y + (kThumbsMarginTop - txtSize.dy) / 2, txtSize.dx, txtSize.dy);
     if (isRtl) {
         headerRect.x = rc.dx - offset.x - headerRect.dx;
     }
     freqRead.SetBounds(headerRect);
     freqRead.Draw(hdc);
 
-    SelectObject(hdc, fontText);
     SelectObject(hdc, GetStockBrush(NULL_BRUSH));
 
     DeleteVecMembers(win->staticLinks);
-    for (int h = 0; h < height; h++) {
-        for (int w = 0; w < width; w++) {
-            if (h * width + w >= (int)list.size()) {
+    for (int row = 0; row < thumbsRows; row++) {
+        for (int col = 0; col < thumbsCols; col++) {
+            if (row * thumbsCols + col >= list.isize()) {
                 // display the "Open a document" link right below the last row
-                height = w > 0 ? h + 1 : h;
+                thumbsRows = col > 0 ? row + 1 : row;
                 break;
             }
-            FileState* state = list.at(h * width + w);
+            FileState* state = list.at(row * thumbsCols + col);
 
-            Rect page(offset.x + w * (kThumbnailDx + kDocListMarginBetweenX),
-                      offset.y + h * (kThumbnailDy + kDocListMarginBetweenY), kThumbnailDx, kThumbnailDy);
+            Rect page(offset.x + col * (kThumbnailDx + kThumbsSpaceBetweenX),
+                      offset.y + row * (kThumbnailDy + kThumbsSpaceBetweenY), kThumbnailDx, kThumbnailDy);
             if (isRtl) {
                 page.x = rc.dx - page.x - page.dx;
             }
@@ -810,14 +752,11 @@ void DrawHomePage(MainWindow* win, HDC hdc, FileHistory& fileHistory, COLORREF t
             if (isRtl) {
                 rect.x -= iconSpace;
             }
-            rTmp = ToRECT(rect);
             char* path = state->filePath;
             const char* fileName = path::GetBaseNameTemp(path);
             UINT fmt = DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX | (isRtl ? DT_RIGHT : DT_LEFT);
-            HdcDrawText(hdc, fileName, -1, &rTmp, fmt);
+            HdcDrawText(hdc, fileName, rect, fmt, fontText);
 
-            // note: this crashes asan build in windows code
-            // see https://codeeval.dev/gist/bc761bb1ef1cce04e6a1d65e9d30201b
             SHFILEINFO sfi = {nullptr};
             uint flags = SHGFI_SYSICONINDEX | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES;
             WCHAR* filePathW = ToWStrTemp(path);
@@ -831,11 +770,11 @@ void DrawHomePage(MainWindow* win, HDC hdc, FileHistory& fileHistory, COLORREF t
     }
 
     /* render bottom links */
-    rc.y += kDocListMarginTop + height * kThumbnailDy + (height - 1) * kDocListMarginBetweenY + kDocListMarginBottom;
-    rc.dy = kDocListBottomBoxDy;
+    rc.y += kThumbsMarginTop + thumbsRows * kThumbnailDy + (thumbsRows - 1) * kThumbsSpaceBetweenY + kThumbsMarginBottom;
+    rc.dy = kThumbsBottomBoxDy;
 
-    col = gCurrentTheme->window.linkColor;
-    SetTextColor(hdc, col);
+    color = gCurrentTheme->window.linkColor;
+    SetTextColor(hdc, color);
     SelectObject(hdc, penLinkLine);
 
     HIMAGELIST himl = (HIMAGELIST)SendMessageW(win->hwndToolbar, TB_GETIMAGELIST, 0, 0);

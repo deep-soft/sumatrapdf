@@ -185,7 +185,6 @@ class ScopedGdiObj {
         return obj;
     }
 };
-using AutoDeleteFont = ScopedGdiObj<HFONT>;
 using AutoDeletePen = ScopedGdiObj<HPEN>;
 using AutoDeleteBrush = ScopedGdiObj<HBRUSH>;
 
@@ -230,20 +229,20 @@ class ScopedSelectObject {
 
 class ScopedSelectFont {
     HDC hdc = nullptr;
-    HGDIOBJ prevFont = nullptr;
+    HGDIOBJ prev = nullptr;
 
   public:
     // font can be nullptr
     explicit ScopedSelectFont(HDC hdc, HFONT font) {
         this->hdc = hdc;
         if (font) {
-            prevFont = (HFONT)SelectObject(hdc, font);
+            prev = (HFONT)SelectObject(hdc, font);
         }
     }
 
     ~ScopedSelectFont() {
-        if (prevFont) {
-            SelectObject(hdc, prevFont);
+        if (prev) {
+            SelectObject(hdc, prev);
         }
     }
 };

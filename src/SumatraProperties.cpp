@@ -39,43 +39,50 @@ constexpr const WCHAR* kPropertiesWinClassName = L"SUMATRA_PDF_PROPERTIES";
 
 LRESULT CALLBACK WndProcProperties(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 
-struct PropertyEl {
-    PropertyEl(const char* leftTxt, char* rightTxt, bool isPath = false) : leftTxt(leftTxt), isPath(isPath) {
-        this->rightTxt.Set(rightTxt);
-    }
-
-    // A property is always in format: Name (left): Value (right)
-    // (leftTxt is static, rightTxt will be freed)
-    const char* leftTxt;
-    AutoFreeStr rightTxt;
-
-    // data calculated by the layout
-    Rect leftPos;
-    Rect rightPos;
-
-    // overlong paths get the ellipsis in the middle instead of at the end
-    bool isPath;
-};
-
 struct PropertiesLayout {
+    struct Prop {
+        // A property is always in format: Name (left): Value (right)
+        int keyIdx;
+        int valIdx;
+        // overlong paths get the ellipsis in the middle instead of at the end
+        bool isPath;
+
+        // data calculated by the layout
+        Rect keyPos;
+        Rect valPos;
+    };
+
     PropertiesLayout() = default;
     ~PropertiesLayout() {
         delete btnCopyToClipboard;
         delete btnGetFonts;
-        DeleteVecMembers(props);
     }
 
-    void AddProperty(const char* key, char* value, bool isPath = false) {
+    void AddProperty(const char* key, const char* value, bool isPath = false) {
         // don't display value-less properties
-        if (!str::IsEmpty(value)) {
-            props.Append(new PropertyEl(key, value, isPath));
-        } else {
-            free(value);
+        if (str::IsEmpty(value)) {
+            return;
         }
+        int keyIdx = strings.Append(key);
+        int valIdx = strings.Append(value);
+        Prop p = {keyIdx, valIdx, isPath};
+        props.Append(p);
     }
+
+    char* PropKey(int i) {
+        int idx = props[i].keyIdx;
+        return strings.at(idx);
+    }
+
+    char* PropValue(int i) {
+        int idx = props[i].valIdx;
+        return strings.at(idx);
+    }
+
     bool HasProperty(const char* key) {
         for (auto&& prop : props) {
-            if (str::Eq(key, prop->leftTxt)) {
+            char* k = strings.at(prop.keyIdx);
+            if (str::Eq(key, k)) {
                 return true;
             }
         }
@@ -86,7 +93,8 @@ struct PropertiesLayout {
     HWND hwndParent = nullptr;
     Button* btnCopyToClipboard = nullptr;
     Button* btnGetFonts = nullptr;
-    Vec<PropertyEl*> props;
+    Vec<Prop> props;
+    StrVec strings;
 };
 
 static Vec<PropertiesLayout*> gPropertiesWindows;
@@ -140,7 +148,7 @@ static bool IsoDateParse(const char* isoDate, SYSTEMTIME* timeOut) {
     // don't bother about the day of week, we won't display it anyway
 }
 
-static char* FormatSystemTimeA(SYSTEMTIME& date) {
+static TempStr FormatSystemTimeTemp(SYSTEMTIME& date) {
     WCHAR bufW[512]{};
     int cchBufLen = dimof(bufW);
     int ret = GetDateFormatW(LOCALE_USER_DEFAULT, DATE_SHORTDATE, &date, nullptr, bufW, cchBufLen);
@@ -150,7 +158,7 @@ static char* FormatSystemTimeA(SYSTEMTIME& date) {
 
     // don't add 00:00:00 for dates without time
     if (0 == date.wHour && 0 == date.wMinute && 0 == date.wSecond) {
-        return ToUtf8(bufW);
+        return ToUtf8Temp(bufW);
     }
 
     WCHAR* tmp = bufW + ret;
@@ -160,34 +168,30 @@ static char* FormatSystemTimeA(SYSTEMTIME& date) {
         tmp[-1] = '\0';
     }
 
-    return ToUtf8(bufW);
+    return ToUtf8Temp(bufW);
 }
 
 // Convert a date in PDF or XPS format, e.g. "D:20091222171933-05'00'" to a display
 // format e.g. "12/22/2009 5:19:33 PM"
 // See: http://www.verypdf.com/pdfinfoeditor/pdf-date-format.htm
 // The conversion happens in place
-static void ConvDateToDisplay(char** s, bool (*DateParse)(const char* date, SYSTEMTIME* timeOut)) {
-    if (!s || !*s || !DateParse) {
-        return;
+static TempStr ConvDateToDisplayTemp(const char* s, bool (*dateParseFn)(const char* date, SYSTEMTIME* timeOut)) {
+    if (!s || !*s || !dateParseFn) {
+        return nullptr;
     }
 
     SYSTEMTIME date{};
-    bool ok = DateParse(*s, &date);
+    bool ok = dateParseFn(s, &date);
     if (!ok) {
-        return;
+        return nullptr;
     }
 
-    char* formatted = FormatSystemTimeA(date);
-    if (formatted) {
-        free(*s);
-        *s = formatted;
-    }
+    return FormatSystemTimeTemp(date);
 }
 
 // format page size according to locale (e.g. "29.7 x 21.0 cm" or "11.69 x 8.27 in")
 // Caller needs to free the result
-static char* FormatPageSize(EngineBase* engine, int pageNo, int rotation) {
+static TempStr FormatPageSizeTemp(EngineBase* engine, int pageNo, int rotation) {
     RectF mediabox = engine->PageMediabox(pageNo);
     float zoom = 1.0f / engine->GetFileDPI();
     SizeF size = engine->Transform(mediabox, pageNo, zoom, rotation).Size();
@@ -239,11 +243,11 @@ static char* FormatPageSize(EngineBase* engine, int pageNo, int rotation) {
     char* strWidth = str::FormatFloatWithThousandSepTemp(width);
     char* strHeight = str::FormatFloatWithThousandSepTemp(height);
 
-    return fmt::Format("%s x %s %s%s", strWidth, strHeight, unit, formatName);
+    return str::FormatTemp("%s x %s %s%s", strWidth, strHeight, unit, formatName);
 }
 
 static char* FormatPdfFileStructure(DocController* ctrl) {
-    AutoFreeStr fstruct(ctrl->GetProperty(DocumentProperty::PdfFileStructure));
+    AutoFreeStr fstruct = ctrl->GetProperty(DocumentProperty::PdfFileStructure);
     if (str::IsEmpty(fstruct.Get())) {
         return nullptr;
     }
@@ -273,7 +277,7 @@ static char* FormatPdfFileStructure(DocController* ctrl) {
 
 // returns a list of permissions denied by this document
 // Caller needs to free the result
-static char* FormatPermissionsA(DocController* ctrl) {
+static TempStr FormatPermissionsTemp(DocController* ctrl) {
     if (!ctrl->AsFixed()) {
         return nullptr;
     }
@@ -288,26 +292,29 @@ static char* FormatPermissionsA(DocController* ctrl) {
         denials.Append(_TRA("copying text"));
     }
 
-    return Join(denials, ", ");
+    char* s = Join(denials, ", ");
+    return str::DupTemp(s);
 }
 
 static Rect CalcPropertiesLayout(PropertiesLayout* layoutData, HDC hdc) {
-    AutoDeleteFont fontLeftTxt(CreateSimpleFont(hdc, kLeftTextFont, kLeftTextFontSize));
-    AutoDeleteFont fontRightTxt(CreateSimpleFont(hdc, kRightTextFont, kRightTextFontSize));
-    HGDIOBJ origFont = SelectObject(hdc, fontLeftTxt);
+    HFONT fontLeftTxt = CreateSimpleFont(hdc, kLeftTextFont, kLeftTextFontSize);
+    HFONT fontRightTxt = CreateSimpleFont(hdc, kRightTextFont, kRightTextFontSize);
+    ScopedSelectFont origFont(hdc, fontLeftTxt);
 
     /* calculate text dimensions for the left side */
     SelectObject(hdc, fontLeftTxt);
     int leftMaxDx = 0;
-    for (PropertyEl* el : layoutData->props) {
-        const char* txt = el->leftTxt;
+    int nProps = layoutData->props.isize();
+    for (int i = 0; i < nProps; i++) {
+        auto&& prop = layoutData->props.at(i);
+        const char* txt = layoutData->PropKey(i);
         RECT rc{};
-        HdcDrawText(hdc, txt, -1, &rc, DT_NOPREFIX | DT_CALCRECT);
-        el->leftPos.dx = rc.right - rc.left;
+        HdcDrawText(hdc, txt, &rc, DT_NOPREFIX | DT_CALCRECT);
+        prop.keyPos.dx = rc.right - rc.left;
         // el->leftPos.dy is set below to be equal to el->rightPos.dy
 
-        if (el->leftPos.dx > leftMaxDx) {
-            leftMaxDx = el->leftPos.dx;
+        if (prop.keyPos.dx > leftMaxDx) {
+            leftMaxDx = prop.keyPos.dx;
         }
     }
 
@@ -316,18 +323,19 @@ static Rect CalcPropertiesLayout(PropertiesLayout* layoutData, HDC hdc) {
     int rightMaxDx = 0;
     int lineCount = 0;
     int textDy = 0;
-    for (PropertyEl* el : layoutData->props) {
-        const char* txt = el->rightTxt;
+    for (int i = 0; i < nProps; i++) {
+        auto&& prop = layoutData->props.at(i);
+        const char* txt = layoutData->PropValue(i);
         RECT rc{};
-        HdcDrawText(hdc, txt, -1, &rc, DT_NOPREFIX | DT_CALCRECT);
+        HdcDrawText(hdc, txt, &rc, DT_NOPREFIX | DT_CALCRECT);
         auto dx = rc.right - rc.left;
         // limit the width or right text as some fields can be very long
         if (dx > 720) {
             dx = 720;
         }
-        el->rightPos.dx = dx;
-        el->leftPos.dy = el->rightPos.dy = rc.bottom - rc.top;
-        textDy += el->rightPos.dy;
+        prop.valPos.dx = dx;
+        prop.keyPos.dy = prop.valPos.dy = rc.bottom - rc.top;
+        textDy += prop.valPos.dy;
 
         if (dx > rightMaxDx) {
             rightMaxDx = dx;
@@ -345,14 +353,14 @@ static Rect CalcPropertiesLayout(PropertiesLayout* layoutData, HDC hdc) {
     int offset = kRectPadding;
 
     int currY = 0;
-    for (PropertyEl* el : layoutData->props) {
-        el->leftPos = Rect(offset, offset + currY, leftMaxDx, el->leftPos.dy);
-        el->rightPos.x = offset + leftMaxDx + kLeftRightPaddingDx;
-        el->rightPos.y = offset + currY;
-        currY += el->rightPos.dy + kTxtPaddingDy;
+    for (int i = 0; i < nProps; i++) {
+        auto&& prop = layoutData->props.at(i);
+        prop.keyPos = Rect(offset, offset + currY, leftMaxDx, prop.keyPos.dy);
+        prop.valPos.x = offset + leftMaxDx + kLeftRightPaddingDx;
+        prop.valPos.y = offset + currY;
+        currY += prop.valPos.dy + kTxtPaddingDy;
     }
 
-    SelectObject(hdc, origFont);
     auto dx = totalDx + 2 * offset;
     auto dy = totalDy + offset;
 
@@ -380,12 +388,13 @@ static Rect CalcPropertiesLayout(PropertiesLayout* layoutData, HDC hdc) {
 
 static void ShowExtendedProperties(HWND hwnd) {
     PropertiesLayout* pl = FindPropertyWindowByHwnd(hwnd);
-    if (pl) {
-        MainWindow* win = FindMainWindowByHwnd(pl->hwndParent);
-        if (win && !pl->HasProperty(_TRA("Fonts:"))) {
-            DestroyWindow(hwnd);
-            ShowProperties(win->hwndFrame, win->ctrl, true);
-        }
+    if (!pl) {
+        return;
+    }
+    MainWindow* win = FindMainWindowByHwnd(pl->hwndParent);
+    if (win && !pl->HasProperty(_TRA("Fonts:"))) {
+        DestroyWindow(hwnd);
+        ShowProperties(win->hwndFrame, win->ctrl, true);
     }
 }
 
@@ -397,8 +406,11 @@ static void CopyPropertiesToClipboard(HWND hwnd) {
 
     // concatenate all the properties into a multi-line string
     str::Str lines(256);
-    for (PropertyEl* el : layoutData->props) {
-        lines.AppendFmt("%s %s\r\n", el->leftTxt, el->rightTxt.Get());
+    int nProps = layoutData->props.isize();
+    for (int i = 0; i < nProps; i++) {
+        auto key = layoutData->PropKey(i);
+        auto val = layoutData->PropValue(i);
+        lines.AppendFmt("%s %s\r\n", key, val);
     }
 
     CopyTextToClipboard(lines.LendData());
@@ -482,49 +494,59 @@ static void GetProps(DocController* ctrl, PropertiesLayout* layoutData, bool ext
     CrashIf(!ctrl);
 
     const char* path = gPluginMode ? gPluginURL : ctrl->GetFilePath();
-    char* str = str::Dup(path);
-    layoutData->AddProperty(_TRA("File:"), str, true);
+    layoutData->AddProperty(_TRA("File:"), path, true);
 
-    str = ctrl->GetProperty(DocumentProperty::Title);
+    char* str = ctrl->GetProperty(DocumentProperty::Title);
     layoutData->AddProperty(_TRA("Title:"), str);
+    str::Free(str);
 
     str = ctrl->GetProperty(DocumentProperty::Subject);
     layoutData->AddProperty(_TRA("Subject:"), str);
+    str::Free(str);
 
     str = ctrl->GetProperty(DocumentProperty::Author);
     layoutData->AddProperty(_TRA("Author:"), str);
+    str::Free(str);
 
     str = ctrl->GetProperty(DocumentProperty::Copyright);
     layoutData->AddProperty(_TRA("Copyright:"), str);
+    str::Free(str);
 
     DisplayModel* dm = ctrl->AsFixed();
     str = ctrl->GetProperty(DocumentProperty::CreationDate);
+    TempStr strTemp;
     if (str && dm && kindEngineMupdf == dm->engineType) {
-        ConvDateToDisplay(&str, PdfDateParseA);
+        strTemp = ConvDateToDisplayTemp(str, PdfDateParseA);
     } else {
-        ConvDateToDisplay(&str, IsoDateParse);
+        strTemp = ConvDateToDisplayTemp(str, IsoDateParse);
     }
-    layoutData->AddProperty(_TRA("Created:"), str);
+    str::Free(str);
+    layoutData->AddProperty(_TRA("Created:"), strTemp);
 
     str = ctrl->GetProperty(DocumentProperty::ModificationDate);
     if (str && dm && kindEngineMupdf == dm->engineType) {
-        ConvDateToDisplay(&str, PdfDateParseA);
+        strTemp = ConvDateToDisplayTemp(str, PdfDateParseA);
     } else {
-        ConvDateToDisplay(&str, IsoDateParse);
+        strTemp = ConvDateToDisplayTemp(str, IsoDateParse);
     }
-    layoutData->AddProperty(_TRA("Modified:"), str);
+    layoutData->AddProperty(_TRA("Modified:"), strTemp);
+    str::Free(str);
 
     str = ctrl->GetProperty(DocumentProperty::CreatorApp);
     layoutData->AddProperty(_TRA("Application:"), str);
+    str::Free(str);
 
     str = ctrl->GetProperty(DocumentProperty::PdfProducer);
     layoutData->AddProperty(_TRA("PDF Producer:"), str);
+    str::Free(str);
 
     str = ctrl->GetProperty(DocumentProperty::PdfVersion);
     layoutData->AddProperty(_TRA("PDF Version:"), str);
+    str::Free(str);
 
     str = FormatPdfFileStructure(ctrl);
     layoutData->AddProperty(_TRA("PDF Optimizations:"), str);
+    str::Free(str);
 
     i64 fileSize = file::GetSize(path); // can be gPluginURL
     if (-1 == fileSize && dm) {
@@ -536,37 +558,38 @@ static void GetProps(DocController* ctrl, PropertiesLayout* layoutData, bool ext
         d.Free();
     }
     if (-1 != fileSize) {
-        char* tmp = FormatFileSizeTemp(fileSize);
-        layoutData->AddProperty(_TRA("File Size:"), str::Dup(tmp));
+        strTemp = FormatFileSizeTemp(fileSize);
+        layoutData->AddProperty(_TRA("File Size:"), strTemp);
     }
 
-    str = str::Format("%d", ctrl->PageCount());
-    layoutData->AddProperty(_TRA("Number of Pages:"), str);
+    strTemp = str::FormatTemp("%d", ctrl->PageCount());
+    layoutData->AddProperty(_TRA("Number of Pages:"), strTemp);
 
     if (dm) {
-        str = FormatPageSize(dm->GetEngine(), ctrl->CurrentPageNo(), dm->GetRotation());
+        strTemp = FormatPageSizeTemp(dm->GetEngine(), ctrl->CurrentPageNo(), dm->GetRotation());
         if (IsUIRightToLeft() && IsWindowsVistaOrGreater()) {
             // ensure that the size remains ungarbled left-to-right
             // (note: XP doesn't know about \u202A...\u202C)
-            WCHAR* tmp = ToWStrTemp(str);
+            WCHAR* tmp = ToWStrTemp(strTemp);
             tmp = str::Format(L"\u202A%s\u202C", tmp);
-            str = ToUtf8(tmp);
+            strTemp = ToUtf8Temp(tmp);
             str::Free(tmp);
         }
-        layoutData->AddProperty(_TRA("Page Size:"), str);
+        layoutData->AddProperty(_TRA("Page Size:"), strTemp);
     }
 
-    str = FormatPermissionsA(ctrl);
-    layoutData->AddProperty(_TRA("Denied Permissions:"), str);
+    strTemp = FormatPermissionsTemp(ctrl);
+    layoutData->AddProperty(_TRA("Denied Permissions:"), strTemp);
 
     if (extended) {
         // Note: FontList extraction can take a while
         str = ctrl->GetProperty(DocumentProperty::FontList);
         if (str) {
             // add a space between basic and extended file properties
-            layoutData->AddProperty(" ", str::Dup(" "));
+            layoutData->AddProperty(" ", " ");
         }
         layoutData->AddProperty(_TRA("Fonts:"), str);
+        str::Free(str);
     }
 }
 
@@ -592,41 +615,40 @@ void ShowProperties(HWND parent, DocController* ctrl, bool extended) {
 static void DrawProperties(HWND hwnd, HDC hdc) {
     PropertiesLayout* layoutData = FindPropertyWindowByHwnd(hwnd);
 
-    AutoDeleteFont fontLeftTxt(CreateSimpleFont(hdc, kLeftTextFont, kLeftTextFontSize));
-    AutoDeleteFont fontRightTxt(CreateSimpleFont(hdc, kRightTextFont, kRightTextFontSize));
+    HFONT fontLeftTxt = CreateSimpleFont(hdc, kLeftTextFont, kLeftTextFontSize);
+    HFONT fontRightTxt = CreateSimpleFont(hdc, kRightTextFont, kRightTextFontSize);
 
     HGDIOBJ origFont = SelectObject(hdc, fontLeftTxt); /* Just to remember the orig font */
 
     SetBkMode(hdc, TRANSPARENT);
 
     Rect rcClient = ClientRect(hwnd);
-    RECT rTmp = ToRECT(rcClient);
     auto col = GetMainWindowBackgroundColor();
-    ScopedGdiObj<HBRUSH> brushAboutBg(CreateSolidBrush(col));
-    FillRect(hdc, &rTmp, brushAboutBg);
+    FillRect(hdc, rcClient, col);
 
     col = gCurrentTheme->window.textColor;
     SetTextColor(hdc, col);
 
     /* render text on the left*/
     SelectObject(hdc, fontLeftTxt);
-    for (PropertyEl* el : layoutData->props) {
-        const char* txt = el->leftTxt;
-        rTmp = ToRECT(el->leftPos);
-        HdcDrawText(hdc, txt, -1, &rTmp, DT_RIGHT | DT_NOPREFIX);
+    int nProps = layoutData->props.isize();
+    for (int i = 0; i < nProps; i++) {
+        auto&& prop = layoutData->props.at(i);
+        auto txt = layoutData->PropKey(i);
+        HdcDrawText(hdc, txt, prop.keyPos, DT_RIGHT | DT_NOPREFIX);
     }
 
     /* render text on the right */
     SelectObject(hdc, fontRightTxt);
-    for (PropertyEl* el : layoutData->props) {
-        const char* txt = el->rightTxt;
-        Rect rc = el->rightPos;
+    for (int i = 0; i < nProps; i++) {
+        auto&& prop = layoutData->props.at(i);
+        auto txt = layoutData->PropValue(i);
+        Rect rc = prop.valPos;
         if (rc.x + rc.dx > rcClient.x + rcClient.dx - kRectPadding) {
             rc.dx = rcClient.x + rcClient.dx - kRectPadding - rc.x;
         }
-        rTmp = ToRECT(rc);
-        uint format = DT_LEFT | DT_NOPREFIX | (el->isPath ? DT_PATH_ELLIPSIS : DT_WORD_ELLIPSIS);
-        HdcDrawText(hdc, txt, -1, &rTmp, format);
+        uint format = DT_LEFT | DT_NOPREFIX | (prop.isPath ? DT_PATH_ELLIPSIS : DT_WORD_ELLIPSIS);
+        HdcDrawText(hdc, txt, rc, format);
     }
 
     SelectObject(hdc, origFont);
