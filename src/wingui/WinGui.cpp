@@ -3445,7 +3445,6 @@ void TabsCtrl::Paint(HDC hdc, RECT& rc) {
     gfx.SetTextRenderingHint(TextRenderingHintClearTypeGridFit);
     gfx.SetPageUnit(UnitPixel);
 
-    Theme* theme = gCurrentTheme;
     SolidBrush br(GdipCol(GetControlBackgroundColor()));
 
     Font f(hdc, GetDefaultGuiFont());
@@ -3463,7 +3462,7 @@ void TabsCtrl::Paint(HDC hdc, RECT& rc) {
     Rect r;
     Gdiplus::RectF rTxt;
 
-    COLORREF textColor = theme->window.textColor;
+    COLORREF textColor = ThemeWindowTextColor();
     COLORREF tabBgSelected = GetControlBackgroundColor();
     COLORREF tabBgHighlight;
     COLORREF tabBgBackground;
@@ -4015,7 +4014,6 @@ int TabsCtrl::InsertTab(int idx, TabInfo* tab) {
 }
 
 void TabsCtrl::SetTextAndTooltip(int idx, const char* text, const char* tooltip) {
-    logfa("TabsCtrl::SetTextAndTooltip: text: '%s', tooltip: '%s'\n", text, tooltip);
     TabInfo* tab = GetTab(idx);
     str::ReplaceWithCopy(&tab->text, text);
     str::ReplaceWithCopy(&tab->tooltip, tooltip);

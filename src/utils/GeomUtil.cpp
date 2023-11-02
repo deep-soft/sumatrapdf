@@ -200,6 +200,18 @@ void Rect::Inflate(int _x, int _y) {
     dy += 2 * _y;
 }
 
+void Rect::SubTB(int t, int b) {
+    y += t;
+    dy -= t;
+    dy -= b;
+}
+
+void Rect::SubLR(int l, int r) {
+    x += l;
+    dx -= l;
+    dx -= r;
+}
+
 Point Rect::TL() const {
     return Point(x, y);
 }
@@ -210,6 +222,16 @@ Point Rect::BR() const {
 
 Size Rect::Size() const {
     return {dx, dy};
+}
+
+void Rect::SetSize(const struct Size& sz) {
+    dx = sz.dx;
+    dy = sz.dy;
+}
+
+void Rect::SetPos(const Point& pos) {
+    x = pos.x;
+    y = pos.y;
 }
 
 bool Rect::Equals(const Rect& other) const {
