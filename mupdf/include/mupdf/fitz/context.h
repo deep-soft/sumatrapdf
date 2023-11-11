@@ -39,6 +39,7 @@ typedef struct fz_tuning_context fz_tuning_context;
 typedef struct fz_store fz_store;
 typedef struct fz_glyph_cache fz_glyph_cache;
 typedef struct fz_document_handler_context fz_document_handler_context;
+typedef struct fz_archive_handler_context fz_archive_handler_context;
 typedef struct fz_output fz_output;
 typedef struct fz_context fz_context;
 
@@ -193,6 +194,20 @@ void fz_vlog_error_printfFL(fz_context *ctx, const char *file, int line, const c
 void fz_log_errorFL(fz_context *ctx, const char *file, int line, const char *str);
 int fz_do_catchFL(fz_context *ctx, const char *file, int line);
 #endif
+
+/* Report an error to the registered error callback. */
+void fz_report_error(fz_context *ctx);
+
+/*
+ * Swallow an error and ignore it completely.
+ * This should only be called to signal that you've handled a TRYLATER or ABORT error,
+ */
+void fz_ignore_error(fz_context *ctx);
+
+/* Convert an error into another runtime exception.
+ * For use when converting an exception from Fitz to a language binding exception.
+ */
+const char *fz_convert_error(fz_context *ctx, int *code);
 
 enum
 {
@@ -765,6 +780,7 @@ struct fz_context
 
 	/* TODO: should these be unshared? */
 	fz_document_handler_context *handler;
+	fz_archive_handler_context *archive;
 	fz_style_context *style;
 	fz_tuning_context *tuning;
 

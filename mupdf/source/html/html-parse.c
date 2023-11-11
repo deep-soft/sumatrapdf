@@ -1166,7 +1166,11 @@ html_load_css_link(fz_context *ctx, fz_html_font_set *set, fz_archive *zip, cons
 	fz_always(ctx)
 		fz_drop_buffer(ctx, buf);
 	fz_catch(ctx)
+	{
+		fz_rethrow_if(ctx, FZ_ERROR_MEMORY);
+		fz_report_error(ctx);
 		fz_warn(ctx, "ignoring stylesheet %s", path);
+	}
 }
 
 static void
@@ -1203,7 +1207,11 @@ html_load_css(fz_context *ctx, fz_html_font_set *set, fz_archive *zip, const cha
 				fz_add_css_font_faces(ctx, set, zip, base_uri, css);
 			}
 			fz_catch(ctx)
+			{
+				fz_rethrow_if(ctx, FZ_ERROR_MEMORY);
+				fz_report_error(ctx);
 				fz_warn(ctx, "ignoring inline stylesheet");
+			}
 			fz_free(ctx, s);
 		}
 	}
@@ -1225,7 +1233,11 @@ fb2_load_css(fz_context *ctx, fz_html_font_set *set, fz_archive *zip, const char
 			fz_add_css_font_faces(ctx, set, zip, base_uri, css);
 		}
 		fz_catch(ctx)
+		{
+			fz_rethrow_if(ctx, FZ_ERROR_MEMORY);
+			fz_report_error(ctx);
 			fz_warn(ctx, "ignoring inline stylesheet");
+		}
 		fz_free(ctx, s);
 	}
 }
@@ -1446,6 +1458,7 @@ parse_to_xml(fz_context *ctx, fz_buffer *buf, int try_xml, int try_html5)
 		{
 			if (fz_caught(ctx) == FZ_ERROR_SYNTAX)
 			{
+				fz_report_error(ctx);
 				fz_warn(ctx, "syntax error in XHTML; retrying using HTML5 parser");
 				xml = fz_parse_xml_from_html5(ctx, buf);
 			}
@@ -1496,14 +1509,7 @@ xml_to_boxes(fz_context *ctx, fz_html_font_set *set, fz_archive *zip, const char
 		*rtitle = NULL;
 
 	root = fz_xml_root(g.xml);
-
-	fz_try(ctx)
-		g.css = fz_new_css(ctx);
-	fz_catch(ctx)
-	{
-		fz_drop_xml(ctx, g.xml);
-		fz_rethrow(ctx);
-	}
+	g.css = fz_new_css(ctx);
 
 #ifndef NDEBUG
 	if (fz_atoi(getenv("FZ_DEBUG_XML")))
@@ -1545,7 +1551,9 @@ xml_to_boxes(fz_context *ctx, fz_html_font_set *set, fz_archive *zip, const char
 	fz_catch(ctx)
 	{
 		fz_rethrow_if(ctx, FZ_ERROR_TRYLATER);
-		fz_warn(ctx, "ignoring styles due to errors: %s", fz_caught_message(ctx));
+		fz_rethrow_if(ctx, FZ_ERROR_MEMORY);
+		fz_report_error(ctx);
+		fz_warn(ctx, "ignoring styles");
 	}
 
 #ifndef NDEBUG
@@ -1807,6 +1815,8 @@ warn_to_buffer(void *user, const char *message)
 	fz_catch(ctx)
 	{
 		/* Silently swallow the error. */
+		fz_rethrow_if(ctx, FZ_ERROR_MEMORY);
+		fz_report_error(ctx);
 	}
 }
 
@@ -2280,11 +2290,11 @@ convert_to_boxes(fz_context *ctx, fz_story *story)
 	{
 		redirect_warnings_to_buffer(ctx, story->warnings, &saved);
 		xml_to_boxes(ctx, story->font_set, story->zip, ".", story->user_css, story->dom, &story->tree, NULL, 0, 0);
-		fz_drop_xml(ctx, story->dom);
-		story->dom = NULL;
 	}
 	fz_always(ctx)
 	{
+		fz_drop_xml(ctx, story->dom);
+		story->dom = NULL;
 		restore_warnings(ctx, &saved);
 	}
 	fz_catch(ctx)
@@ -2461,7 +2471,7 @@ fz_txt_buffer_to_html(fz_context *ctx, fz_buffer *in)
 		outbuf = fz_new_buffer(ctx, 1024);
 		out = fz_new_output_with_buffer(ctx, outbuf);
 
-		fz_write_string(ctx, out, "<!doctype html><style>pre{white-space:pre-wrap}</style><pre>");
+		fz_write_string(ctx, out, "<!doctype html><style>body{margin:0}pre{page-break-before:always;margin:0;white-space:pre-wrap;}</style><pre>");
 
 		if (encoding == ENCODING_UTF16_LE || encoding == ENCODING_UTF16_BE)
 		{
@@ -2508,6 +2518,11 @@ fz_txt_buffer_to_html(fz_context *ctx, fz_buffer *in)
 				col += n-1;
 				while (n--)
 					fz_write_byte(ctx, out, ' ');
+			}
+			else if (c == 12)
+			{
+				col = -1;
+				fz_write_string(ctx, out, "</pre><pre>\n");
 			}
 			else if (c == '<')
 				fz_write_string(ctx, out, "&lt;");

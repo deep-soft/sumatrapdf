@@ -273,6 +273,22 @@ static void FlagsEnterFullscreen(const Flags& flags, MainWindow* win) {
     }
 }
 
+static void MaybeGoTo(MainWindow* win, const char* destName, int pageNumber) {
+    if (!win->IsDocLoaded()) {
+        return;
+    }
+    if (destName) {
+        win->linkHandler->GotoNamedDest(destName);
+        return;
+    }
+
+    if (pageNumber > 0) {
+        if (win->ctrl->ValidPageNo(pageNumber)) {
+            win->ctrl->GoToPage(pageNumber, false);
+        }
+    }
+}
+
 static void MaybeStartSearch(MainWindow* win, const char* searchTerm) {
     if (!win || !searchTerm) {
         return;
@@ -291,14 +307,10 @@ static MainWindow* LoadOnStartup(const char* filePath, const Flags& flags, bool 
         return win;
     }
 
-    if (win->IsDocLoaded() && flags.destName && isFirstWin) {
-        char* dest = flags.destName;
-        win->linkHandler->GotoNamedDest(dest);
-    } else if (win->IsDocLoaded() && flags.pageNumber > 0 && isFirstWin) {
-        if (win->ctrl->ValidPageNo(flags.pageNumber)) {
-            win->ctrl->GoToPage(flags.pageNumber, false);
-        }
+    if (isFirstWin) {
+        MaybeGoTo(win, flags.destName, flags.pageNumber);
     }
+
     bool ok = MaybeMakePluginWindow(win, flags.hwndPluginParent);
     if (!ok) {
         return nullptr;
@@ -1170,7 +1182,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
     gCrashOnOpen = flags.crashOnOpen;
 
-    GetDocumentColors(gRenderCache.textColor, gRenderCache.backgroundColor);
+    gRenderCache.textColor = ThemeDocumentColors(gRenderCache.backgroundColor);
     // logfa("retrieved doc colors in WinMain: 0x%x 0x%x\n", gRenderCache.textColor, gRenderCache.backgroundColor);
 
     gIsStartup = true;
@@ -1267,8 +1279,14 @@ ContinueOpenWindow:
     // and also to keep TabState forever for lazy loading of tabs
     sessionData = gGlobalPrefs->sessionData;
     gGlobalPrefs->sessionData = new Vec<SessionData*>();
+    // do not restore a session if tabs are disabled and SumatraPDF is already running
     if (sessionData->size() > 0 && !gPluginURL) {
-        restoreSession = gGlobalPrefs->restoreSession;
+        bool noRestore = !gGlobalPrefs->useTabs && (FindPrevInstWindow(&hMutex) != nullptr);
+        if (!noRestore) {
+            restoreSession = gGlobalPrefs->restoreSession;
+        } else {
+            logf("not restoring a session because the same exe is already running and tabas are disabled\n");
+        }
     }
 
     showStartPage = !restoreSession && flags.fileNames.size() == 0 && gGlobalPrefs->rememberOpenedFiles &&
@@ -1294,6 +1312,7 @@ ContinueOpenWindow:
             }
             TabsSelect(win, data->tabIndex - 1);
             if (gGlobalPrefs->lazyLoading) {
+                // trigger loading of the document
                 ReloadDocument(win, false);
             }
         }
@@ -1319,6 +1338,7 @@ ContinueOpenWindow:
     if (tabToSelect) {
         SelectTabInWindow(tabToSelect);
         MaybeStartSearch(tabToSelect->win, flags.search);
+        MaybeGoTo(win, flags.destName, flags.pageNumber);
     }
 
     nWithDde = (int)gDdeOpenOnStartup.size();
