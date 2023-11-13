@@ -111,10 +111,10 @@ jobs:
           echo "cat2:"
           cat ./do/build.go | grep buildPreRelease
 
-#      - name: Set up Go
-#        uses: deep-soft/setup-go@v4
-#        with:
-#          go-version: ${{ env.GO_VER }}
+      - name: Set up Go
+        uses: deep-soft/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VER }}
 
       - name: Build
         continue-on-error: true
@@ -124,14 +124,14 @@ jobs:
         #run: .\doit.bat -ci-daily
 
       - name: Build drmem
-        if: ${{ github.event.inputs.build_drmem == 'yes' }}
+        if: ${{ github.event.inputs.build_drmem == 'true' }}
         continue-on-error: true
         env:
           CERT_PWD: ${{ secrets.CERT_PWD }}
         run: .\doit.bat -drmem
 
       - name: Build smoke
-        if: ${{ github.event.inputs.build_drmem == 'yes' }}
+        if: ${{ github.event.inputs.build_drmem == 'true' }}
         continue-on-error: true
         env:
           CERT_PWD: ${{ secrets.CERT_PWD }}
