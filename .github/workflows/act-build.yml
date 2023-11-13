@@ -114,6 +114,13 @@ jobs:
         run: .\doit.bat -ci
         #run: .\doit.bat -ci-daily
 
+      - name: Build daily
+        continue-on-error: true
+        env:
+          CERT_PWD: ${{ secrets.CERT_PWD }}
+        #run: .\doit.bat -ci
+        run: .\doit.bat -ci-daily
+
 # Sign Windows executables begin
       - name: Sign Windows executables files
         uses: deep-soft/code-sign-action@master
