@@ -16,8 +16,8 @@ on:
         options:
           - 64
           - 32
-      build_daily:
-        description: 'build daily'
+      build_drmem:
+        description: 'build drmem'
         required: false
         default: false
         type: boolean
@@ -104,17 +104,17 @@ jobs:
           echo "cat1:"
           cat ./do/build.go | grep buildPreRelease
           sed -ibak 's/buildPreRelease(kPlatformIntel32, true)/buildPreRelease(kPlatformIntel64, true)/' ./do/build.go
-          sed -ibak 's/buildPreRelease(kPlatformArm64, true)/buildPreRelease(kPlatformIntel64, false)/' ./do/build.go
-          sed -ibak 's/buildPreRelease(kPlatformArm64, false)/buildPreRelease(kPlatformIntel64, false)/' ./do/build.go
-          sed -ibak 's/buildPreRelease(kPlatformIntel32, true)/buildPreRelease(kPlatformIntel64, false)/' ./do/build.go
-          sed -ibak 's/buildPreRelease(kPlatformIntel64, false)/buildPreRelease(kPlatformIntel64, false)/' ./do/build.go
+          #sed -ibak 's/buildPreRelease(kPlatformArm64, true)/buildPreRelease(kPlatformIntel64, false)/' ./do/build.go
+          #sed -ibak 's/buildPreRelease(kPlatformArm64, false)/buildPreRelease(kPlatformIntel64, false)/' ./do/build.go
+          #sed -ibak 's/buildPreRelease(kPlatformIntel32, true)/buildPreRelease(kPlatformIntel64, false)/' ./do/build.go
+          #sed -ibak 's/buildPreRelease(kPlatformIntel64, false)/buildPreRelease(kPlatformIntel64, false)/' ./do/build.go
           echo "cat2:"
           cat ./do/build.go | grep buildPreRelease
 
-      - name: Set up Go
-        uses: deep-soft/setup-go@v4
-        with:
-          go-version: ${{ env.GO_VER }}
+#      - name: Set up Go
+#        uses: deep-soft/setup-go@v4
+#        with:
+#          go-version: ${{ env.GO_VER }}
 
       - name: Build
         continue-on-error: true
@@ -124,11 +124,18 @@ jobs:
         #run: .\doit.bat -ci-daily
 
       - name: Build drmem
-        if: ${{ github.event.inputs.build_daily == 'yes' }}
+        if: ${{ github.event.inputs.build_drmem == 'yes' }}
         continue-on-error: true
         env:
           CERT_PWD: ${{ secrets.CERT_PWD }}
         run: .\doit.bat -drmem
+
+      - name: Build smoke
+        if: ${{ github.event.inputs.build_drmem == 'yes' }}
+        continue-on-error: true
+        env:
+          CERT_PWD: ${{ secrets.CERT_PWD }}
+        run: .\doit.bat -smoke
 
 # Sign Windows executables begin
       - name: Sign Windows executables files
