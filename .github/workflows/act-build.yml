@@ -16,6 +16,11 @@ on:
         options:
           - 64
           - 32
+      build_daily:
+        description: 'build daily'
+        required: false
+        default: false
+        type: boolean
       GO_VER:
         description: 'go version'
         required: true
@@ -86,7 +91,7 @@ jobs:
           #:: del "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.36.32532\modules\modules.json"
           #:: rmdir /S/Q "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.36.32532\modules"
           #:: move "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.36.32532\modules\modules.json" "modules.js!n"
-          sed -ibak 's!<LanguageStandard>stdcpplatest</LanguageStandard>!<LanguageStandard>stdcpp20</LanguageStandard>!' ${{ env.WORK_DIR }}/vs2022/*.vcxproj
+          #:: sed -ibak 's!<LanguageStandard>stdcpplatest</LanguageStandard>!<LanguageStandard>stdcpp20</LanguageStandard>!' ${{ env.WORK_DIR }}/vs2022/*.vcxproj
           echo "Dir2:"
           ls -l ${{ env.WORK_DIR }}/vs2022
           #dir "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.36.32532\"
@@ -98,7 +103,9 @@ jobs:
         run: |
           echo "cat1:"
           cat ./do/build.go | grep buildPreRelease
-          sed -ibak 's/buildPreRelease(kPlatformIntel32, true)/buildPreRelease(kPlatformIntel64, true)/' ./do/build.go
+          sed -ibak 's/buildPreRelease(kPlatformArm64, true)/buildPreRelease(kPlatformArm64, false)/' ./do/build.go
+          sed -ibak 's/buildPreRelease(kPlatformIntel32, true)/buildPreRelease(kPlatformIntel32, false)/' ./do/build.go
+          sed -ibak 's/buildPreRelease(kPlatformIntel64, false)/buildPreRelease(kPlatformIntel64, true)/' ./do/build.go
           echo "cat2:"
           cat ./do/build.go | grep buildPreRelease
 
@@ -115,6 +122,7 @@ jobs:
         #run: .\doit.bat -ci-daily
 
       - name: Build daily
+        if: ${{ github.event.inputs.build_daily == 'yes' }}
         continue-on-error: true
         env:
           CERT_PWD: ${{ secrets.CERT_PWD }}
