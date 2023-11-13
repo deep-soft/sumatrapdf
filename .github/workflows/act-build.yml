@@ -16,11 +16,16 @@ on:
         options:
           - 64
           - 32
-      build_drmem:
-        description: 'build drmem'
-        required: false
-        default: false
-        type: boolean
+      build_type:
+        description: 'build type'
+        required: true
+        default: 'drmem'
+        type: choice
+        options:
+          - drmem
+          - prerel
+          - smoke
+          - ci-daily
       GO_VER:
         description: 'go version'
         required: true
@@ -116,22 +121,29 @@ jobs:
         with:
           go-version: ${{ env.GO_VER }}
 
-      - name: Build
-        continue-on-error: true
-        env:
-          CERT_PWD: ${{ secrets.CERT_PWD }}
-        run: .\doit.bat -ci
-        #run: .\doit.bat -ci-daily
-
       - name: Build drmem
-        if: ${{ github.event.inputs.build_drmem == 'true' }}
+        if: ${{ github.event.inputs.build_type == 'drmem' }}
         continue-on-error: true
         env:
           CERT_PWD: ${{ secrets.CERT_PWD }}
         run: .\doit.bat -drmem
 
+      - name: Build prerel
+        continue-on-error: true
+        if: ${{ github.event.inputs.build_type == 'prerel' }}
+        env:
+          CERT_PWD: ${{ secrets.CERT_PWD }}
+        run: .\doit.bat -ci
+
+      - name: Build ci daily
+        continue-on-error: true
+        if: ${{ github.event.inputs.build_type == 'ci-daily' }}
+        env:
+          CERT_PWD: ${{ secrets.CERT_PWD }}
+        run: .\doit.bat -ci-daily
+
       - name: Build smoke
-        if: ${{ github.event.inputs.build_drmem == 'true' }}
+        if: ${{ github.event.inputs.build_type == 'smoke' }}
         continue-on-error: true
         env:
           CERT_PWD: ${{ secrets.CERT_PWD }}
