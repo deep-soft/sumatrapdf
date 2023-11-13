@@ -122,13 +122,12 @@ jobs:
         run: .\doit.bat -ci
         #run: .\doit.bat -ci-daily
 
-      - name: Build daily
+      - name: Build drmem
         if: ${{ github.event.inputs.build_daily == 'yes' }}
         continue-on-error: true
         env:
           CERT_PWD: ${{ secrets.CERT_PWD }}
-        #run: .\doit.bat -ci
-        run: .\doit.bat -ci-daily
+        run: .\doit.bat -drmem
 
 # Sign Windows executables begin
       - name: Sign Windows executables files
@@ -138,7 +137,8 @@ jobs:
           password: '${{ secrets.WINDOWS_PFX_PASSWORD }}'
           certificatesha1: '${{ secrets.WINDOWS_PFX_SHA1_THUMBPRINT }}'
           # certificatename: '${{ secrets.CERTNAME }}'
-          folder: './out/final-prerel'
+          # folder: './out/final-prerel'
+          folder: './out/'
           recursive: true
 # Sign Windows executables end
 
@@ -155,8 +155,10 @@ jobs:
           type: 'zip'
           filename: '${{ env.WORK_DIR }}/${{ env.ZIP_NAME }}'
           # directory: '.'
-          directory: ./out/final-prerel
+          # directory: ./out/final-prerel
+          directory: ./out/
           path: '.'
+          inclusions: '*.exe *.dll'
           exclusions: '*.git* /*node_modules/* .editorconfig'
           recursive_exclusions: '*.map *.pdb'
         # archive name is ${{ env.ZIP_RELEASE_ARCHIVE }}
