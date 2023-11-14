@@ -138,7 +138,7 @@ jobs:
           CERT_PWD: ${{ secrets.CERT_PWD }}
         run: |
           .\doit.bat -drmem
-          echo "OUT_DIR=./out/rel64" >> %GITHUB_ENV%
+          "OUT_DIR=./out/rel64" | Out-File -FilePath $env:GITHUB_ENV -Append          
 
       - name: Build prerel
         continue-on-error: true
@@ -147,7 +147,7 @@ jobs:
           CERT_PWD: ${{ secrets.CERT_PWD }}
         run: |
           .\doit.bat -ci
-          echo "OUT_DIR=./out/final-prerel" >> %GITHUB_ENV%
+          "OUT_DIR=./out/final-prerel" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Build ci daily
         continue-on-error: true
@@ -156,7 +156,7 @@ jobs:
           CERT_PWD: ${{ secrets.CERT_PWD }}
         run: |
           .\doit.bat -ci-daily
-          echo "OUT_DIR=./out" >> %GITHUB_ENV%
+          "OUT_DIR=./out" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Build smoke
         if: ${{ github.event.inputs.build_type == 'smoke' }}
@@ -165,7 +165,7 @@ jobs:
           CERT_PWD: ${{ secrets.CERT_PWD }}
         run: |
           .\doit.bat -smoke
-          echo "OUT_DIR=./out/rel64" >> %GITHUB_ENV%
+          "OUT_DIR=./out/rel64" | Out-File -FilePath $env:GITHUB_ENV -Append
 
 # Sign Windows executables begin
       - name: Sign Windows executables files
