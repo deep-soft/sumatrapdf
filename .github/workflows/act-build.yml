@@ -126,28 +126,36 @@ jobs:
         continue-on-error: true
         env:
           CERT_PWD: ${{ secrets.CERT_PWD }}
-        run: .\doit.bat -drmem
+        run: |
+          .\doit.bat -drmem
+          echo "OUT_DIR=out/rel64" >> $GITHUB_ENV
 
       - name: Build prerel
         continue-on-error: true
         if: ${{ github.event.inputs.build_type == 'prerel' }}
         env:
           CERT_PWD: ${{ secrets.CERT_PWD }}
-        run: .\doit.bat -ci
+        run: |
+          .\doit.bat -ci
+          echo "OUT_DIR=out/final-prerel" >> $GITHUB_ENV
 
       - name: Build ci daily
         continue-on-error: true
         if: ${{ github.event.inputs.build_type == 'ci-daily' }}
         env:
           CERT_PWD: ${{ secrets.CERT_PWD }}
-        run: .\doit.bat -ci-daily
+        run: |
+          .\doit.bat -ci-daily
+          echo "OUT_DIR=out" >> $GITHUB_ENV
 
       - name: Build smoke
         if: ${{ github.event.inputs.build_type == 'smoke' }}
         continue-on-error: true
         env:
           CERT_PWD: ${{ secrets.CERT_PWD }}
-        run: .\doit.bat -smoke
+        run: |
+          .\doit.bat -smoke
+          echo "OUT_DIR=out/rel64" >> $GITHUB_ENV
 
 # Sign Windows executables begin
       - name: Sign Windows executables files
@@ -158,7 +166,7 @@ jobs:
           certificatesha1: '${{ secrets.WINDOWS_PFX_SHA1_THUMBPRINT }}'
           # certificatename: '${{ secrets.CERTNAME }}'
           # folder: './out/final-prerel'
-          folder: './out/'
+          folder: './out'
           recursive: true
 # Sign Windows executables end
 
@@ -176,9 +184,8 @@ jobs:
           filename: '${{ env.WORK_DIR }}/${{ env.ZIP_NAME }}'
           # directory: '.'
           # directory: ./out/final-prerel
-          directory: ./out/
-          path: '.'
-          inclusions: '*.exe *.dll'
+          directory: '${{ env.OUT_DIR }}'
+          path: '*.exe *.dll'
           exclusions: '*.git* /*node_modules/* .editorconfig'
           recursive_exclusions: '*.map *.pdb'
         # archive name is ${{ env.ZIP_RELEASE_ARCHIVE }}
