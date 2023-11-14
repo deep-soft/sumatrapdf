@@ -48,21 +48,21 @@ jobs:
     name: Build
     runs-on: windows-2022
     steps:
-      - name: Check out source code
-        uses: deep-soft/checkout@v4
-        with:
-          # needed to calc build number via git log --oneline
-          fetch-depth: 0
-
-      - name: set out dir from cmd
+      - name: set out dir from pwsh
         run: |
-          echo "set OUT_DIR from cmd"
-          echo "OUT_DIR=./out/rel64" >> %GITHUB_ENV%
+          echo "set OUT_DIR from pwsh"
+          "OUT_DIR=./out/rel64" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: print out dir
         shell: bash
         run: |
           echo "OUT_DIR=${{ env.OUT_DIR }}"
+
+      - name: Check out source code
+        uses: deep-soft/checkout@v4
+        with:
+          # needed to calc build number via git log --oneline
+          fetch-depth: 0
 
 # - get ref set build begin
       - name: Get ref, set build version
