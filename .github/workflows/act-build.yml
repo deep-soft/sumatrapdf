@@ -54,6 +54,16 @@ jobs:
           # needed to calc build number via git log --oneline
           fetch-depth: 0
 
+      - name: set out dir from cmd
+        run: |
+          echo "set OUT_DIR from cmd"
+          echo "OUT_DIR=./out/rel64" >> %GITHUB_ENV%
+
+      - name: print out dir
+        shell: bash
+        run: |
+          echo "OUT_DIR=${{ env.OUT_DIR }}"
+
 # - get ref set build begin
       - name: Get ref, set build version
         shell: bash
@@ -128,7 +138,7 @@ jobs:
           CERT_PWD: ${{ secrets.CERT_PWD }}
         run: |
           .\doit.bat -drmem
-          echo "OUT_DIR=out/rel64" >> $GITHUB_ENV
+          echo "OUT_DIR=./out/rel64" >> %GITHUB_ENV%
 
       - name: Build prerel
         continue-on-error: true
@@ -137,7 +147,7 @@ jobs:
           CERT_PWD: ${{ secrets.CERT_PWD }}
         run: |
           .\doit.bat -ci
-          echo "OUT_DIR=out/final-prerel" >> $GITHUB_ENV
+          echo "OUT_DIR=./out/final-prerel" >> %GITHUB_ENV%
 
       - name: Build ci daily
         continue-on-error: true
@@ -146,7 +156,7 @@ jobs:
           CERT_PWD: ${{ secrets.CERT_PWD }}
         run: |
           .\doit.bat -ci-daily
-          echo "OUT_DIR=out" >> $GITHUB_ENV
+          echo "OUT_DIR=./out" >> %GITHUB_ENV%
 
       - name: Build smoke
         if: ${{ github.event.inputs.build_type == 'smoke' }}
@@ -155,7 +165,7 @@ jobs:
           CERT_PWD: ${{ secrets.CERT_PWD }}
         run: |
           .\doit.bat -smoke
-          echo "OUT_DIR=out/rel64" >> $GITHUB_ENV
+          echo "OUT_DIR=./out/rel64" >> %GITHUB_ENV%
 
 # Sign Windows executables begin
       - name: Sign Windows executables files
@@ -184,7 +194,7 @@ jobs:
           filename: '${{ env.WORK_DIR }}/${{ env.ZIP_NAME }}'
           # directory: '.'
           # directory: ./out/final-prerel
-          directory: '${{ env.OUT_DIR }}'
+          directory: "${{ env.OUT_DIR }}"
           path: '*.exe *.dll'
           exclusions: '*.git* /*node_modules/* .editorconfig'
           recursive_exclusions: '*.map *.pdb'
