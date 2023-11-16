@@ -1667,13 +1667,14 @@ static void ShowFileNotFound(MainWindow* win, const char* path, bool noSavePrefs
     LoadDocumentMarkNotExist(win, path, noSavePrefs);
 }
 
-static void ShowErrorLoading(MainWindow* win, const char* path, bool noSavePrefs) {
+void ShowErrorLoadingNotification(MainWindow* win, const char* path, bool noSavePrefs) {
     // TODO: same message as in Canvas.cpp to not introduce
     // new translation. Find a better message e.g. why failed.
     NotificationCreateArgs nargs;
     nargs.hwndParent = win->hwndCanvas;
     nargs.msg = str::FormatTemp(_TRA("Error loading %s"), path);
     nargs.warning = true;
+    nargs.timeoutMs = 1000 * 5;
     ShowNotification(nargs);
     LoadDocumentMarkNotExist(win, path, noSavePrefs);
 }
@@ -1867,7 +1868,7 @@ void LoadDocumentAsync(LoadArgs* argsIn) {
             args->ctrl = CreateControllerForEngineOrFile(engine, path, &pwdUI, win);
             RemoveNotification(wndNotif);
             if (!args->ctrl) {
-                ShowErrorLoading(win, path, args->noSavePrefs);
+                ShowErrorLoadingNotification(win, path, args->noSavePrefs);
                 delete args;
                 return;
             }
@@ -1896,7 +1897,7 @@ void LoadDocumentAsync(LoadArgs* argsIn) {
             MainWindow* win = args->win;
             const char* path = args->FilePath();
             if (!args->ctrl) {
-                ShowErrorLoading(win, path, args->noSavePrefs);
+                ShowErrorLoadingNotification(win, path, args->noSavePrefs);
                 delete args;
                 return;
             }
@@ -1956,7 +1957,7 @@ MainWindow* LoadDocument(LoadArgs* args) {
         }
 
         if (!ctrl) {
-            ShowErrorLoading(win, path, args->noSavePrefs);
+            ShowErrorLoadingNotification(win, path, args->noSavePrefs);
             return win;
         }
     }
@@ -3509,6 +3510,20 @@ static void OnMenuViewShowHideScrollbars() {
     UpdateFixedPageScrollbarsVisibility();
 }
 
+#if 0 // note: was used in OpenAdvancedOptions()
+static void OpenFileWithTextEditor(const char* path) {
+    Vec<TextEditor*> editors;
+    DetectTextEditors(editors);
+    const char* cmd = editors[0]->openFileCmd;
+
+    char* cmdLine = BuildOpenFileCmd(cmd, path, 1, 1);
+    logf("OpenFileWithTextEditor: '%s'\n", cmdLine);
+    char* appDir = GetExeDirTemp();
+    AutoCloseHandle process(LaunchProcess(cmdLine, appDir));
+    str::Free(cmdLine);
+}
+#endif
+
 static void OpenAdvancedOptions() {
     if (!HasPermission(Perm::DiskAccess) || !HasPermission(Perm::SavePreferences)) {
         return;
@@ -3516,8 +3531,8 @@ static void OpenAdvancedOptions() {
 
     // TODO: disable/hide the menu item when there's no prefs file
     //       (happens e.g. when run in portable mode from a CD)?
-    char* path = GetSettingsPathTemp();
-    OpenFileWithTextEditor(path);
+    TempStr path = GetSettingsPathTemp();
+    LaunchFile(path);
 }
 
 static void ShowOptionsDialog(HWND hwnd) {
@@ -5697,7 +5712,7 @@ static TempStr GetFileSizeAsStrTemp(const char* path) {
 void GetProgramInfo(str::Str& s) {
     s.AppendFmt("Crash file: %s\r\n", gCrashFilePath);
 
-    char* exePath = GetExePathTemp();
+    TempStr exePath = GetExePathTemp();
     auto fileSizeExe = GetFileSizeAsStrTemp(exePath);
     s.AppendFmt("Exe: %s %s\r\n", exePath, fileSizeExe);
     if (IsDllBuild()) {
