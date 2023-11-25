@@ -344,6 +344,17 @@ void SwitchToDisplayMode(MainWindow* win, DisplayMode displayMode, bool keepCont
     UpdateToolbarState(win);
 }
 
+static WindowTab* FindTabByController(DocController* ctrl) {
+    for (MainWindow* win : gWindows) {
+        for (WindowTab* tab : win->Tabs()) {
+            if (tab->ctrl == ctrl) {
+                return tab;
+            }
+        }
+    }
+    return nullptr;
+}
+
 WindowTab* FindTabByFile(const char* file) {
     char* normFile = path::NormalizeTemp(file);
 
@@ -373,7 +384,13 @@ void SelectTabInWindow(WindowTab* tab) {
 
 // Find the first window showing a given PDF file
 MainWindow* FindMainWindowByFile(const char* file, bool focusTab) {
-    WindowTab* tab = FindTabByFile(file);
+    WindowTab* tab = nullptr;
+    if (gMostRecentlyOpenedDoc && path::IsSame(gMostRecentlyOpenedDoc->GetFilePath(), file)) {
+        tab = FindTabByController(gMostRecentlyOpenedDoc);
+    }
+    if (!tab) {
+        tab = FindTabByFile(file);
+    }
     if (!tab) {
         return nullptr;
     }
@@ -447,9 +464,9 @@ char* HwndPasswordUI::GetPassword(const char* path, u8* fileDigest, u8 decryptio
     // extract the filename from the URL in plugin mode instead
     // of using the more confusing temporary filename
     if (gPluginMode) {
-        char* urlName = url::GetFileName(gPluginURL);
+        TempStr urlName = url::GetFileNameTemp(gPluginURL);
         if (urlName) {
-            path = urlName; // TODO: leaks
+            path = urlName;
         }
     }
     path = path::GetBaseNameTemp(path);
@@ -766,7 +783,7 @@ void ControllerCallbackHandler::FocusFrame(bool always) {
 }
 
 void ControllerCallbackHandler::SaveDownload(const char* url, const ByteSlice& data) {
-    char* path = url::GetFileName(url);
+    TempStr path = url::GetFileNameTemp(url);
     // LinkSaver linkSaver(win->CurrentTab(), win->hwndFrame, fileName);
     SaveDataToFile(win->hwndFrame, path, data);
 }
@@ -934,6 +951,13 @@ static DocController* CreateControllerForChm(const char* path, PasswordUI* pwdUI
     return ctrl;
 }
 
+// this allows us to target the right file when processing
+// a sequence of DDE commands. Without this commands target
+// the tab by path and if there's more than one with the same
+// path, we pick the first one
+// https://github.com/sumatrapdfreader/sumatrapdf/issues/3903
+DocController* gMostRecentlyOpenedDoc = nullptr;
+
 DocController* CreateControllerForEngineOrFile(EngineBase* engine, const char* path, PasswordUI* pwdUI,
                                                MainWindow* win) {
     // TODO: move this to MainWindow constructor
@@ -948,7 +972,9 @@ DocController* CreateControllerForEngineOrFile(EngineBase* engine, const char* p
     }
     if (!engine) {
         // as a last resort, try to open as chm file
-        return CreateControllerForChm(path, pwdUI, win);
+        auto ctrl = CreateControllerForChm(path, pwdUI, win);
+        gMostRecentlyOpenedDoc = ctrl;
+        return ctrl;
     }
     int nPages = engine ? engine->pageCount : 0;
     logf("CreateControllerForEngineOrFile: '%s', %d pages\n", path, nPages);
@@ -960,6 +986,7 @@ DocController* CreateControllerForEngineOrFile(EngineBase* engine, const char* p
     DocController* ctrl = new DisplayModel(engine, win->cbHandler);
     CrashIf(!ctrl || !ctrl->AsFixed() || ctrl->AsChm());
     VerifyController(ctrl, path);
+    gMostRecentlyOpenedDoc = ctrl;
     return ctrl;
 }
 
@@ -2715,13 +2742,13 @@ static void SaveCurrentFileAs(MainWindow* win) {
     }
 
     auto* ctrl = win->ctrl;
-    const char* srcFileName = ctrl->GetFilePath();
+    TempStr srcFileName = (TempStr)ctrl->GetFilePath();
     if (gPluginMode) {
         // fall back to a generic "filename" instead of the more confusing temporary filename
-        srcFileName = "filename";
-        char* urlName = url::GetFileName(gPluginURL);
+        srcFileName = (TempStr) "filename";
+        TempStr urlName = url::GetFileNameTemp(gPluginURL);
         if (urlName) {
-            srcFileName = urlName; // TODO: leaks
+            srcFileName = urlName;
         }
     }
 
