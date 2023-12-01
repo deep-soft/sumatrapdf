@@ -127,11 +127,13 @@ jobs:
           cat ./do/build.go | grep buildPreRelease
 
       - name: install drmem
+        continue-on-error: true
+        timeout-minutes: 2
         shell: bash
         run: |
-          if [[ -f ./github/workflows/bin-install-drmem.sh ]]; then
-            echo "bash ./github/workflows/bin-install-drmem.sh"
-            bash ./github/workflows/bin-install-drmem.sh
+          if [[ -f bins/bin-install-drmem.sh ]]; then
+            echo "bash bins//bin-install-drmem.sh"
+            bash bins/bin-install-drmem.sh
           fi
 
       - name: Set up Go
