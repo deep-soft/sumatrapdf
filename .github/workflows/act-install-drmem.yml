@@ -29,8 +29,8 @@ jobs:
       - name: install drmem
         shell: bash
         run: |
-          ls -la bins/workflows/ || true;
-          if [[ -f .bins/bin-install-drmem.sh ]]; then
+          ls -la bins/ || true;
+          if [[ -f bins/bin-install-drmem.sh ]]; then
             echo "bash bins/bin-install-drmem.sh"
             bash bins/bin-install-drmem.sh
           fi
