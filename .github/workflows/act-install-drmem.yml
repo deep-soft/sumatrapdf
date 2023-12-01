@@ -26,6 +26,10 @@ jobs:
           # needed to calc build number via git log --oneline
           fetch-depth: 0
 
+      - name: grant Full Access to c:\windows\temp directory
+        run: |
+          icacls "C:\Windows\Temp" /q /c /t /grant Users:F /T
+
       - name: install drmem
         shell: bash
         run: |
