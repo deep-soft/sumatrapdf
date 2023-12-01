@@ -1,6 +1,7 @@
 #!/bin/bash
 #bins/bin-common.txt
 #bins/bin-win.txt
+set -x
 name_common=$(cat bins/bin-common.txt);
 name_msi=$(cat bins/bin-win.txt);
 echo "URL:$name_common$name_msi";
