@@ -246,9 +246,11 @@ jobs:
       - name: Prepare to Publish latest
         shell: bash
         run: |
-          mv ${{ env.OUT_DIR }}/SumatraPDF-prerel-${{ inputs.build_target}}.exe ${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}.exe
-          mv ${{ env.OUT_DIR }}/SumatraPDF-prerel-${{ inputs.build_target}}-install.exe ${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}-install.exe
+          mv ${{ env.OUT_DIR }}/SumatraPDF-prerel-${{ inputs.build_target}}.exe ${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}.exe || true;
+          mv ${{ env.OUT_DIR }}/SumatraPDF-prerel-${{ inputs.build_target}}-install.exe ${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}-install.exe || true;
+          mv ${{ env.OUT_DIR }}/SumatraPDF.exe ${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}.exe || true;
           cp _tag_name_.txt ${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}.txt
+          cp ${{ env.ZIP_RELEASE_ARCHIVE }}  ${{ env.OUT_DIR }}/
 
       - name: SHA256 checksums
         uses: deep-soft/sha-checksums@v1
@@ -269,5 +271,6 @@ jobs:
             ${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}.txt
             ${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}.exe
             ${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}-install.exe
+            ${{ env.OUT_DIR }}/*.zip
             ${{ env.SHA_SUMS }}
 # upload release latest end
