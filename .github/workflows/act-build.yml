@@ -215,7 +215,8 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          echo "env.ZIP_RELEASE_ARCHIVE=${{ env.ZIP_RELEASE_ARCHIVE }}"
+          echo "env.ZIP_RELEASE_ARCHIVE=${{ env.ZIP_RELEASE_ARCHIVE }}";
+          ls -la "${{ env.ZIP_RELEASE_ARCHIVE }}";
 # zip release end
 
 # upload artifacts begin
@@ -240,9 +241,9 @@ jobs:
           files: |
             _tag_name_.txt
             ${{ env.ZIP_RELEASE_ARCHIVE }}
-            ${{ env.OUT_DIR }}/SumatraPDF-prerel-${{ inputs.build_target}}.exe
-            ${{ env.OUT_DIR }}/SumatraPDF-prerel-${{ inputs.build_target}}.zip
-            ${{ env.OUT_DIR }}/SumatraPDF-prerel-${{ inputs.build_target}}-install.exe
+            #${{ env.OUT_DIR }}/SumatraPDF-prerel-${{ inputs.build_target}}.exe
+            #${{ env.OUT_DIR }}/SumatraPDF-prerel-${{ inputs.build_target}}.zip
+            #${{ env.OUT_DIR }}/SumatraPDF-prerel-${{ inputs.build_target}}-install.exe
 # upload release end
 
 # upload release latest begin
@@ -258,7 +259,8 @@ jobs:
           #mv ${{ env.OUT_DIR }}/SumatraPDF.exe ${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}.exe || true;
           cp _tag_name_.txt ${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}.txt || true;
           cp "${{ env.ZIP_RELEASE_ARCHIVE }}" "${{ env.OUT_DIR }}/" || true;
-          rm "${{ env.OUT_DIR }}/SumatraPDF-prerel-64.pdb*" || true;
+          #rm "${{ env.OUT_DIR }}/SumatraPDF-prerel-64.pdb.*" || true;
+          rm "${{ env.OUT_DIR }}/SumatraPDF-prerel*.*" || true;
           ls -la "${{ env.OUT_DIR }}/" || true;
 
       - name: SHA256 checksums
@@ -282,10 +284,10 @@ jobs:
         with:
           tag_name: ${{ env.TAG_NAME }}-latest
           files: |
-            ${{ env.ZIP_RELEASE_ARCHIVE }}
-            ${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}.txt
-            ${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}.exe
-            ${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}-install.exe
-            ${{ env.OUT_DIR }}/*.zip
             ${{ env.SHA_SUMS }}
+            ${{ env.ZIP_RELEASE_ARCHIVE }}
+            #${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}.txt
+            #${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}.exe
+            #${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}-install.exe
+            #${{ env.OUT_DIR }}/*.zip
 # upload release latest end
