@@ -202,10 +202,10 @@ jobs:
         uses: deep-soft/zip-release@v2
         with:
           type: 'zip'
-          filename: '${{ env.WORK_DIR }}/${{ env.ZIP_NAME }}'
+          filename: '${{ env.ZIP_NAME }}'
           # directory: '.'
           # directory: ./out/final-prerel
-          directory: "${{ env.OUT_DIR }}"
+          directory: '${{ env.OUT_DIR }}'
           path: '*.exe *.dll'
           exclusions: '*.git* /*node_modules/* .editorconfig'
           recursive_exclusions: '*.map *.pdb'
@@ -241,9 +241,6 @@ jobs:
           files: |
             _tag_name_.txt
             ${{ env.ZIP_RELEASE_ARCHIVE }}
-            #${{ env.OUT_DIR }}/SumatraPDF-prerel-${{ inputs.build_target}}.exe
-            #${{ env.OUT_DIR }}/SumatraPDF-prerel-${{ inputs.build_target}}.zip
-            #${{ env.OUT_DIR }}/SumatraPDF-prerel-${{ inputs.build_target}}-install.exe
 # upload release end
 
 # upload release latest begin
@@ -252,16 +249,16 @@ jobs:
         run: |
           pwd
           ls -la || true;
-          ls -la ${{ env.OUT_DIR }}/ || true;
+          pushd ${{ env.OUT_DIR }}/
+          ls -la || true;
           ls -la "${{ env.ZIP_RELEASE_ARCHIVE }}" || true;
-          mv ${{ env.OUT_DIR }}/SumatraPDF-prerel-${{ inputs.build_target}}.exe ${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}.exe || true;
-          mv ${{ env.OUT_DIR }}/SumatraPDF-prerel-${{ inputs.build_target}}-install.exe ${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}-install.exe || true;
-          #mv ${{ env.OUT_DIR }}/SumatraPDF.exe ${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}.exe || true;
-          cp _tag_name_.txt ${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}.txt || true;
-          cp "${{ env.ZIP_RELEASE_ARCHIVE }}" "${{ env.OUT_DIR }}/" || true;
-          #rm "${{ env.OUT_DIR }}/SumatraPDF-prerel-64.pdb.*" || true;
-          rm "${{ env.OUT_DIR }}/SumatraPDF-prerel*.*" || true;
-          ls -la "${{ env.OUT_DIR }}/" || true;
+          mv SumatraPDF-prerel-${{ inputs.build_target}}.exe SumatraPDF-${{ env.VERSION }}.exe || true;
+          mv SumatraPDF-prerel-${{ inputs.build_target}}-install.exe SumatraPDF-${{ env.VERSION }}-install.exe || true;
+          cp ../_tag_name_.txt SumatraPDF-${{ env.VERSION }}.txt || true;
+          cp '${{ env.ZIP_RELEASE_ARCHIVE }}' '.' || true;
+          rm SumatraPDF-prerel*.* || true;
+          ls -la || true;
+          popd
 
       - name: SHA256 checksums
         uses: deep-soft/sha-checksums@v1
@@ -286,8 +283,4 @@ jobs:
           files: |
             ${{ env.SHA_SUMS }}
             ${{ env.ZIP_RELEASE_ARCHIVE }}
-            #${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}.txt
-            #${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}.exe
-            #${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}-install.exe
-            #${{ env.OUT_DIR }}/*.zip
 # upload release latest end
