@@ -249,11 +249,14 @@ jobs:
       - name: Prepare to Publish latest
         shell: bash
         run: |
+          pwd
+          ls -la ${{ env.OUT_DIR }}/ || true;
+          ls -la ${{ env.ZIP_RELEASE_ARCHIVE }} || true;
           mv ${{ env.OUT_DIR }}/SumatraPDF-prerel-${{ inputs.build_target}}.exe ${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}.exe || true;
           mv ${{ env.OUT_DIR }}/SumatraPDF-prerel-${{ inputs.build_target}}-install.exe ${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}-install.exe || true;
-          mv ${{ env.OUT_DIR }}/SumatraPDF.exe ${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}.exe || true;
-          cp _tag_name_.txt ${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}.txt
-          cp ${{ env.ZIP_RELEASE_ARCHIVE }}  ${{ env.OUT_DIR }}/
+          #mv ${{ env.OUT_DIR }}/SumatraPDF.exe ${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}.exe || true;
+          cp _tag_name_.txt ${{ env.OUT_DIR }}/SumatraPDF-${{ env.VERSION }}.txt || true;
+          cp ${{ env.ZIP_RELEASE_ARCHIVE }}  ${{ env.OUT_DIR }}/ || true;
 
       - name: SHA256 checksums
         uses: deep-soft/sha-checksums@v1
