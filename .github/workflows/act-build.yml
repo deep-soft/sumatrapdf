@@ -127,6 +127,7 @@ jobs:
           cat ./do/build.go | grep buildPreRelease
 
       - name: install drmem
+        if: ${{ github.event.inputs.build_type == 'drmem' }}
         continue-on-error: true
         timeout-minutes: 2
         shell: bash
