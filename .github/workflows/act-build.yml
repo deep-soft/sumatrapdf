@@ -1,4 +1,5 @@
-#2023-09-20 17:00
+#2024-01-16 23:00
+#act-build.yml
 name: act - Release - build
 
 on:
@@ -250,12 +251,13 @@ jobs:
           pwd
           ls -la || true;
           pushd ${{ env.OUT_DIR }}/
+          pwd
           ls -la || true;
           ls -la "${{ env.ZIP_RELEASE_ARCHIVE }}" || true;
           mv SumatraPDF-prerel-${{ inputs.build_target}}.exe SumatraPDF-${{ env.VERSION }}.exe || true;
           mv SumatraPDF-prerel-${{ inputs.build_target}}-install.exe SumatraPDF-${{ env.VERSION }}-install.exe || true;
-          cp ../_tag_name_.txt SumatraPDF-${{ env.VERSION }}.txt || true;
-          cp '${{ env.ZIP_RELEASE_ARCHIVE }}' '.' || true;
+          cp ${{ github.workspace }}/_tag_name_.txt ${{ env.PRG_NAME }}-${{ env.VERSION }}.txt || true;
+          cp ${{ github.workspace }}/'${{ env.ZIP_RELEASE_ARCHIVE }}' '.' || true;
           rm SumatraPDF-prerel*.* || true;
           ls -la || true;
           popd
@@ -283,4 +285,5 @@ jobs:
           files: |
             ${{ env.SHA_SUMS }}
             ${{ env.ZIP_RELEASE_ARCHIVE }}
+            ${{ env.OUT_DIR }}/${{ env.PRG_NAME }}-${{ env.VERSION }}.txt
 # upload release latest end
