@@ -1,4 +1,4 @@
-#2024-01-16 23:00
+#2024-01-31 19:30
 #act-build.yml
 name: act - Release - build
 
@@ -276,6 +276,18 @@ jobs:
         shell: bash
         run: |
           cat "${{ env.SHA_SUMS }}"
+
+# upload release begin
+      - name: Publish
+        continue-on-error: true
+        uses: deep-soft/action-gh-release@v2.1
+        with:
+          #tag_name: ${{ env.TAG_NAME }}-${{ env.VERSION }}
+          tag_name: ${{ env.TAG_NAME }}-${{ env.TAG_BUILD }}
+          draft: true
+          files: |
+            ${{ env.OUT_DIR }}/*
+# upload release end
 
       - name: Publish latest
         continue-on-error: true
