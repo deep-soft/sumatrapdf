@@ -211,6 +211,7 @@ jobs:
           rm SumatraPDF-prerel*.* || true;
           ls -la || true;
           popd
+          cat "${{ env.TAG_FILE }}"
 
       - name: SHA256 checksums
         uses: deep-soft/sha-checksums@v1
@@ -223,9 +224,11 @@ jobs:
           ignore_git: false
 
       - name: print SHA256 checksums
+        continue-on-error: true
         shell: bash
         run: |
           cat "${{ env.SHA_SUMS }}"
+          cat "${{ env.TAG_FILE }}"
 # Prepare to Publish - end
 
 # zip release begin
