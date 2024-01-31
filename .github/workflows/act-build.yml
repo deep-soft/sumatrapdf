@@ -1,4 +1,4 @@
-#2024-01-31 19:30
+#2024-01-31 19:40
 #act-build.yml
 name: act - Release - build
 
@@ -41,6 +41,7 @@ env:
   TAG_BUILD:   "-b"
   TAG_REF:     "0000000"
   TAG_DATE:    "20230617T215000"
+  TAG_FILE:    "_tag_name_.txt"
   GO_VER:      1.21
   #build_target: '64'
 
@@ -79,12 +80,13 @@ jobs:
           _build_=${{ env.TAG_BUILD }}-$_date_-$_ref_
           _version_=$(grep "define CURR_VERSION_COMMA " 'src/Version.h' | awk '{print $3}' | tr , .)
           if [ "$_version_" != "" ]; then
-            echo "VERSION=$_version_" >>$GITHUB_ENV
-            echo "TAG_VERSION=${{ env.PRG_NAME }}-$_version_" >>$GITHUB_ENV
+            echo "VERSION=$_version_" >> $GITHUB_ENV
+            echo "TAG_VERSION=${{ env.PRG_NAME }}-$_version_" >> $GITHUB_ENV
           fi
           echo "TAG_BUILD=$_build_" >> $GITHUB_ENV
           echo "WORK_DIR=$(pwd)" >> $GITHUB_ENV
           echo "TAG_DATE=$_date_" >> $GITHUB_ENV
+          echo "TAG_FILE=${{ env.WORK_DIR }}/${{ env.TAG_FILE }}" >> $GITHUB_ENV
 
       - name: Print ref, build version
         shell: bash
@@ -92,7 +94,9 @@ jobs:
           echo "REF: ${{ env.TAG_REF     }}"
           echo "BLD: ${{ env.TAG_BUILD   }}"
           echo "VER: ${{ env.TAG_VERSION }}"
-          echo "${{ env.TAG_NAME }}-${{ env.TAG_BUILD }}" > _tag_name_.txt
+          echo "FIL: ${{ env.TAG_FILE    }}"
+          echo "${{ env.TAG_NAME }}-${{ env.TAG_BUILD }}" > ${{ env.TAG_FILE }}
+
 # - get ref set build end
 
       - name: Try fix build
@@ -192,6 +196,38 @@ jobs:
           recursive: true
 # Sign Windows executables end
 
+# Prepare to Publish - begin
+      - name: Prepare to Publish
+        shell: bash
+        run: |
+          pwd
+          ls -la || true;
+          pushd ${{ env.OUT_DIR }}/
+          pwd
+          ls -la || true;
+          mv SumatraPDF-prerel-${{ inputs.build_target}}.exe SumatraPDF-${{ env.VERSION }}.exe || true;
+          mv SumatraPDF-prerel-${{ inputs.build_target}}-install.exe SumatraPDF-${{ env.VERSION }}-install.exe || true;
+          cp ${{ env.TAG_FILE }} ${{ env.PRG_NAME }}-${{ env.VERSION }}.txt || true;
+          rm SumatraPDF-prerel*.* || true;
+          ls -la || true;
+          popd
+
+      - name: SHA256 checksums
+        uses: deep-soft/sha-checksums@v1
+        with:
+          type: 'SHA256'
+          filename: 'SHA256SUMS'
+          directory: '${{ env.OUT_DIR }}'
+          path: '.'
+          env_variable: 'SHA_SUMS'
+          ignore_git: false
+
+      - name: print SHA256 checksums
+        shell: bash
+        run: |
+          cat "${{ env.SHA_SUMS }}"
+# Prepare to Publish - end
+
 # zip release begin
       - name: Set Zip name
         shell: bash
@@ -231,51 +267,18 @@ jobs:
           # path: '${{ env.PRG_NAME }}-${{ env.VERSION }}.zip'
 # upload artifacts end
 
-# upload release begin
-      - name: Publish
-        continue-on-error: true
-        uses: deep-soft/action-gh-release@v2.1
-        with:
-          #tag_name: ${{ env.TAG_NAME }}-${{ env.VERSION }}
-          tag_name: ${{ env.TAG_NAME }}-${{ env.TAG_BUILD }}
-          draft: true
-          files: |
-            _tag_name_.txt
-            ${{ env.ZIP_RELEASE_ARCHIVE }}
-# upload release end
-
-# upload release latest begin
-      - name: Prepare to Publish latest
-        shell: bash
-        run: |
-          pwd
-          ls -la || true;
-          pushd ${{ env.OUT_DIR }}/
-          pwd
-          ls -la || true;
-          ls -la "${{ env.ZIP_RELEASE_ARCHIVE }}" || true;
-          mv SumatraPDF-prerel-${{ inputs.build_target}}.exe SumatraPDF-${{ env.VERSION }}.exe || true;
-          mv SumatraPDF-prerel-${{ inputs.build_target}}-install.exe SumatraPDF-${{ env.VERSION }}-install.exe || true;
-          cp ${{ env.WORK_DIR }}/_tag_name_.txt ${{ env.PRG_NAME }}-${{ env.VERSION }}.txt || true;
-          cp ${{ env.WORK_DIR }}/'${{ env.ZIP_RELEASE_ARCHIVE }}' '.' || true;
-          rm SumatraPDF-prerel*.* || true;
-          ls -la || true;
-          popd
-
-      - name: SHA256 checksums
-        uses: deep-soft/sha-checksums@v1
-        with:
-          type: 'SHA256'
-          filename: 'SHA256SUMS'
-          directory: '${{ env.OUT_DIR }}'
-          path: '.'
-          env_variable: 'SHA_SUMS'
-          ignore_git: false
-
-      - name: print SHA256 checksums
-        shell: bash
-        run: |
-          cat "${{ env.SHA_SUMS }}"
+## upload release begin
+#      - name: Publish
+#        continue-on-error: true
+#        uses: deep-soft/action-gh-release@v2.1
+#        with:
+#          #tag_name: ${{ env.TAG_NAME }}-${{ env.VERSION }}
+#          tag_name: ${{ env.TAG_NAME }}-${{ env.TAG_BUILD }}
+#          draft: true
+#          files: |
+#            ${{ env.TAG_FILE }}
+#            ${{ env.ZIP_RELEASE_ARCHIVE }}
+## upload release end
 
 # upload release begin
       - name: Publish
@@ -289,6 +292,7 @@ jobs:
             ${{ env.OUT_DIR }}/*
 # upload release end
 
+# upload release latest begin
       - name: Publish latest
         continue-on-error: true
         uses: deep-soft/action-gh-release@v2.1
@@ -297,5 +301,5 @@ jobs:
           files: |
             ${{ env.SHA_SUMS }}
             ${{ env.ZIP_RELEASE_ARCHIVE }}
-            ${{ env.OUT_DIR }}/${{ env.PRG_NAME }}-${{ env.VERSION }}.txt
+            ${{ env.TAG_FILE }}
 # upload release latest end
