@@ -305,4 +305,5 @@ jobs:
             ${{ env.SHA_SUMS }}
             ${{ env.ZIP_RELEASE_ARCHIVE }}
             ${{ env.TAG_FILE }}
+            ${{ env.OUT_DIR }}/*
 # upload release latest end
