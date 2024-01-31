@@ -86,7 +86,7 @@ jobs:
           echo "TAG_BUILD=$_build_" >> $GITHUB_ENV
           echo "WORK_DIR=$(pwd)" >> $GITHUB_ENV
           echo "TAG_DATE=$_date_" >> $GITHUB_ENV
-          echo "TAG_FILE=${{ env.WORK_DIR }}/${{ env.TAG_FILE }}" >> $GITHUB_ENV
+          echo "TAG_FILE=$(pwd)/${{ env.TAG_FILE }}" >> $GITHUB_ENV
 
       - name: Print ref, build version
         shell: bash
