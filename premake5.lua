@@ -61,28 +61,6 @@ include("premake5.files.lua")
 -- TODO: could fold 9 libraries used by mupdf into a single
 -- project mupdf-libs, to make solution smaller
 
--- to make debug builds faster, we compile stable libraries (freetype, libjpeg etc.)
--- in release mode even in debug builds
-function regconf()
-  defines { "_HAS_ITERATOR_DEBUGGING=0" }
-  filter "configurations:Debug"
-    defines { "DEBUG" }
-
-  filter "configurations:Release*"
-    defines { "NDEBUG" }
-    optimize "Size"
-
-  -- no ltcg in asan builds
-  -- TODO: or arm64 ?
-  filter { "configurations:Release*", "platforms:x32 or x64" }
-    flags {
-      "LinkTimeOptimization",
-    }
-
-  filter {}
-  runtime "Release"
-end
-
 -- setup WebView2 paths
 function webviewconf()
   includedirs { "packages/Microsoft.Web.WebView2.1.0.992.28/build/native/include" }
@@ -96,11 +74,36 @@ function webviewconf()
   links { "WebView2LoaderStatic.lib"}
 end
 
+-- to make debug builds faster, we compile stable libraries (freetype, libjpeg etc.)
+-- in release mode even in debug builds
+function regconf()
+  defines { "_HAS_ITERATOR_DEBUGGING=0" }
+  editandcontinue "Off"
+
+  filter "configurations:Debug"
+    defines { "DEBUG" }
+
+  filter "configurations:Release*"
+    defines { "NDEBUG" }
+    optimize "Size"
+
+  -- asan builds:
+  -- * no ltcg
+  -- TODO: or arm64 ?
+  filter { "configurations:Release*", "platforms:x32 or x64" }
+    flags {
+      "LinkTimeOptimization",
+    }
+  filter {}
+  runtime "Release"
+end
+
 -- config for stable libraries where debug build is done with optimization
 function optconf()
   optimize "Size"
   undefines { "DEBUG" }
   defines { "NDEBUG" }
+  editandcontinue "Off"
 
   -- we mix Deubg / Release compilation between projects
   -- but all linked modules have to use the same type
@@ -110,21 +113,21 @@ function optconf()
   defines { "_HAS_ITERATOR_DEBUGGING=0" }
   runtime "Release"
 
-  -- no ltcg in asan builds
+  -- asan builds:
+  -- * no ltcg
   -- TODO: or arm64 ?
   filter { "configurations:Release*", "platforms:x32 or x64" }
     flags {
       "LinkTimeOptimization",
     }
-
   filter {}
 end
 
 function zlib_ng_defines()
-  defines { 
+  defines {
     "_CRT_SECURE_NO_DEPRECATE",
     "_CRT_NONSTDC_NO_DEPRECATE",
-    "X86_FEATURES", 
+    "X86_FEATURES",
     "X86_PCLMULQDQ_CRC",
     "X86_SSE2",
     "X86_SSE42_CRC_INTRIN",
@@ -628,43 +631,7 @@ workspace "SumatraPDF"
     gumbo_files()
 --]]
 
-  function fonts_old()
-    --[[ files {
-      "mupdf/font_base14.asm",
-    }
-    --]]
-    filter {"platforms:x64 or x64_asan"}
-      files {
-        "mupdf/fonts_64.asm",
-      }
-    filter {}
-
-    filter {"platforms:x32"}
-      files {
-        "mupdf/fonts_32.asm",
-      }
-    filter {}
-
-    -- .\ext\..\bin\nasm.exe -I .\mupdf\ -f win32 -o .\obj-rel\mupdf\font_base14.obj
-    -- .\mupdf\font_base14.asm
-    filter {'files:**.asm', 'platforms:x32'}
-       buildmessage 'Compiling %{file.relpath}'
-       buildoutputs { '%{cfg.objdir}/%{file.basename}.obj' }
-       buildcommands {
-          '..\\bin\\nasm.exe -f win32 -I ../mupdf/ -o "%{cfg.objdir}/%{file.basename}.obj" "%{file.relpath}"'
-       }
-    filter {}
-
-    filter {'files:**.asm', 'platforms:x64 or x64_asan'}
-      buildmessage 'Compiling %{file.relpath}'
-      buildoutputs { '%{cfg.objdir}/%{file.basename}.obj' }
-      buildcommands {
-        '..\\bin\\nasm.exe -f win64 -DWIN64 -I ../mupdf/ -o "%{cfg.objdir}/%{file.basename}.obj" "%{file.relpath}"'
-      }
-    filter {}
-  end
-
-  function fonts_new()
+  function fonts()
     files {
       "mupdf/resources/fonts/urw/Dingbats.cff",
       "mupdf/resources/fonts/urw/NimbusMonoPS-Regular.cff",
@@ -688,6 +655,7 @@ workspace "SumatraPDF"
       "mupdf/resources/fonts/noto/NotoSans-Regular.otf",
       "mupdf/resources/fonts/noto/NotoSerif-Regular.otf",
       "mupdf/resources/fonts/noto/NotoSerifDevanagari-Regular.otf",
+      "mupdf/resources/fonts/noto/NotoSerifGeorgian-Regular.otf",
     }
 
     filter {'files:**.cff'}
@@ -749,8 +717,7 @@ workspace "SumatraPDF"
       "ext/gumbo-parser/src",
       "ext/extract/include",
     }
-    -- fonts_old()
-    fonts_new()
+    fonts()
 
     mupdf_files()
     links { "mupdf-libs" }
