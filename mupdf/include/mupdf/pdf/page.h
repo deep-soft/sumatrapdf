@@ -1,4 +1,4 @@
-// Copyright (C) 2004-2021 Artifex Software, Inc.
+// Copyright (C) 2004-2024 Artifex Software, Inc.
 //
 // This file is part of MuPDF.
 //
@@ -265,11 +265,23 @@ enum {
 	PDF_REDACT_LINE_ART_REMOVE_IF_TOUCHED
 };
 
+enum {
+	/* Remove any text that overlaps with the redaction region,
+	 * however slightly. This is the default option, and is the
+	 * correct option for secure behaviour. */
+	PDF_REDACT_TEXT_REMOVE,
+	/* Do not remove any text at all as part of this redaction
+	 * operation. Using this option is INSECURE! Use at your own
+	 * risk. */
+	PDF_REDACT_TEXT_NONE
+};
+
 typedef struct
 {
 	int black_boxes;
 	int image_method;
 	int line_art;
+	int text;
 } pdf_redact_options;
 
 int pdf_redact_page(fz_context *ctx, pdf_document *doc, pdf_page *page, pdf_redact_options *opts);

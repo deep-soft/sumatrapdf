@@ -11,6 +11,7 @@
 
 #include "wingui/UIModels.h"
 
+#include "DocProperties.h"
 #include "DocController.h"
 #include "EngineBase.h"
 #include "EbookBase.h"
@@ -96,7 +97,8 @@ static WCHAR* ExtractHtmlText(EpubDoc* doc) {
                 t->sLen--;
             }
             if (t->sLen > 0) {
-                text.AppendAndFree(ResolveHtmlEntities(t->s, t->sLen));
+                TempStr s = ResolveHtmlEntitiesTemp(t->s, t->sLen);
+                text.Append(s);
                 text.AppendChar(' ');
             }
         } else if (t->IsStartTag()) {
@@ -123,7 +125,7 @@ static WCHAR* ExtractHtmlText(EpubDoc* doc) {
         }
     }
 
-    return ToWstr(text.Get());
+    return ToWStr(text.Get());
 }
 
 HRESULT EpubFilter::GetNextChunkValue(ChunkValue& chunkValue) {
@@ -140,7 +142,7 @@ HRESULT EpubFilter::GetNextChunkValue(ChunkValue& chunkValue) {
 
         case STATE_EPUB_AUTHOR:
             m_state = STATE_EPUB_TITLE;
-            str = m_epubDoc->GetPropertyTemp(DocumentProperty::Author);
+            str = m_epubDoc->GetPropertyTemp(kPropAuthor);
             if (!str::IsEmpty(str)) {
                 ws = ToWStrTemp(str);
                 chunkValue.SetTextValue(PKEY_Author, ws);
@@ -150,9 +152,9 @@ HRESULT EpubFilter::GetNextChunkValue(ChunkValue& chunkValue) {
 
         case STATE_EPUB_TITLE:
             m_state = STATE_EPUB_DATE;
-            str = m_epubDoc->GetPropertyTemp(DocumentProperty::Title);
+            str = m_epubDoc->GetPropertyTemp(kPropTitle);
             if (!str) {
-                str = m_epubDoc->GetPropertyTemp(DocumentProperty::Subject);
+                str = m_epubDoc->GetPropertyTemp(kPropSubject);
             }
             if (!str::IsEmpty(str)) {
                 ws = ToWStrTemp(str);
@@ -163,9 +165,9 @@ HRESULT EpubFilter::GetNextChunkValue(ChunkValue& chunkValue) {
 
         case STATE_EPUB_DATE:
             m_state = STATE_EPUB_CONTENT;
-            str = m_epubDoc->GetPropertyTemp(DocumentProperty::ModificationDate);
+            str = m_epubDoc->GetPropertyTemp(kPropModificationDate);
             if (!str) {
-                str = m_epubDoc->GetPropertyTemp(DocumentProperty::CreationDate);
+                str = m_epubDoc->GetPropertyTemp(kPropCreationDate);
             }
             if (!str::IsEmpty(str)) {
                 SYSTEMTIME systime;

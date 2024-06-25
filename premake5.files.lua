@@ -14,10 +14,12 @@ function preview_test_files()
     "TempAllocator.*",
     "StrFormat.*",
     "StrUtil.*",
+    "StrVec.*",
     "StrconvUtil.*",
   })
   files {
     "src/tools/preview_test.cpp",
+    "src/CrashHandlerNoOp.cpp",
   }
 end
 
@@ -28,12 +30,16 @@ function makelzsa_files()
     "ByteWriter.*",
     "ColorUtil.*",
     "CmdLineArgsIter.*",
+    "DirIter.*",
     "Dpi.*",
     "FileUtil.*",
     "GeomUtil.*",
     "LzmaSimpleArchive.*",
     "StrconvUtil.*",
+    "StrFormat.*",
     "StrUtil.*",
+    "StrVec.*",
+    "StrQueue.*",
     "TempAllocator.*",
     "Log.*",
     "WinDynCalls.*",
@@ -611,6 +617,7 @@ function sumatrapdf_files()
     "DisplayModel.*",
     "DisplayMode.*",
     "DocController.h",
+    "DocProperties.*",
     "EditAnnotations.*",
     "ExternalViewers.*",
     "Favorites.*",
@@ -638,6 +645,7 @@ function sumatrapdf_files()
     "Selection.*",
     "Settings.h",
     "SettingsStructs.*",
+    "SimpleBrowserWindow.*",
     "SumatraPDF.cpp",
     "SumatraPDF.h",
     "SumatraPDF.rc",
@@ -663,9 +671,18 @@ function sumatrapdf_files()
     "WindowTab.*",
 
     "ext/versions.txt",
+    "scratch.txt",
     "../docs/*.txt",
+    "../docs/*.html",
+    "../docs/md/*.md",
+    "../premake5.lua",
+    "../premake5.obsolete.lua",
+    "../premake5.files.lua",
+    "../.gitignore",
+
+    "../do/*.go",
   })
-  filter {"configurations:Debug"}
+  filter {"configurations:Debug or DebugFull"}
     files_in_dir("src", {
       "Tests.cpp",
       "regress/Regress.*",
@@ -722,7 +739,6 @@ function utils_files()
     "FileWatcher.*",
     "FzImgReader.*",
     "GdiPlusUtil.*",
-    "HtmlWindow.*",
     "HtmlParserLookup.*",
     "HtmlPullParser.*",
     "HtmlPrettyPrint.*",
@@ -738,6 +754,8 @@ function utils_files()
     "StrconvUtil.*",
     "StrFormat.*",
     "StrUtil.*",
+    "StrVec.*",
+    "StrQueue.*",
     "TempAllocator.*",
     "ThreadUtil.*",
     "TgaReader.*",
@@ -747,12 +765,11 @@ function utils_files()
     "Vec.h",
     "VecSegmented.h",
     "WebpReader.*",
-    "AvifReader.*",
     "WinDynCalls.*",
     "WinUtil.*",
     "ZipUtil.*",
   })
-  filter {"configurations:Debug"}
+  filter {"configurations:Debug or DebugFull"}
     files_in_dir("src/utils", {
       "windrawlib.*",
     })
@@ -776,6 +793,8 @@ end
 function engines_files()
   files_in_dir("src", {
     "Annotation.*",
+    "ChmFile.*",
+    "DocProperties.*",
     "EngineBase.*",
     "EngineCreate.*",
     "EngineDjVu.*",
@@ -786,7 +805,6 @@ function engines_files()
     "EngineMupdfImpl.*",
     "EnginePs.*",
     "EngineAll.h",
-    "ChmFile.*",
     "EbookDoc.*",
     "EbookFormatter.*",
     "HtmlFormatter.*",
@@ -830,6 +848,7 @@ function mupdf_files()
     "crypt-arc4.c",
     "crypt-md5.c",
     "crypt-sha2.c",
+    "deskew.c",
     "device.c",
     "directory.c",
     "document.c",
@@ -910,6 +929,7 @@ function mupdf_files()
     "pool.c",
     "printf.c",
     "random.c",
+    "skew.c",
     "separation.c",
     "shade.c",
     "stext-device.c",
@@ -938,6 +958,7 @@ function mupdf_files()
     "unzip.c",
     "util.c",
     "writer.c",
+    "xml-write.c",
     "xml.c",
     "zip.c",
   })
@@ -961,6 +982,7 @@ function mupdf_files()
   })
 
   files_in_dir("mupdf/source/pdf", {
+    "pdf-af.c",
     "pdf-annot.c",
     "pdf-appearance.c",
     "pdf-clean.c",
@@ -1009,6 +1031,7 @@ function mupdf_files()
     "pdf-write.c",
     "pdf-xobject.c",
     "pdf-xref.c",
+    "pdf-zugferd.c",
     "*.h",
   })
 
@@ -1102,6 +1125,7 @@ function efi_files()
     "tools/efi/*.h",
     "tools/efi/*.cpp",
     "src/utils/BaseUtil*",
+    "CrashHandlerNoOp.cpp",
     "src/utils/BitManip.h",
     "src/utils/Dict*",
     "src/utils/StrUtil.*",
@@ -1111,6 +1135,7 @@ end
 function sizer_files()
   files {
     "tools/sizer/*",
+    "src/CrashHandlerNoOp.cpp",
   }
 end
 
@@ -1137,6 +1162,8 @@ function test_util_files()
     "StrconvUtil.*",
     "StrFormat.*",
     "StrUtil.*",
+    "StrVec.*",
+    "StrQueue.*",
     "SquareTreeParser.*",
     "TrivialHtmlParser.*",
     "TempAllocator.*",
@@ -1149,6 +1176,7 @@ function test_util_files()
   files_in_dir("src", {
     --"StressTesting.*",
     --"AppTools.*",
+    "CrashHandlerNoOp.cpp",
     "DisplayMode.*",
     "Flags.*",
     "SumatraConfig.*",
@@ -1160,12 +1188,20 @@ end
 
 function engine_dump_files()
   files_in_dir("src", {
+    "CrashHandlerNoOp.cpp",
     "EngineDump.cpp",
     "SumatraConfig.*",
     "FzImgReader.*",
     "mui/Mui.*",
     "mui/TextRender.*"
   })
+end
+
+function plugin_test_files()
+    files {
+        "src/tools/plugin-test.cpp",
+        "src/CrashHandlerNoOp.cpp"
+    }
 end
 
 function pdf_preview_files()
@@ -1176,10 +1212,12 @@ function pdf_preview_files()
   })
 
   files_in_dir("src", {
-    "utils/LogDbg.*",
+    "utils/Log.*",
     "mui/Mui.*",
     "mui/TextRender.*",
+    "CrashHandlerNoOp.cpp",
     "ChmFile.*",
+    "DocProperties.*",
     "EbookDoc.*",
     "EbookFormatter.*",
     "EngineBase.*",
@@ -1208,19 +1246,21 @@ function search_filter_files()
     "FilterBase.h",
   })
   files_in_dir("src", {
-    "utils/LogDbg.*",
+    "utils/Log.*",
     "MUPDF_Exports.cpp",
+    "CrashHandlerNoOp.cpp",
+    "DocProperties.*",
+    "EbookDoc.*",
     "EngineBase.*",
     "EngineAll.h",
     "EngineMupdf.*",
     "EngineMupdfImpl.*",
+    "MobiDoc.*",
     "PalmDbReader.*",
     "RegistrySearchFilter.*",
-    "MobiDoc.*",
-    "EbookDoc.*",
   })
 
-  filter {"configurations:Debug"}
+  filter {"configurations:Debug or DebugFull"}
     files_in_dir("src/ifilter", {
       "TeXFilter.*",
       "EpubFilter.*",
@@ -1232,65 +1272,6 @@ function search_filter_files()
     }
   filter {}
 end
-
-
---[[
-function wdl_files()
-  files_in_dir("ext/WDL", {
-    "projectcontext.cpp",
-  })
-
-  files_in_dir("ext/WDL/tinyxml", {
-    "*.cpp",
-    "*.c",
-    "*.h",
-  })
-
-  files_in_dir("ext/WDL/lice", {
-    "lice.*",
-    "lice_arc.cpp",
-    "lice_bezier.h",
-    -- "lice_bmp.cpp",
-    "lice_colorspace.*",
-    "lice_combine.h",
-    "lice_extended.h",
-    -- "lice_gif.cpp",
-    -- "lice_gif_write.cpp",
-    -- "lice_gl_ctx.*",
-    -- "lice_glbitmap.*",
-    -- "lice_ico.cpp",
-    -- "lice_image.cpp",
-    "lice_import.h",
-    -- "lice_jpg.cpp",
-    -- "lice_jpg_write.cpp",
-    -- "lice_lcf.*",
-    "lice_line.cpp",
-    "lice_lvg.cpp",
-    "lice_palette.cpp",
-    -- "lice_pcx.cpp",
-    -- "lice_png.cpp",
-    -- "lice_png_write.cpp",
-    "lice_svg.cpp",
-    -- "lice_texgen.cpp",
-    "lice_text.*",
-    "lice_textnew.cpp",
-  })
-
-  files_in_dir("ext/WDL/wingui", {
-    "dlgitemborder.h",
-    "membitmap.h",
-    "riceditctrl.h",
-    "virtwnd.*",
-    "virtwnd-controls.h",
-    "virtwnd-iaccessible.cpp",
-    "virtwnd-iconbutton.cpp",
-    "virtwnd-listbox.cpp",
-    "virtwnd-skin.h",
-    "virtwnd-slider.cpp",
-    "wndsize.*",
-  })
-end
---]]
 
 function gumbo_files()
   files_in_dir("ext/gumbo-parser/src", {

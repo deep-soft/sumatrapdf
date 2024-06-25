@@ -6,7 +6,6 @@
 
 constexpr const char* kWebsiteURL = "https://www.sumatrapdfreader.org/";
 constexpr const char* kManualURL = "https://www.sumatrapdfreader.org/manual";
-constexpr const char* kManualKeyboardShortcutsURL = "https://www.sumatrapdfreader.org/docs/Keyboard-shortcuts";
 constexpr const char* kContributeTranslationsURL = "https://www.sumatrapdfreader.org/docs/Contribute-translation";
 
 #ifndef CRASH_REPORT_URL
@@ -86,11 +85,10 @@ extern bool gShowFrameRate;
 
 extern const char* gPluginURL;
 extern Favorites gFavorites;
-extern FileHistory gFileHistory;
 extern WNDPROC DefWndProcCloseButton;
-extern RenderCache gRenderCache;
+extern RenderCache* gRenderCache;
 
-extern bool gSuppressAltKey;
+extern bool gSupressNextAltMenuTrigger;
 extern HBITMAP gBitmapReloadingCue;
 extern HCURSOR gCursorDrag;
 extern bool gCrashOnOpen;
@@ -187,7 +185,6 @@ DocController* CreateControllerForEngineOrFile(EngineBase* engine, const char* p
 uint MbRtlReadingMaybe();
 void MessageBoxWarning(HWND hwnd, const char* msg, const char* title = nullptr);
 void UpdateCursorPositionHelper(MainWindow* win, Point pos, NotificationWnd* wnd);
-bool DocumentPathExists(const char* path);
 void EnterFullScreen(MainWindow* win, bool presentation = false);
 void ExitFullScreen(MainWindow* win);
 void SetCurrentLang(const char* langCode);
@@ -198,7 +195,12 @@ void MainWindowRerender(MainWindow* win, bool includeNonClientArea = false);
 LRESULT CALLBACK WndProcSumatraFrame(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 void ShutdownCleanup();
 bool DocIsSupportedFileType(Kind);
-char* GetLogFilePath();
+TempStr GetLogFilePathTemp();
 void ShowSavedAnnotationsNotification(HWND hwndParent, const char* path);
 void ShowSavedAnnotationsFailedNotification(HWND hwndParent, const char* path, const char* mupdfErr);
 void ShowErrorLoadingNotification(MainWindow* win, const char* path, bool noSavePrefs);
+void SumatraOpenPathInExplorer(const char* path);
+void SmartZoom(MainWindow* win, float factor, Point* pt, bool smartZoom);
+TempStr GetNotImportantDataDirTemp();
+TempStr GetCrashInfoDirTemp();
+void DeleteStaleFilesAsync();

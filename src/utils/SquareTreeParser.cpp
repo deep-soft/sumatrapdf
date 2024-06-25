@@ -213,7 +213,7 @@ SquareTree::SquareTree(const char* data) : root(nullptr) {
         auto tmp = ToUtf8((const WCHAR*)(data + 2));
         dataUtf8.Set(tmp);
     } else if (data) {
-        AutoFreeWstr tmp(strconv::AnsiToWstr(data));
+        AutoFreeWStr tmp(strconv::AnsiToWStr(data));
         auto tmp2 = ToUtf8(tmp.Get());
         dataUtf8.Set(tmp2);
     }
@@ -223,5 +223,5 @@ SquareTree::SquareTree(const char* data) : root(nullptr) {
 
     char* start = dataUtf8.Get();
     root = ParseSquareTreeRec(start, true);
-    CrashIf(*start || !root);
+    ReportIf(*start || !root);
 }

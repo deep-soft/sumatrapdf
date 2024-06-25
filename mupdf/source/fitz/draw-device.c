@@ -1,4 +1,4 @@
-// Copyright (C) 2004-2021 Artifex Software, Inc.
+// Copyright (C) 2004-2024 Artifex Software, Inc.
 //
 // This file is part of MuPDF.
 //
@@ -1349,7 +1349,7 @@ fz_draw_clip_stroke_text(fz_context *ctx, fz_device *devp, const fz_text *text, 
 	fz_draw_device *dev = (fz_draw_device*)devp;
 	fz_matrix ctm = fz_concat(in_ctm, dev->transform);
 	fz_irect bbox;
-	fz_pixmap *mask, *dest, *shape, *group_alpha;
+	fz_pixmap *mask, *shape, *group_alpha;
 	fz_matrix tm, trm;
 	fz_glyph *glyph;
 	int i, gid;
@@ -1376,7 +1376,7 @@ fz_draw_clip_stroke_text(fz_context *ctx, fz_device *devp, const fz_text *text, 
 	 * we have a choice. We can either create the new destination WITH alpha, or
 	 * we can copy the old pixmap contents in. We opt for the latter here, but
 	 * may want to revisit this decision in the future. */
-	state[1].dest = dest = fz_new_pixmap_with_bbox(ctx, model, bbox, state[0].dest->seps, state[0].dest->alpha);
+	state[1].dest = fz_new_pixmap_with_bbox(ctx, model, bbox, state[0].dest->seps, state[0].dest->alpha);
 	if (state[0].dest->alpha)
 		fz_clear_pixmap(ctx, state[1].dest);
 	else
@@ -2268,13 +2268,39 @@ fz_draw_begin_mask(fz_context *ctx, fz_device *devp, fz_rect area, int luminosit
 }
 
 static void
-apply_transform_function_to_pixmap(fz_context *ctx, fz_pixmap *pix, fz_function *tr)
+apply_transfer_function_to_pixmap(fz_context *ctx, fz_pixmap *pix, fz_function *tr)
 {
 	int w, h;
 	ptrdiff_t stride;
 	uint8_t *s;
 
 	assert(pix && pix->n == 1);
+
+	if (pix->w * (size_t)pix->h > 1024)
+	{
+		uint8_t memo[256];
+
+		for (w = 0; w < 256; w++)
+		{
+			float f = w / 255.0f;
+			float d;
+			fz_eval_function(ctx, tr, &f, 1, &d, 1);
+			memo[w] = (uint8_t)fz_clampi(d*255.0f, 0, 255);
+		}
+
+		s = pix->samples;
+		stride = pix->stride - pix->w;
+		for (h = pix->h; h > 0; h--)
+		{
+			for (w = pix->w; w > 0; w--)
+			{
+				*s = memo[*s];
+				s++;
+			}
+			s += stride;
+		}
+		return;
+	}
 
 	s = pix->samples;
 	stride = pix->stride - pix->w;
@@ -2335,7 +2361,7 @@ fz_draw_end_mask(fz_context *ctx, fz_device *devp, fz_function *tr)
 		if (tr)
 		{
 			/* Apply transfer function to state[1].mask */
-			apply_transform_function_to_pixmap(ctx, state[1].mask, tr);
+			apply_transfer_function_to_pixmap(ctx, state[1].mask, tr);
 		}
 
 		/* create new dest scratch buffer */

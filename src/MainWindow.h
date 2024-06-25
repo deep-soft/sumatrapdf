@@ -50,7 +50,7 @@ struct TouchState {
     bool panStarted = false;
     POINTS panPos{};
     int panScrollOrigX = 0;
-    double startArg = 0;
+    float zoomIntermediate = 0;
 };
 
 /* Describes position, the target (URL or file path) and infotip of a "hyperlink" */
@@ -77,8 +77,9 @@ struct MainWindow {
     // TODO: error windows currently have
     //       !IsAboutWindow() && !IsDocLoaded()
     //       which doesn't allow distinction between PDF, XPS, etc. errors
-    bool IsAboutWindow() const;
+    bool IsCurrentTabAbout() const;
     bool IsDocLoaded() const;
+    bool HasDocsLoaded() const;
 
     DisplayModel* AsFixed() const;
     ChmModel* AsChm() const;

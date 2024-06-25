@@ -519,8 +519,12 @@ def make_outparam_helper(
         # swig - swig maps int64_t to mupdf.SWIGTYPE_p_int64_t which can't be
         # treated or converted to an integer.
         #
+        # We also value-initialise in case the underlying mupdf function also
+        # reads the supplied value - i.e. treats it as an in-parm as well as an
+        # out-param; this is paricularly important for pointer out-params.
+        #
         pointee = state.get_name_canonical( arg.cursor.type.get_pointee())
-        generated.swig_cpp.write(f'        {declaration_text( pointee, arg.name)};\n')
+        generated.swig_cpp.write(f'        {declaration_text( pointee, arg.name)} = {{}};\n')
     generated.swig_cpp.write(f'    }};\n')
     generated.swig_cpp.write('\n')
 
@@ -538,19 +542,6 @@ def make_outparam_helper(
     generated.swig_cpp.write(f'    /* Out-params function for {cursor.spelling}(). */\n')
     generated.swig_cpp.write(f'    {declaration_text( cursor.result_type, name_args)}\n')
     generated.swig_cpp.write( '    {\n')
-    # Set all pointer fields to NULL.
-    for arg in parse.get_args( tu, cursor):
-        if not arg.out_param:
-            continue
-        if arg.cursor.type.get_pointee().kind == state.clang.cindex.TypeKind.POINTER:
-            generated.swig_cpp.write(f'        outparams->{arg.name} = NULL;\n')
-    # Make call. Note that *_outparams will have changed size_t to unsigned long or similar so
-    # that SWIG can handle it. Would like to cast the addresses of the struct members to
-    # things like (size_t*) but this cause problems with const so we use temporaries.
-    for arg in parse.get_args( tu, cursor):
-        if not arg.out_param:
-            continue
-        generated.swig_cpp.write(f'        {declaration_text(arg.cursor.type.get_pointee(), arg.name)};\n')
     return_void = (cursor.result_type.spelling == 'void')
     generated.swig_cpp.write(f'        ')
     if not return_void:
@@ -560,16 +551,11 @@ def make_outparam_helper(
     for arg in parse.get_args( tu, cursor):
         generated.swig_cpp.write(sep)
         if arg.out_param:
-            #generated.swig_cpp.write(f'&outparams->{arg.name}')
-            generated.swig_cpp.write(f'&{arg.name}')
+            generated.swig_cpp.write(f'&outparams->{arg.name}')
         else:
             generated.swig_cpp.write(f'{arg.name}')
         sep = ', '
     generated.swig_cpp.write(');\n')
-    for arg in parse.get_args( tu, cursor):
-        if not arg.out_param:
-            continue
-        generated.swig_cpp.write(f'        outparams->{arg.name} = {arg.name};\n')
     if not return_void:
         generated.swig_cpp.write('        return ret;\n')
     generated.swig_cpp.write('    }\n')
@@ -1054,13 +1040,13 @@ g_extra_declarations = textwrap.dedent(f'''
         fz_install_load_system_font_funcs_args class wrapper instance. */
         FZ_DATA extern void* fz_install_load_system_font_funcs2_state;
 
-        /** Helper for calling a `fz_document_open_fn` function pointer via Swig
-        from Python/C#. */
-        FZ_FUNCTION fz_document* fz_document_open_fn_call(fz_context* ctx, fz_document_open_fn fn, fz_stream* stream, fz_stream* accel, fz_archive* dir);
+        /** Helper for calling `fz_document_handler::open` function pointer via
+        Swig from Python/C#. */
+        FZ_FUNCTION fz_document* fz_document_handler_open(fz_context* ctx, const fz_document_handler *handler, fz_stream* stream, fz_stream* accel, fz_archive* dir);
 
-        /** Helper for calling a `fz_document_recognize_content_fn` function
+        /** Helper for calling a `fz_document_handler::recognize` function
         pointer via Swig from Python/C#. */
-        FZ_FUNCTION int fz_document_recognize_content_fn_call(fz_context* ctx, fz_document_recognize_content_fn fn, fz_stream* stream, fz_archive* dir);
+        FZ_FUNCTION int fz_document_handler_recognize(fz_context* ctx, const fz_document_handler *handler, const char *magic);
 
         /** Swig-friendly wrapper for pdf_choice_widget_options(), returns the
         options directly in a vector. */
@@ -1090,6 +1076,11 @@ g_extra_declarations = textwrap.dedent(f'''
 
         /** Swig-friendly wrapper for pdf_subset_fonts(). */
         void pdf_subset_fonts2(fz_context *ctx, pdf_document *doc, const std::vector<int>& pages);
+
+        /** Swig-friendly and typesafe way to do fz_snprintf(fmt, value). `fmt`
+        must end with one of 'efg' otherwise we throw an exception. */
+        std::string fz_format_double(fz_context* ctx, const char* fmt, double value);
+
         ''')
 
 g_extra_definitions = textwrap.dedent(f'''
@@ -1217,14 +1208,14 @@ g_extra_definitions = textwrap.dedent(f'''
 
         void* fz_install_load_system_font_funcs2_state = nullptr;
 
-        FZ_FUNCTION fz_document* fz_document_open_fn_call(fz_context* ctx, fz_document_open_fn fn, fz_stream* stream, fz_stream* accel, fz_archive* dir)
+        FZ_FUNCTION fz_document* fz_document_handler_open(fz_context* ctx, const fz_document_handler *handler, fz_stream* stream, fz_stream* accel, fz_archive* dir)
         {{
-            return fn(ctx, stream, accel, dir);
+            return handler->open(ctx, handler, stream, accel, dir);
         }}
 
-        FZ_FUNCTION int fz_document_recognize_content_fn_call(fz_context* ctx, fz_document_recognize_content_fn fn, fz_stream* stream, fz_archive* dir)
+        FZ_FUNCTION int fz_document_handler_recognize(fz_context* ctx, const fz_document_handler *handler, const char *magic)
         {{
-            return fn(ctx, stream, dir);
+            return handler->recognize(ctx, handler, magic);
         }}
 
         FZ_FUNCTION std::vector<std::string> pdf_choice_widget_options2(fz_context* ctx, pdf_annot* tw, int exportval)
@@ -1288,6 +1279,23 @@ g_extra_definitions = textwrap.dedent(f'''
         void pdf_subset_fonts2(fz_context *ctx, pdf_document *doc, const std::vector<int>& pages)
         {{
             return pdf_subset_fonts(ctx, doc, pages.size(), &pages[0]);
+        }}
+
+        static void s_format_check(fz_context* ctx, const char* fmt, const char* specifiers)
+        {{
+            int length = strlen(fmt);
+            if (!length || !strchr(specifiers, fmt[length-1]))
+            {{
+                fz_throw(ctx, FZ_ERROR_ARGUMENT, "Incorrect fmt '%s' should end with one of '%s'.", fmt, specifiers);
+            }}
+        }}
+
+        std::string fz_format_double(fz_context* ctx, const char* fmt, double value)
+        {{
+            char buffer[256];
+            s_format_check(ctx, fmt, "efg");
+            fz_snprintf(buffer, sizeof(buffer), fmt, value);
+            return buffer;
         }}
         ''')
 

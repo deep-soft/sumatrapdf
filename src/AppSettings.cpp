@@ -40,6 +40,19 @@ extern void RememberDefaultWindowPosition(MainWindow* win);
 
 static WatchedFile* gWatchedSettingsFile = nullptr;
 
+static HFONT gAppFont = nullptr;
+static HFONT gBiggerAppFont = nullptr;
+static HFONT gAppMenuFont = nullptr;
+static HFONT gTreeFont = nullptr;
+
+// TODO: if font sizes change, would need to re-layout the app
+static void ResetCachedFonts() {
+    gAppFont = nullptr;
+    gBiggerAppFont = nullptr;
+    gAppMenuFont = nullptr;
+    gTreeFont = nullptr;
+}
+
 // number of weeks past since 2011-01-01
 static int GetWeekCount() {
     SYSTEMTIME date20110101{};
@@ -48,7 +61,7 @@ static int GetWeekCount() {
     date20110101.wDay = 1;
     FILETIME origTime, currTime;
     BOOL ok = SystemTimeToFileTime(&date20110101, &origTime);
-    CrashIf(!ok);
+    ReportIf(!ok);
     GetSystemTimeAsFileTime(&currTime);
     return (currTime.dwHighDateTime - origTime.dwHighDateTime) / 1408;
     // 1408 == (10 * 1000 * 1000 * 60 * 60 * 24 * 7) / (1 << 32)
@@ -63,7 +76,7 @@ TempStr GetSettingsFileNameTemp() {
 }
 
 TempStr GetSettingsPathTemp() {
-    return AppGenDataFilenameTemp(GetSettingsFileNameTemp());
+    return GetPathInAppDataDirTemp(GetSettingsFileNameTemp());
 }
 
 static void setMin(int& i, int minVal) {
@@ -83,7 +96,7 @@ static void setMinMax(int& i, int minVal, int maxVal) {
 
 /* Caller needs to CleanUpSettings() */
 bool LoadSettings() {
-    CrashIf(gGlobalPrefs);
+    ReportIf(gGlobalPrefs);
 
     auto timeStart = TimeGet();
 
@@ -93,7 +106,7 @@ bool LoadSettings() {
         ByteSlice prefsData = file::ReadFile(settingsPath);
 
         gGlobalPrefs = NewGlobalPrefs(prefsData);
-        CrashAlwaysIf(!gGlobalPrefs);
+        ReportIf(!gGlobalPrefs);
         gprefs = gGlobalPrefs;
         prefsData.Free();
     }
@@ -105,7 +118,7 @@ bool LoadSettings() {
     gprefs->lastPrefUpdate = file::GetModificationTime(settingsPath);
     gprefs->defaultDisplayModeEnum = DisplayModeFromString(gprefs->defaultDisplayMode, DisplayMode::Automatic);
     gprefs->defaultZoomFloat = ZoomFromString(gprefs->defaultZoom, kZoomActualSize);
-    CrashIf(!IsValidZoom(gprefs->defaultZoomFloat));
+    ReportIf(!IsValidZoom(gprefs->defaultZoomFloat));
 
     int weekDiff = GetWeekCount() - gprefs->openCountWeek;
     gprefs->openCountWeek = GetWeekCount();
@@ -173,9 +186,9 @@ bool LoadSettings() {
     if (!file::Exists(settingsPath)) {
         SaveSettings();
     }
+    ResetCachedFonts();
 
-    logf("LoadSettings() took %.2f ms\n", TimeSinceInMs(timeStart));
-
+    logf("LoadSettings('%s') took %.2f ms\n", settingsPath, TimeSinceInMs(timeStart));
     return true;
 }
 
@@ -232,7 +245,7 @@ bool SaveSettings() {
     if (!HasPermission(Perm::SavePreferences)) {
         return false;
     }
-
+    logf("SaveSettings\n");
     // update display states for all tabs
     for (MainWindow* win : gWindows) {
         for (WindowTab* tab : win->Tabs()) {
@@ -259,7 +272,7 @@ bool SaveSettings() {
         str::Free(prevPrefs.data());
         str::Free(prefs.data());
     };
-    CrashIf(prefs.empty());
+    ReportIf(prefs.empty());
     if (prefs.empty()) {
         return false;
     }
@@ -316,10 +329,10 @@ bool ReloadSettings() {
     CleanUpSettings();
 
     ok = LoadSettings();
-    CrashAlwaysIf(!ok || !gGlobalPrefs);
+    ReportIf(!ok || !gGlobalPrefs);
 
     // TODO: about window doesn't have to be at position 0
-    if (gWindows.size() > 0 && gWindows.at(0)->IsAboutWindow()) {
+    if (gWindows.size() > 0 && gWindows.at(0)->IsCurrentTabAbout()) {
         MainWindow* win = gWindows.at(0);
         win->DeleteToolTip();
         DeleteVecMembers(win->staticLinks);
@@ -350,7 +363,7 @@ void CleanUpSettings() {
 }
 
 void schedulePrefsReload() {
-    uitask::Post(ReloadSettings);
+    uitask::Post(TaskReloadSettings, ReloadSettings);
 }
 
 void RegisterSettingsForFileChanges() {
@@ -358,7 +371,7 @@ void RegisterSettingsForFileChanges() {
         return;
     }
 
-    CrashIf(gWatchedSettingsFile); // only call me once
+    ReportIf(gWatchedSettingsFile); // only call me once
     TempStr path = GetSettingsPathTemp();
     gWatchedSettingsFile = FileWatcherSubscribe(path, schedulePrefsReload);
 }
@@ -366,4 +379,94 @@ void RegisterSettingsForFileChanges() {
 void UnregisterSettingsForFileChanges() {
     FileWatcherUnsubscribe(gWatchedSettingsFile);
     // TODO: memleak of gWatchedSettingsFile
+}
+
+constexpr int kMinFontSize = 9;
+
+int GetAppFontSize() {
+    auto fntSize = gGlobalPrefs->uIFontSize;
+    if (fntSize < kMinFontSize) {
+        fntSize = GetSizeOfDefaultGuiFont();
+    }
+    return fntSize;
+}
+
+HFONT GetAppFont() {
+    if (gAppFont) {
+        return gAppFont;
+    }
+    auto fntSize = GetAppFontSize();
+    gAppFont = GetUserGuiFont("auto", fntSize);
+    return gAppFont;
+}
+
+constexpr int kMinBiggerFontSize = 14;
+
+// if user provided font size, we use that
+// otherwise we return 1.4x of default font size but no smaller than 16
+// on my laptop on high dpi default font size is 12
+HFONT GetAppBiggerFont() {
+    if (gBiggerAppFont) {
+        return gBiggerAppFont;
+    }
+    int fntSize = gGlobalPrefs->uIFontSize;
+    if (fntSize < kMinFontSize) {
+        fntSize = GetSizeOfDefaultGuiFont();
+        fntSize = (fntSize * 12) / 10;
+        if (fntSize < kMinBiggerFontSize) {
+            fntSize = kMinBiggerFontSize;
+        }
+    }
+    gBiggerAppFont = GetDefaultGuiFontOfSize(fntSize);
+    return gBiggerAppFont;
+}
+
+HFONT GetAppTreeFont() {
+    if (gTreeFont) {
+        return gTreeFont;
+    }
+    int fntSize = gGlobalPrefs->treeFontSize;
+    if (fntSize < kMinFontSize) {
+        fntSize = gGlobalPrefs->uIFontSize;
+    }
+    if (fntSize < kMinFontSize) {
+        fntSize = GetSizeOfDefaultGuiFont();
+    }
+    char* fntNameUser = gGlobalPrefs->treeFontName;
+    gTreeFont = GetUserGuiFont(fntNameUser, fntSize);
+    return gTreeFont;
+}
+
+int GetAppMenuFontSize() {
+    NONCLIENTMETRICS ncm{};
+    ncm.cbSize = sizeof(ncm);
+    SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+    int fntSize = std::abs(ncm.lfMenuFont.lfHeight);
+    if (gGlobalPrefs->uIFontSize >= kMinFontSize) {
+        fntSize = gGlobalPrefs->uIFontSize;
+    }
+    return fntSize;
+}
+
+HFONT GetAppMenuFont() {
+    if (gAppMenuFont) {
+        return gAppMenuFont;
+    }
+    NONCLIENTMETRICS ncm{};
+    ncm.cbSize = sizeof(ncm);
+    SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+    int fntSize = GetAppMenuFontSize();
+    ncm.lfMenuFont.lfHeight = -fntSize;
+    gAppMenuFont = CreateFontIndirectW(&ncm.lfMenuFont);
+    return gAppMenuFont;
+}
+
+bool IsMenuFontSizeDefault() {
+    auto fntSize = gGlobalPrefs->uIFontSize;
+    return fntSize < kMinFontSize;
+}
+
+bool IsAppFontSizeDefault() {
+    auto fntSize = gGlobalPrefs->uIFontSize;
+    return fntSize < kMinFontSize;
 }

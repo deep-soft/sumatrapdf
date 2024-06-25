@@ -21,7 +21,7 @@ static SeqStrings gSupportedExts =
     ".pdf\0.xps\0.oxps\0.cbz\0.cbr\0.cb7\0.cbt\0" \
     ".djvu\0.chm\0.mobi\0.epub\0.azw\0.azw3\0.azw4\0" \
     ".fb2\0.fb2z\0.prc\0.tif\0.tiff\0.jp2\0.png\0" \
-    ".jpg\0.jpeg\0.tga\0.gif\0.avif\0.heic\0";
+    ".jpg\0.jpeg\0.tga\0.gif\0.avif\0.heic\0.webp\0";
 // clang-format on
 
 // notifies Shell that file associations changed.
@@ -148,10 +148,10 @@ ShCtx\Software\Classes\${ext}\OpenWithProgids
   SumatraPDF.${ext} = "" (empty REG_SZ value)
 */
 bool RegisterForOpenWith(HKEY hkey) {
-    char* exePath = GetInstalledExePathTemp();
-    char* cmdOpen = str::JoinTemp("\"", exePath, "\" \"%1\"");
-    char* cmdPrint = str::JoinTemp("\"", exePath, "\" -print-to-default \"%1\"");
-    char* cmdPrintTo = str::JoinTemp("\"", exePath, "\" -print-to \"%2\" \"%1\"");
+    char* exePathQuoted = str::JoinTemp(R"(")", GetInstalledExePathTemp(), R"(")");
+    char* cmdOpen = str::JoinTemp(exePathQuoted, R"( "%1" "%2" "%3" "%4")");
+    char* cmdPrint = str::JoinTemp(exePathQuoted, " -print-to-default \"%1\"");
+    char* cmdPrintTo = str::JoinTemp(exePathQuoted, " -print-to \"%2\" \"%1\"");
     char* key;
     auto exts = gSupportedExts;
     bool ok = true;
@@ -172,11 +172,11 @@ bool RegisterForOpenWith(HKEY hkey) {
         // ",-${n}" => n is icon with resource id
         char* iconPath;
         if (str::Eq(ext, ".epub")) {
-            iconPath = str::JoinTemp("\"", exePath, "\",2");
+            iconPath = str::JoinTemp(exePathQuoted, ",2");
         } else if (str::Eq(ext, ".cbr") || str::Eq(ext, ".cbz") || str::Eq(ext, ".cbt") || str::Eq(ext, ".cb7")) {
-            iconPath = str::JoinTemp("\"", exePath, "\",3");
+            iconPath = str::JoinTemp(exePathQuoted, ",3");
         } else {
-            iconPath = str::JoinTemp("\"", exePath, "\",1");
+            iconPath = str::JoinTemp(exePathQuoted, ",1");
         }
 
         key = str::JoinTemp(progIDKey, "\\Application");
@@ -290,9 +290,9 @@ void DoAssociateExeWithPdfExtension(HKEY hkey) {
         return;
     }
 
-    AutoFreeWstr regClassesApp = str::Join(LR"(Software\Classes\)", kAppName);
+    AutoFreeWStr regClassesApp = str::Join(LR"(Software\Classes\)", kAppName);
 
-    AutoFreeWstr prevHandler;
+    AutoFreeWStr prevHandler;
     // Remember the previous default app for the Uninstaller
     prevHandler.Set(LoggedReadRegStr(hkey, kRegClassesPdf, nullptr));
 
@@ -301,29 +301,29 @@ void DoAssociateExeWithPdfExtension(HKEY hkey) {
         LoggedWriteRegStr(hkey, regClassesApp, L"previous.pdf", prevHandler);
     }
 
-    LoggedWriteRegStr(hkey, regClassesApp, nullptr, _TR("PDF Document"));
-    AutoFreeWstr icon_path = str::Join(exePath, L",1");
+    LoggedWriteRegStr(hkey, regClassesApp, nullptr, _TRA("PDF Document"));
+    AutoFreeWStr icon_path = str::Join(exePath, L",1");
     {
-        AutoFreeWstr key = str::Join(regClassesApp, LR"(\DefaultIcon)");
+        AutoFreeWStr key = str::Join(regClassesApp, LR"(\DefaultIcon)");
         LoggedWriteRegStr(hkey, key, nullptr, icon_path);
     }
 
     {
-        AutoFreeWstr key = str::Join(regClassesApp, LR"(\shell)");
+        AutoFreeWStr key = str::Join(regClassesApp, LR"(\shell)");
         LoggedWriteRegStr(hkey, key, nullptr, L"open");
     }
 
     // "${exePath}" "%1" %*
-    AutoFreeWstr cmdPath = str::Format(LR"("%s" "%%1" %%*)", exePath.Get());
+    AutoFreeWStr cmdPath = str::Format(LR"("%s" "%%1" %%*)", exePath.Get());
     {
-        AutoFreeWstr key = str::Join(regClassesApp, LR"(\shell\open\command)");
+        AutoFreeWStr key = str::Join(regClassesApp, LR"(\shell\open\command)");
         ok = LoggedWriteRegStr(hkey, key, nullptr, cmdPath);
     }
 
     // register for printing: "${exePath}" -print-to-default "%1"
     cmdPath.Set(str::Format(LR"("%s" -print-to-default "%%1")", exePath.Get()));
     {
-        AutoFreeWstr key = str::Join(regClassesApp, LR"(\shell\print\command)");
+        AutoFreeWStr key = str::Join(regClassesApp, LR"(\shell\print\command)");
         LoggedWriteRegStr(hkey, key, nullptr, cmdPath);
     }
 
@@ -331,7 +331,7 @@ void DoAssociateExeWithPdfExtension(HKEY hkey) {
     // "${exePath}" -print-to "%2" "%1"
     cmdPath.Set(str::Format(LR"("%s" -print-to "%%2" "%%1")", exePath.Get()));
     {
-        AutoFreeWstr key = str::Join(regClassesApp, LR"(\shell\printto\command)");
+        AutoFreeWStr key = str::Join(regClassesApp, LR"(\shell\printto\command)");
         LoggedWriteRegStr(hkey, key, nullptr, cmdPath);
     };
 
@@ -345,7 +345,7 @@ void DoAssociateExeWithPdfExtension(HKEY hkey) {
     LoggedWriteRegStr(hkey, kRegClassesPdf LR"(\OpenWithProgids)", appName, L"");
     if (hkey == HKEY_CURRENT_USER) {
         LoggedWriteRegStr(hkey, kRegExplorerPdfExt, L"Progid", appName);
-        CrashIf(hkey == nullptr); // to appease prefast
+        ReportIf(hkey == nullptr); // to appease prefast
         LoggedDeleteRegValue(hkey, kRegExplorerPdfExt, L"Application");
         LoggedDeleteRegKey(hkey, kRegExplorerPdfExt LR"(\UserChoice)", true);
     }
@@ -360,14 +360,14 @@ bool IsExeAssociatedWithPdfExtension() {
     // this one doesn't have to exist but if it does, it must be kAppName
     const WCHAR* appName = kAppName;
 
-    AutoFreeWstr tmp(LoggedReadRegStr(HKEY_CURRENT_USER, kRegExplorerPdfExt, L"Progid"));
+    AutoFreeWStr tmp(LoggedReadRegStr(HKEY_CURRENT_USER, kRegExplorerPdfExt, L"Progid"));
     if (tmp && !str::Eq(tmp, appName)) {
         return false;
     }
 
     // this one doesn't have to exist but if it does, it must be ${kAppName}.exe
     tmp.Set(LoggedReadRegStr(HKEY_CURRENT_USER, kRegExplorerPdfExt, L"Application"));
-    AutoFreeWstr exeName = str::Join(appName, L".exe");
+    AutoFreeWStr exeName = str::Join(appName, L".exe");
     if (tmp && !str::EqI(tmp, exeName)) {
         return false;
     }
@@ -386,7 +386,7 @@ bool IsExeAssociatedWithPdfExtension() {
 
     // HKEY_CLASSES_ROOT\SumatraPDF\shell\open default key must be: open
     {
-        AutoFreeWstr key = str::Join(appName, LR"(\shell)");
+        AutoFreeWStr key = str::Join(appName, LR"(\shell)");
         tmp.Set(LoggedReadRegStr(HKEY_CLASSES_ROOT, key, nullptr));
     }
     if (!str::EqI(tmp, L"open")) {
@@ -395,7 +395,7 @@ bool IsExeAssociatedWithPdfExtension() {
 
     // HKEY_CLASSES_ROOT\SumatraPDF\shell\open\command default key must be: "${exe_path}" "%1"
     {
-        AutoFreeWstr key = str::Join(appName, LR"(\shell\open\command)");
+        AutoFreeWStr key = str::Join(appName, LR"(\shell\open\command)");
         tmp.Set(LoggedReadRegStr(HKEY_CLASSES_ROOT, key, nullptr));
     }
     if (!tmp) {
@@ -444,17 +444,17 @@ bool OldWriteFileAssoc(HKEY hkey) {
         key = str::JoinTemp(regPath, L"\\DefaultIcon");
         ok &= LoggedWriteRegStr(hkey, key, nullptr, iconPath);
     }
-    AutoFreeWstr cmdPath = str::Format(L"\"%s\" \"%%1\" %%*", exePath);
+    AutoFreeWStr cmdPath = str::Format(L"\"%s\" \"%%1\" %%*", exePath);
     {
         key = str::JoinTemp(regPath, L"\\Shell\\Open\\Command");
         ok &= LoggedWriteRegStr(hkey, key, nullptr, cmdPath);
     }
-    AutoFreeWstr printPath = str::Format(L"\"%s\" -print-to-default \"%%1\"", exePath);
+    AutoFreeWStr printPath = str::Format(L"\"%s\" -print-to-default \"%%1\"", exePath);
     {
         key = str::JoinTemp(regPath, L"\\Shell\\Print\\Command");
         ok &= LoggedWriteRegStr(hkey, key, nullptr, printPath);
     }
-    AutoFreeWstr printToPath = str::Format(L"\"%s\" -print-to \"%%2\" \"%%1\"", exePath);
+    AutoFreeWStr printToPath = str::Format(L"\"%s\" -print-to \"%%2\" \"%%1\"", exePath);
     {
         key = str::JoinTemp(regPath, L"\\Shell\\PrintTo\\Command");
         ok &= LoggedWriteRegStr(hkey, key, nullptr, printToPath);

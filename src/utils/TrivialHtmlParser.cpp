@@ -18,7 +18,7 @@ memory inside HtmlParser::s, so they don't need to be freed.
 
 bool HtmlElement::NameIs(const char* nameIn) const {
     if (!name) {
-        CrashIf(Tag_NotFound == tag);
+        ReportIf(Tag_NotFound == tag);
         HtmlTag tg = FindHtmlTag(nameIn, str::Len(nameIn));
         return tg == tag;
     }
@@ -28,8 +28,8 @@ bool HtmlElement::NameIs(const char* nameIn) const {
 // for now just ignores any namespace qualifier
 // (i.e. succeeds for "opf:content" with name="content" and any value of ns)
 // TODO: add proper namespace support
-bool HtmlElement::NameIsNS(const char* nameIn, const char* ns) const {
-    CrashIf(!ns);
+bool HtmlElement::NameIsNS(const char* nameIn, const char*) const {
+    // ReportIf(!ns);
     const char* nameStart = nullptr;
     if (name) {
         nameStart = str::FindChar(name, ':');
@@ -62,7 +62,7 @@ static WCHAR IntToChar(int codepoint) {
 
 // caller needs to free() the result
 WCHAR* DecodeHtmlEntitites(const char* string, uint codepage) {
-    WCHAR* fixed = strconv::StrToWstr(string, codepage);
+    WCHAR* fixed = strconv::StrToWStr(string, codepage);
     WCHAR* dst = fixed;
     const WCHAR* src = fixed;
 
@@ -279,7 +279,7 @@ HtmlElement* HtmlParser::ParseInPlace(const ByteSlice& d, uint codepage) {
         }
         if (!tok->IsTag()) {
             // ignore text content
-            CrashIf(!tok->IsText());
+            ReportIf(!tok->IsText());
             continue;
         }
         if (!tok->IsEndTag()) {

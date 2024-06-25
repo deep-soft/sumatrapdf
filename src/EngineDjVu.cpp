@@ -76,7 +76,7 @@ struct PageDestinationDjVu : IPageDestination {
         str::Free(value);
     }
 
-    char* GetValue() override {
+    char* GetValue2() override {
         if (value) {
             return value;
         }
@@ -118,7 +118,7 @@ static TocItem* NewDjVuTocItem(TocItem* parent, const char* title, const char* l
     auto res = new TocItem(parent, title, 0);
     res->dest = NewDjVuDestination(link, nullptr);
     if (res->dest) {
-        res->pageNo = res->dest->GetPageNo();
+        res->pageNo = PageDestGetPageNo(res->dest);
     }
     return res;
 }
@@ -133,7 +133,7 @@ struct DjVuContext {
         ctx = ddjvu_context_create("DjVuEngine");
         // reset the locale to "C" as most other code expects
         setlocale(LC_ALL, "C");
-        CrashIf(!ctx);
+        ReportIf(!ctx);
     }
 
     int AddRef() {
@@ -146,7 +146,7 @@ struct DjVuContext {
 
     int Release() {
         EnterCriticalSection(&lock);
-        CrashIf(refCount <= 0);
+        ReportIf(refCount <= 0);
         --refCount;
         LeaveCriticalSection(&lock);
         return refCount;
@@ -212,7 +212,7 @@ static DjVuContext* GetDjVuContext() {
 }
 
 static void ReleaseDjVuContext() {
-    CrashIf(!gDjVuContext);
+    ReportIf(!gDjVuContext);
     int refCount = gDjVuContext->Release();
     if (refCount != 0) {
         return;
@@ -221,7 +221,7 @@ static void ReleaseDjVuContext() {
 
 void CleanupEngineDjVu() {
     if (gDjVuContext) {
-        CrashIf(gDjVuContext->refCount != 0);
+        ReportIf(gDjVuContext->refCount != 0);
         delete gDjVuContext;
         gDjVuContext = nullptr;
     }
@@ -254,7 +254,7 @@ class EngineDjVu : public EngineBase {
     PageText ExtractPageText(int pageNo) override;
     bool HasClipOptimizations(int pageNo) override;
 
-    TempStr GetPropertyTemp(DocumentProperty prop) override;
+    TempStr GetPropertyTemp(const char* name) override;
 
     // we currently don't load pages lazily, so there's nothing to do here
     bool BenchLoadPage(int pageNo) override;
@@ -338,7 +338,7 @@ EngineBase* EngineDjVu::Clone() {
 }
 
 RectF EngineDjVu::PageMediabox(int pageNo) {
-    CrashIf(pageNo < 1 || pageNo > pageCount);
+    ReportIf(pageNo < 1 || pageNo > pageCount);
     DjVuPageInfo* pi = pages[pageNo - 1];
     return pi->mediabox;
 }
@@ -347,7 +347,7 @@ bool EngineDjVu::HasClipOptimizations(int) {
     return false;
 }
 
-TempStr EngineDjVu::GetPropertyTemp(DocumentProperty) {
+TempStr EngineDjVu::GetPropertyTemp(const char*) {
     return nullptr;
 }
 
@@ -421,7 +421,7 @@ bool EngineDjVu::LoadMediaboxes() {
             }
             DjVuInfoChunk info;
             bool ok = r.UnpackBE(&info, sizeof(info), "2w6b", 4);
-            CrashIf(!ok);
+            ReportIf(!ok);
             int dpi = MAKEWORD(info.dpiLo, info.dpiHi); // dpi is little-endian
             // DjVuLibre ignores DPI values outside 25 to 6000 in DjVuInfo::decode
             if (dpi < 25 || 6000 < dpi) {
@@ -598,7 +598,7 @@ RenderedBitmap* EngineDjVu::RenderPage(RenderPageArgs& args) {
             rot = DDJVU_ROTATE_90;
             break;
         default:
-            CrashIf("invalid rotation");
+            ReportIf("invalid rotation");
             break;
     }
     ddjvu_page_set_rotation(page, rot);
@@ -721,7 +721,7 @@ RectF EngineDjVu::PageContentBox(int pageNo, RenderTarget) {
 }
 
 PointF EngineDjVu::TransformPoint(PointF pt, int pageNo, float zoom, int rotation, bool inverse) {
-    CrashIf(zoom <= 0);
+    ReportIf(zoom <= 0);
     if (zoom <= 0) {
         return pt;
     }
@@ -827,14 +827,14 @@ bool EngineDjVu::ExtractPageText(miniexp_t item, str::WStr& extracted, Vec<Rect>
             AppendNewline(extracted, coords, lineSep);
         }
         const char* content = miniexp_to_str(str);
-        WCHAR* value = ToWstr(content);
+        TempWStr value = ToWStrTemp(content);
         if (value) {
             size_t len = str::Len(value);
             // TODO: split the rectangle into individual parts per glyph
             for (size_t i = 0; i < len; i++) {
                 coords.Append(Rect(rect.x, rect.y, rect.dx, rect.dy));
             }
-            extracted.AppendAndFree(value);
+            extracted.Append(value);
         }
         if (miniexp_symbol("word") == type) {
             extracted.AppendChar(' ');
@@ -875,7 +875,7 @@ PageText EngineDjVu::ExtractPageText(int pageNo) {
 
     PageText res;
 
-    CrashIf(str::Len(extracted.Get()) != coords.size());
+    ReportIf(str::Len(extracted.Get()) != coords.size());
     ddjvu_status_t status;
     ddjvu_pageinfo_t info;
     while ((status = ddjvu_document_get_pageinfo(doc, pageNo - 1, &info)) < DDJVU_JOB_OK) {
@@ -901,7 +901,7 @@ PageText EngineDjVu::ExtractPageText(int pageNo) {
             coords.at(i).y = page.dy - coords.at(i).y - coords.at(i).dy;
         }
     }
-    CrashIf(coords.size() != extracted.size());
+    ReportIf(coords.size() != extracted.size());
     res.len = (int)extracted.size();
     res.text = extracted.StealData();
     res.coords = coords.StealData();
@@ -909,7 +909,7 @@ PageText EngineDjVu::ExtractPageText(int pageNo) {
 }
 
 Vec<IPageElement*> EngineDjVu::GetElements(int pageNo) {
-    CrashIf(pageNo < 1 || pageNo > PageCount());
+    ReportIf(pageNo < 1 || pageNo > PageCount());
     auto pi = pages[pageNo - 1];
     if (pi->gotAllElements) {
         return pi->allElements;
@@ -1025,7 +1025,7 @@ Vec<IPageElement*> EngineDjVu::GetElements(int pageNo) {
 IPageElement* EngineDjVu::GetElementAtPos(int pageNo, PointF pt) {
     Vec<IPageElement*> els = GetElements(pageNo);
 
-    int n = els.isize();
+    int n = els.Size();
     // elements are extracted bottom-to-top but are accessed
     // in top-to-bottom order, so search bacwards
     for (int i = n - 1; i >= 0; i--) {
@@ -1196,7 +1196,7 @@ int EngineDjVu::GetPageByLabel(const char* label) const {
 EngineBase* EngineDjVu::CreateFromFile(const char* path) {
     EngineDjVu* engine = new EngineDjVu();
     if (!engine->Load(path)) {
-        delete engine;
+        engine->Release();
         return nullptr;
     }
     return engine;
@@ -1205,7 +1205,7 @@ EngineBase* EngineDjVu::CreateFromFile(const char* path) {
 EngineBase* EngineDjVu::CreateFromStream(IStream* stream) {
     EngineDjVu* engine = new EngineDjVu();
     if (!engine->Load(stream)) {
-        delete engine;
+        engine->Release();
         return nullptr;
     }
     return engine;

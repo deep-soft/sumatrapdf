@@ -15,6 +15,26 @@
 
 namespace path {
 
+Type GetType(const char* pathA) {
+    if (!pathA) {
+        Type::None;
+    }
+
+    WCHAR* path = ToWStrTemp(pathA);
+    WIN32_FILE_ATTRIBUTE_DATA fileInfo;
+    BOOL res = GetFileAttributesEx(path, GetFileExInfoStandard, &fileInfo);
+    if (0 == res) {
+        // path doesn't exist
+        return Type::None;
+    }
+    if (fileInfo.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+        return Type::Dir;
+    }
+    // TODO: not sure if that is that simple, but whatevs
+    // https://learn.microsoft.com/en-us/windows/win32/fileio/file-attribute-constants
+    return Type::File;
+}
+
 bool IsSep(char c) {
     return '\\' == c || '/' == c;
 }
@@ -217,7 +237,7 @@ WCHAR* Normalize(const WCHAR* path) {
         return str::Dup(path);
     }
 
-    AutoFreeWstr fullpath(AllocArray<WCHAR>(cch));
+    AutoFreeWStr fullpath(AllocArray<WCHAR>(cch));
     GetFullPathNameW(path, cch, fullpath, nullptr);
     // convert to long form
     cch = GetLongPathNameW(fullpath, nullptr, 0);
@@ -225,7 +245,7 @@ WCHAR* Normalize(const WCHAR* path) {
         return fullpath.StealData();
     }
 
-    AutoFreeWstr normpath(AllocArray<WCHAR>(cch));
+    AutoFreeWStr normpath(AllocArray<WCHAR>(cch));
     GetLongPathNameW(fullpath, normpath, cch);
     if (cch <= MAX_PATH) {
         return normpath.StealData();
@@ -234,7 +254,7 @@ WCHAR* Normalize(const WCHAR* path) {
     // handle overlong paths: first, try to shorten the path
     cch = GetShortPathNameW(fullpath, nullptr, 0);
     if (cch && cch <= MAX_PATH) {
-        AutoFreeWstr shortpath(AllocArray<WCHAR>(cch));
+        AutoFreeWStr shortpath(AllocArray<WCHAR>(cch));
         GetShortPathNameW(fullpath, shortpath, cch);
         if (str::Len(path::GetBaseNameTemp(normpath)) + path::GetBaseNameTemp(shortpath) - shortpath < MAX_PATH) {
             // keep the long filename if possible
@@ -252,23 +272,23 @@ WCHAR* Normalize(const WCHAR* path) {
 
 char* NormalizeTemp(const char* path) {
     WCHAR* s = ToWStrTemp(path);
-    AutoFreeWstr ws = Normalize(s);
+    AutoFreeWStr ws = Normalize(s);
     char* res = ToUtf8Temp(ws);
     return res;
 }
 
 // Normalizes the file path and the converts it into a short form that
 // can be used for interaction with non-UNICODE aware applications
-char* ShortPath(const char* pathA) {
+TempStr ShortPathTemp(const char* pathA) {
     WCHAR* path = ToWStrTemp(pathA);
-    AutoFreeWstr normpath(Normalize(path));
+    AutoFreeWStr normpath = Normalize(path);
     DWORD cch = GetShortPathNameW(normpath, nullptr, 0);
     if (!cch) {
         return ToUtf8(normpath.Get());
     }
     WCHAR* shortPath = AllocArray<WCHAR>(cch + 1);
     GetShortPathNameW(normpath, shortPath, cch);
-    char* res = ToUtf8(shortPath);
+    char* res = ToUtf8Temp(shortPath);
     str::Free(shortPath);
     return res;
 }
@@ -404,8 +424,11 @@ static bool MatchWildcardsRec(const WCHAR* fileName, const WCHAR* filter) {
 #undef AtEndOf
 }
 
+static bool AtEndOf(const char* str) {
+    return *str == 0;
+}
+
 static bool MatchWildcardsRec(const char* fileName, const char* filter) {
-#define AtEndOf(str) (*(str) == '\0')
     switch (*filter) {
         case '\0':
         case ';':
@@ -421,7 +444,6 @@ static bool MatchWildcardsRec(const char* fileName, const char* filter) {
         default:
             return tolower(*fileName) == tolower(*filter) && MatchWildcardsRec(fileName + 1, filter + 1);
     }
-#undef AtEndOf
 }
 
 /* matches the filename of a path against a list of semicolon
@@ -441,53 +463,44 @@ bool Match(const char* path, const char* filter) {
 }
 
 bool IsAbsolute(const char* path) {
-    WCHAR* ws = ToWStrTemp(path);
+    TempWStr ws = ToWStrTemp(path);
     return !PathIsRelativeW(ws);
 }
+} // namespace path
 
 // returns the path to either the %TEMP% directory or a
 // non-existing file inside whose name starts with filePrefix
-char* GetTempFilePath(const char* filePrefix) {
+TempStr GetTempFilePathTemp(const char* filePrefix) {
     WCHAR tempDir[MAX_PATH]{};
     DWORD res = ::GetTempPathW(dimof(tempDir), tempDir);
     if (!res || res >= dimof(tempDir)) {
         return nullptr;
     }
     if (!filePrefix) {
-        return ToUtf8(tempDir);
+        return ToUtf8Temp(tempDir);
     }
     WCHAR path[MAX_PATH]{};
     WCHAR* filePrefixW = ToWStrTemp(filePrefix);
     if (!GetTempFileNameW(tempDir, filePrefixW, 0, path)) {
         return nullptr;
     }
-    return ToUtf8(path);
+    return ToUtf8Temp(path);
 }
 
 // returns a path to the application module's directory
 // with either the given fileName or the module's name
 // (module is the EXE or DLL in which path::GetPathOfFileInAppDir resides)
-TempStr GetPathOfFileInAppDirTemp(const char* fileName) {
-    WCHAR modulePath[MAX_PATH]{};
-    GetModuleFileNameW(GetInstance(), modulePath, dimof(modulePath));
-    modulePath[dimof(modulePath) - 1] = '\0';
-    if (!fileName) {
-        return ToUtf8Temp(modulePath);
-    }
-    WCHAR* moduleDir = path::GetDirTemp(modulePath);
-    WCHAR* fileNameW = ToWStrTemp(fileName);
-    WCHAR* path = path::JoinTemp(moduleDir, fileNameW);
-    path = path::Normalize(path);
-    TempStr res = ToUtf8Temp(path);
-    str::Free(path);
-    return res;
+TempStr GetPathInExeDirTemp(const char* fileName) {
+    TempStr dir = GetExeDirTemp();
+    TempStr path = path::JoinTemp(dir, fileName);
+    path = path::NormalizeTemp(path);
+    return path;
 }
-} // namespace path
 
 namespace file {
 
 FILE* OpenFILE(const char* path) {
-    CrashIf(!path);
+    ReportIf(!path);
     if (!path) {
         return nullptr;
     }
@@ -538,7 +551,7 @@ ByteSlice ReadFileWithAllocator(const char* filePath, Allocator* allocator) {
         // either way shouldn't happen because we're reading the exact size of file
         // I've seen this in crash reports so maybe the files are over-written
         // between the time I do fseek() and fread()
-        CrashIf(!(isEof || (err != 0)));
+        ReportIf(!(isEof || (err != 0)));
         goto Error;
     }
 
@@ -568,7 +581,7 @@ bool WriteFile(const char* path, const ByteSlice& d) {
 
     DWORD size = 0;
     BOOL ok = WriteFile(h, data, (DWORD)dataLen, &size, nullptr);
-    CrashIf(ok && (dataLen != (size_t)size));
+    ReportIf(ok && (dataLen != (size_t)size));
     return ok && dataLen == (size_t)size;
 }
 
@@ -596,7 +609,7 @@ bool Exists(const char* path) {
 
 // returns -1 on error (can't use INVALID_FILE_SIZE because it won't cast right)
 i64 GetSize(const char* path) {
-    CrashIf(!path);
+    ReportIf(!path);
     if (!path) {
         return -1;
     }
@@ -646,6 +659,18 @@ bool Delete(const char* filePathA) {
         return false;
     }
     return true;
+}
+
+bool DeleteFileToTrash(const char* path) {
+    TempWStr pathW = ToWStrTemp(path);
+    auto n = str::Len(pathW) + 2;
+    WCHAR* pathDoubleTerminated = AllocArrayTemp<WCHAR>(n);
+    str::BufSet(pathDoubleTerminated, (int)n, pathW);
+    FILEOP_FLAGS flags = FOF_NO_UI | FOF_ALLOWUNDO;
+    uint op = FO_DELETE;
+    SHFILEOPSTRUCTW shfo = {nullptr, op, pathDoubleTerminated, nullptr, flags, FALSE, nullptr, nullptr};
+    int res = SHFileOperationW(&shfo);
+    return res == 0;
 }
 
 bool Copy(const char* dst, const char* src, bool dontOverwrite) {
@@ -760,7 +785,7 @@ bool Exists(const char* dirA) {
 
 // Return true if a directory already exists or has been successfully created
 bool Create(const char* dir) {
-    WCHAR* dirW = ToWStrTemp(dir);
+    TempWStr dirW = ToWStrTemp(dir);
     BOOL ok = CreateDirectoryW(dirW, nullptr);
     if (ok) {
         return true;
@@ -770,7 +795,7 @@ bool Create(const char* dir) {
 
 // creates a directory and all its parent directories that don't exist yet
 bool CreateAll(const char* dir) {
-    char* parent = path::GetDirTemp(dir);
+    TempStr parent = path::GetDirTemp(dir);
     if (!str::Eq(parent, dir) && !Exists(parent)) {
         CreateAll(parent);
     }
@@ -778,13 +803,13 @@ bool CreateAll(const char* dir) {
 }
 
 bool CreateForFile(const char* path) {
-    char* dir = path::GetDirTemp(path);
+    TempStr dir = path::GetDirTemp(path);
     return CreateAll(dir);
 }
 
 // remove directory and all its children
 bool RemoveAll(const char* dir) {
-    WCHAR* dirW = ToWStrTemp(dir);
+    TempWStr dirW = ToWStrTemp(dir);
     // path must be doubly terminated
     // https://docs.microsoft.com/en-us/windows/win32/api/shellapi/ns-shellapi-shfileopstructa#fo_rename
     auto n = str::Len(dirW) + 2;

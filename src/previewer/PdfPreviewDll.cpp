@@ -155,7 +155,7 @@ static const char* GetReason(DWORD dwReason) {
 
 STDAPI_(BOOL) DllMain(HINSTANCE hInstance, DWORD dwReason, void*) {
     if (dwReason == DLL_PROCESS_ATTACH) {
-        CrashIf(hInstance != GetInstance());
+        ReportIf(hInstance != GetInstance());
     }
     gLogAppName = "PdfPreview";
     logf("PdfPreview: DllMain %s\n", GetReason(dwReason));
@@ -177,7 +177,7 @@ STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID* ppv) {
 }
 
 STDAPI DllRegisterServer() {
-    TempStr dllPath = path::GetPathOfFileInAppDirTemp((const char*)nullptr);
+    TempStr dllPath = GetPathInExeDirTemp((const char*)nullptr);
     if (!dllPath) {
         return HRESULT_FROM_WIN32(GetLastError());
     }

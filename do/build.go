@@ -2,13 +2,17 @@ package main
 
 import (
 	"archive/zip"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/kjk/u"
 )
 
 var (
@@ -104,6 +108,37 @@ func detectVersions() {
 	logf("sumatraVersion: '%s'\n", sumatraVersion)
 }
 
+var (
+	nSkipped      = 0
+	nDirsDeleted  = 0
+	nFilesDeleted = 0
+)
+
+func clearDirPreserveSettings(path string) {
+	entries2, err := os.ReadDir(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return
+	}
+	must(err)
+	for _, e2 := range entries2 {
+		name := e2.Name()
+		path2 := filepath.Join(path, name)
+		// delete everything except those files
+		excluded := (name == "sumatrapdfcache") || (name == "SumatraPDF-settings.txt") || strings.Contains(name, "asan")
+		if excluded {
+			nSkipped++
+			continue
+		}
+		if e2.IsDir() {
+			os.RemoveAll(path2)
+			nDirsDeleted++
+		} else {
+			os.Remove(path2)
+			nFilesDeleted++
+		}
+	}
+}
+
 // remove all files and directories under out/ except settings files
 func cleanPreserveSettings() {
 	entries, err := os.ReadDir("out")
@@ -111,39 +146,28 @@ func cleanPreserveSettings() {
 		// assuming 'out' doesn't exist, which is fine
 		return
 	}
-	nSkipped := 0
-	nDirsDeleted := 0
-	nFilesDeleted := 0
+	nSkipped = 0
+	nDirsDeleted = 0
+	nFilesDeleted = 0
 	for _, e := range entries {
 		path := filepath.Join("out", e.Name())
 		if !e.IsDir() {
 			os.Remove(path)
 			continue
 		}
-		entries2, err := os.ReadDir(path)
-		must(err)
-		for _, e2 := range entries2 {
-			name := e2.Name()
-			path2 := filepath.Join(path, name)
-			// delete everything except those files
-			excluded := (name == "sumatrapdfcache") || (name == "SumatraPDF-settings.txt")
-			if excluded {
-				nSkipped++
-				continue
-			}
-			if e2.IsDir() {
-				os.RemoveAll(path2)
-				nDirsDeleted++
-			} else {
-				os.Remove(path2)
-				nFilesDeleted++
-			}
-		}
+		clearDirPreserveSettings(path)
 	}
 	logf("clean: skipped %d files, deleted %d dirs and %d files\n", nSkipped, nDirsDeleted, nFilesDeleted)
 }
 
 func cleanReleaseBuilds() {
+	clearDirPreserveSettings(rel32Dir)
+	clearDirPreserveSettings(rel64Dir)
+	clearDirPreserveSettings(relArm64Dir)
+	clearDirPreserveSettings(finalPreRelDir)
+}
+
+func removeReleaseBuilds() {
 	os.RemoveAll(rel32Dir)
 	os.RemoveAll(rel64Dir)
 	os.RemoveAll(relArm64Dir)
@@ -444,14 +468,17 @@ func getSuffixForPlatform(platform string) string {
 	return ""
 }
 
-func buildCiDaily() {
-	isUploaded := isBuildAlreadyUploaded(newMinioBackblazeClient(), buildTypePreRel)
-	if isUploaded {
-		logf("buildCiDaily: skipping build because already built and uploaded")
-		return
+func buildCiDaily(opts *BuildOptions) {
+	if opts.upload {
+		isUploaded := isBuildAlreadyUploaded(newMinioBackblazeClient(), buildTypePreRel)
+		if isUploaded {
+			logf("buildCiDaily: skipping build because already built and uploaded")
+			return
+		}
 	}
 
 	cleanReleaseBuilds()
+	genHTMLDocsForApp()
 	buildPreRelease(kPlatformArm64, false)
 	buildPreRelease(kPlatformIntel32, false)
 	buildPreRelease(kPlatformIntel64, false)
@@ -461,7 +488,8 @@ func buildCi() {
 	gev := getGitHubEventType()
 	switch gev {
 	case githubEventPush:
-		cleanReleaseBuilds()
+		removeReleaseBuilds()
+		genHTMLDocsForApp()
 		// I'm typically building 64-bit so in ci build 32-bit
 		// and build all projects, to find regressions in code
 		// I'm not regularly building while developing
@@ -469,6 +497,7 @@ func buildCi() {
 	case githubEventTypeCodeQL:
 		// code ql is just a regular build, I assume intercepted by
 		// by their tooling
+		// buildSmoke() runs genHTMLDocsForApp() so no need to do it here
 		buildSmoke()
 	default:
 		panic("unkown value from getGitHubEventType()")
@@ -478,6 +507,14 @@ func buildCi() {
 func buildPreRelease(platform string, all bool) {
 	// make sure we can sign the executables, early exit if missing
 	detectSigntoolPath()
+
+	{
+		// make sure we've built manual
+		path := filepath.Join("docs", "manual.dat")
+		size, err := u.GetFileSize(path)
+		must(err)
+		panicIf(size < 2*2024, "size of '%s' is %d which indicates we didn't build it", path, size)
+	}
 
 	ver := getVerForBuildType(buildTypePreRel)
 	s := fmt.Sprintf("buidling pre-release version %s", ver)
@@ -508,6 +545,7 @@ func buildPreRelease(platform string, all bool) {
 func buildRelease() {
 	// make sure we can sign the executables, early exit if missing
 	detectSigntoolPath()
+	genHTMLDocsForApp()
 
 	ver := getVerForBuildType(buildTypeRel)
 	s := fmt.Sprintf("buidling release version %s", ver)
@@ -516,7 +554,7 @@ func buildRelease() {
 	verifyBuildNotInStorageMust(newMinioR2Client(), buildTypeRel)
 	verifyBuildNotInStorageMust(newMinioBackblazeClient(), buildTypeRel)
 
-	cleanReleaseBuilds()
+	removeReleaseBuilds()
 	setBuildConfigRelease()
 	defer revertBuildConfig()
 
@@ -548,7 +586,8 @@ func buildRelease() {
 func buildSmoke() {
 	detectSigntoolPath()
 	defer makePrintDuration("smoke build")()
-	cleanReleaseBuilds()
+	removeReleaseBuilds()
+	genHTMLDocsForApp()
 
 	lzsa := absPathMust(filepath.Join("bin", "MakeLZSA.exe"))
 	panicIf(!fileExists(lzsa), "file '%s' doesn't exist", lzsa)

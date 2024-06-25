@@ -14,22 +14,6 @@ enum class DisplayMode;
 
 using onBitmapRenderedCb = std::function<void(RenderedBitmap*)>;
 
-// TODO: "format", "encryption", "info::Keywords" as in fz_lookup_metadata
-enum class DocumentProperty {
-    Title,
-    Author,
-    Copyright,
-    Subject,
-    CreationDate,
-    ModificationDate,
-    CreatorApp,
-    UnsupportedFeatures,
-    FontList,
-    PdfVersion,
-    PdfProducer,
-    PdfFileStructure,
-};
-
 struct ILinkHandler {
     virtual ~ILinkHandler(){};
     virtual DocController* GetDocController() = 0;
@@ -47,6 +31,7 @@ struct DocControllerCallback {
     // the toc with the curent page). Needed for when a page change happens
     // indirectly or is initiated from within the model
     virtual void PageNoChanged(DocController* ctrl, int pageNo) = 0;
+    virtual void ZoomChanged(DocController* ctrl, float zoomVirtual) = 0;
     // tell the UI to open the linked document or URL
     virtual void GotoLink(IPageDestination*) = 0;
     // DisplayModel //
@@ -68,7 +53,7 @@ struct DocController {
     DocControllerCallback* cb;
 
     explicit DocController(DocControllerCallback* cb) : cb(cb) {
-        CrashIf(!cb);
+        ReportIf(!cb);
     }
     virtual ~DocController() = default;
 
@@ -76,7 +61,7 @@ struct DocController {
     virtual const char* GetFilePath() const = 0;
     virtual const char* GetDefaultFileExt() const = 0;
     virtual int PageCount() const = 0;
-    virtual TempStr GetPropertyTemp(DocumentProperty prop) = 0;
+    virtual TempStr GetPropertyTemp(const char* name) = 0;
 
     // page navigation (stateful)
     virtual int CurrentPageNo() const = 0;

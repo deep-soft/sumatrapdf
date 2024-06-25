@@ -1,4 +1,4 @@
-// Copyright (C) 2004-2021 Artifex Software, Inc.
+// Copyright (C) 2004-2024 Artifex Software, Inc.
 //
 // This file is part of MuPDF.
 //
@@ -40,18 +40,25 @@ public class PDFPage extends Page
 	public static final int REDACT_IMAGE_PIXELS = 2;
 	public static final int REDACT_IMAGE_REMOVE_UNLESS_INVISIBLE = 3;
 
-	public static final int REDACT_LINEART_NONE = 0;
-	public static final int REDACT_LINEART_IF_TOUCHED = 1;
-	public static final int REDACT_LINEART_IF_COVERED = 2;
+	public static final int REDACT_LINE_ART_NONE = 0;
+	public static final int REDACT_LINE_ART_REMOVE_IF_COVERED = 1;
+	public static final int REDACT_LINE_ART_REMOVE_IF_TOUCHED = 2;
 
-	public native boolean applyRedactions(boolean blackBoxes, int imageMethod, int lineArt);
+	public static final int REDACT_TEXT_REMOVE = 0;
+	public static final int REDACT_TEXT_NONE = 1;
+
+	public native boolean applyRedactions(boolean blackBoxes, int imageMethod, int lineArt, int text);
 
 	public boolean applyRedactions() {
-		return applyRedactions(true, REDACT_IMAGE_PIXELS, REDACT_LINEART_NONE);
+		return applyRedactions(true, REDACT_IMAGE_PIXELS, REDACT_LINE_ART_NONE, REDACT_TEXT_REMOVE);
 	}
 
 	public boolean applyRedactions(boolean blackBoxes, int imageMethod) {
-		return applyRedactions(blackBoxes, imageMethod, REDACT_LINEART_NONE);
+		return applyRedactions(blackBoxes, imageMethod, REDACT_LINE_ART_NONE, REDACT_TEXT_REMOVE);
+	}
+
+	public boolean applyRedactions(boolean blackBoxes, int imageMethod, int lineArt) {
+		return applyRedactions(blackBoxes, imageMethod, lineArt, REDACT_TEXT_REMOVE);
 	}
 
 	public native boolean update();
@@ -107,6 +114,9 @@ public class PDFPage extends Page
 	public void setCropBox(Rect rect) {
 		setPageBox(Page.CROP_BOX, rect);
 	}
+
+	public native int countAssociatedFiles();
+	public native PDFObject associatedFile(int idx);
 
 	// TODO: toPixmap with usage and page box
 }

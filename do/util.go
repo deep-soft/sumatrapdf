@@ -39,11 +39,16 @@ func ctx() context.Context {
 	return context.Background()
 }
 
-func logf(s string, arg ...interface{}) {
-	if len(arg) > 0 {
-		s = fmt.Sprintf(s, arg...)
+func logf(s string, args ...interface{}) {
+	if len(args) > 0 {
+		s = fmt.Sprintf(s, args...)
 	}
 	fmt.Print(s)
+}
+
+func logFatalf(s string, args ...interface{}) {
+	logf(s, args...)
+	os.Exit(1)
 }
 
 func getCallstackFrames(skip int) []string {
@@ -107,10 +112,9 @@ func runExeInDirMust(dir string, c string, args ...string) []byte {
 	return []byte(out)
 }
 
-func runExeLoggedMust(c string, args ...string) []byte {
+func runExeLoggedMust(c string, args ...string) {
 	cmd := exec.Command(c, args...)
-	out := runCmdLoggedMust(cmd)
-	return []byte(out)
+	runCmdLoggedMust(cmd)
 }
 
 func makePrintDuration(name string) func() {
@@ -228,14 +232,13 @@ func fmdCmdShort(cmd *exec.Cmd) string {
 	return cmd2.String()
 }
 
-func runCmdLoggedMust(cmd *exec.Cmd) string {
-	logf(">2 %s\n", fmdCmdShort(cmd))
+func runCmdLoggedMust(cmd *exec.Cmd) {
+	logf("> %s\n", fmdCmdShort(cmd))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 	err := cmd.Run()
 	must(err)
-	return ""
 }
 
 func createDirMust(path string) string {
@@ -287,13 +290,6 @@ func runCmdMust(cmd *exec.Cmd) string {
 	return ""
 }
 
-func fmtSmart(format string, args ...interface{}) string {
-	if len(args) == 0 {
-		return format
-	}
-	return fmt.Sprintf(format, args...)
-}
-
 func currDirAbsMust() string {
 	dir, err := filepath.Abs(".")
 	must(err)
@@ -311,4 +307,11 @@ func execTextTemplate(tmplText string, data interface{}) string {
 
 func push[S ~[]E, E any](s *S, els ...E) {
 	*s = append(*s, els...)
+}
+
+func measureDuration() func() {
+	timeStart := time.Now()
+	return func() {
+		logf("took %s\n", time.Since(timeStart))
+	}
 }

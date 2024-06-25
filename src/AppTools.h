@@ -1,4 +1,4 @@
-/* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2024 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 // type of path information retrieved from the registy
@@ -29,9 +29,9 @@ bool HasBeenInstalled();
 bool IsRunningInPortableMode();
 bool IsDllBuild();
 
-TempStr AppGenDataFilenameTemp(const char* fileName);
-
-void SetAppDataPath(const char* path);
+void SetAppDataDir(const char* path);
+TempStr GetAppDataDirTemp();
+TempStr GetPathInAppDataDirTemp(const char* fileName);
 
 void DetectTextEditors(Vec<TextEditor*>&);
 char* BuildOpenFileCmd(const char* pattern, const char* path, int line, int col);

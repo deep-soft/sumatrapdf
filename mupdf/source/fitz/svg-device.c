@@ -1,4 +1,4 @@
-// Copyright (C) 2004-2022 Artifex Software, Inc.
+// Copyright (C) 2004-2024 Artifex Software, Inc.
 //
 // This file is part of MuPDF.
 //
@@ -702,7 +702,7 @@ svg_dev_clip_path(fz_context *ctx, fz_device *dev, const fz_path *path, int even
 	svg_dev_ctm(ctx, sdev, ctm);
 	svg_dev_path(ctx, sdev, path);
 	if (even_odd)
-		fz_append_printf(ctx, out, " fill-rule=\"evenodd\"");
+		fz_append_printf(ctx, out, " clip-rule=\"evenodd\"");
 	fz_append_printf(ctx, out, "/>\n</clipPath>\n");
 	out = end_def(ctx, sdev, 0);
 	fz_append_printf(ctx, out, "<g clip-path=\"url(#clip_%d)\">\n", num);

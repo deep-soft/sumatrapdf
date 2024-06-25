@@ -21,8 +21,6 @@
 #define ErrOut(msg, ...) fprintf(stderr, msg "\n", __VA_ARGS__)
 #define ErrOut1(msg) fprintf(stderr, "%s", msg "\n")
 
-void _uploadDebugReportIfFunc(bool, char const*){};
-
 void ShowUsage(const char* exeName) {
     ErrOut("Syntax: %s", path::GetBaseNameTemp(exeName));
     ErrOut1("\t[-cert CertName]\t- name of the certificate to use");      // when omitted uses first available
@@ -34,7 +32,7 @@ void ShowUsage(const char* exeName) {
     ErrOut1("");
 
     HCERTSTORE hStore = CertOpenSystemStore(NULL, L"My");
-    CrashAlwaysIf(!hStore);
+    ReportIf(!hStore);
     bool hasCert = false;
     PCCERT_CONTEXT pCertCtx = nullptr;
     while ((pCertCtx = CertEnumCertificatesInStore(hStore, pCertCtx)) != nullptr) {
@@ -89,29 +87,29 @@ int main() {
 #define is_arg(name, var) (str::EqI(args[i], name) && i + 1 < args.Size() && !var)
     for (int i = 1; i < args.Size(); i++) {
         if (is_arg("-cert", certName))
-            certName = args.at(++i);
+            certName = args.At(++i);
         else if (is_arg("-out", signFilePath))
-            signFilePath = args.at(++i);
+            signFilePath = args.At(++i);
         else if (is_arg("-pubkey", pubkeyPath))
-            pubkeyPath = args.at(++i);
+            pubkeyPath = args.At(++i);
         else if (is_arg("-comment", inFileCommentSyntax)) {
-            auto tmp = args.at(++i);
+            auto tmp = args.At(++i);
             inFileCommentSyntax.SetCopy(tmp);
         } else if (!filePath)
-            filePath = args.at(i);
+            filePath = args.At(i);
         else
             goto SyntaxError;
     }
 #undef is_arg
     if (!filePath && !pubkeyPath) {
     SyntaxError:
-        ShowUsage(args.at(0));
+        ShowUsage(args.At(0));
         return 1;
     }
 
     // find certificate
     hStore = CertOpenSystemStoreW(NULL, L"My");
-    CrashAlwaysIf(!hStore);
+    ReportIf(!hStore);
 
 #define QuitIfNot(cond, msg, ...) \
     if (!(cond)) {                \

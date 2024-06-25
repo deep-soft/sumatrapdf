@@ -5,7 +5,7 @@
 
 namespace strconv {
 
-WCHAR* Utf8ToWstr(const char* s, size_t cb, Allocator* a) {
+WCHAR* Utf8ToWStr(const char* s, size_t cb, Allocator* a) {
     // subtle: if s is nullptr, we return nullptr. if empty string => we return empty string
     if (!s) {
         return nullptr;
@@ -30,7 +30,7 @@ WCHAR* Utf8ToWstr(const char* s, size_t cb, Allocator* a) {
     return res;
 }
 
-char* WstrToCodePage(uint codePage, const WCHAR* s, size_t cch, Allocator* a) {
+char* WStrToCodePage(uint codePage, const WCHAR* s, size_t cch, Allocator* a) {
     // subtle: if s is nullptr, we return nullptr. if empty string => we return empty string
     if (!s) {
         return nullptr;
@@ -56,13 +56,13 @@ char* WstrToCodePage(uint codePage, const WCHAR* s, size_t cch, Allocator* a) {
     return res;
 }
 
-char* WstrToUtf8(const WCHAR* s, size_t cch, Allocator* a) {
-    return WstrToCodePage(CP_UTF8, s, cch, a);
+char* WStrToUtf8(const WCHAR* s, size_t cch, Allocator* a) {
+    return WStrToCodePage(CP_UTF8, s, cch, a);
 }
 
 // caller needs to free() the result
-WCHAR* StrToWstr(const char* src, uint codePage, int cbSrc) {
-    CrashIf(!src);
+WCHAR* StrToWStr(const char* src, uint codePage, int cbSrc) {
+    ReportIf(!src);
     if (!src) {
         return nullptr;
     }
@@ -79,37 +79,36 @@ WCHAR* StrToWstr(const char* src, uint codePage, int cbSrc) {
     return res;
 }
 
-// caller needs to free() the result
-char* ToMultiByte(const char* src, uint codePageSrc, uint codePageDest) {
-    CrashIf(!src);
+TempStr ToMultiByteTemp(const char* src, uint codePageSrc, uint codePageDest) {
+    ReportIf(!src);
     if (!src) {
         return nullptr;
     }
 
     if (codePageSrc == codePageDest) {
-        return str::Dup(src);
+        return str::DupTemp(src);
     }
 
     // 20127 is US-ASCII, which by definition is valid CP_UTF8
     // https://msdn.microsoft.com/en-us/library/windows/desktop/dd317756(v=vs.85).aspx
     // don't know what is CP_* name for it (if it exists)
     if ((codePageSrc == 20127) && (codePageDest == CP_UTF8)) {
-        return str::Dup(src);
+        return str::DupTemp(src);
     }
 
-    WCHAR* tmp = StrToWstr(src, codePageSrc);
+    WCHAR* tmp = StrToWStr(src, codePageSrc);
     if (!tmp) {
         return nullptr;
     }
     size_t tmpLen = str::Len(tmp);
-    char* res = WstrToCodePage(codePageDest, tmp, tmpLen);
+    Allocator* a = GetTempAllocator();
+    TempStr res = (TempStr)WStrToCodePage(codePageDest, tmp, tmpLen, a);
     str::Free(tmp);
     return res;
 }
 
-// caller needs to free() the result
-char* StrToUtf8(const char* src, uint codePage) {
-    return ToMultiByte(src, codePage, CP_UTF8);
+TempStr StrToUtf8Temp(const char* src, uint codePage) {
+    return ToMultiByteTemp(src, codePage, CP_UTF8);
 }
 
 // tries to convert a string in unknown encoding to utf8, as best
@@ -140,37 +139,37 @@ char* UnknownToUtf8(const char* s) {
         return str::Dup(s, len);
     }
 
-    AutoFreeWstr uni = strconv::AnsiToWstr(s, len);
+    AutoFreeWStr uni = strconv::AnsiToWStr(s, len);
     return ToUtf8(uni.Get());
 }
 
-WCHAR* AnsiToWstr(const char* src, size_t cbLen) {
-    return StrToWstr(src, CP_ACP, (int)cbLen);
+WCHAR* AnsiToWStr(const char* src, size_t cbLen) {
+    return StrToWStr(src, CP_ACP, (int)cbLen);
 }
 
 char* AnsiToUtf8(const char* src, size_t cbLen) {
-    WCHAR* ws = StrToWstr(src, CP_ACP, (int)cbLen);
+    WCHAR* ws = StrToWStr(src, CP_ACP, (int)cbLen);
     char* res = ToUtf8(ws);
     str::Free(ws);
     return res;
 }
 
-char* WstrToAnsi(const WCHAR* src) {
-    return WstrToCodePage(CP_ACP, src);
+char* WStrToAnsi(const WCHAR* src) {
+    return WStrToCodePage(CP_ACP, src);
 }
 
 char* Utf8ToAnsi(const char* s) {
-    WCHAR* ws = ToWStrTemp(s);
-    return WstrToAnsi(ws);
+    TempWStr ws = ToWStrTemp(s);
+    return WStrToAnsi(ws);
 }
 
 } // namespace strconv
 
 // short names because frequently used
 char* ToUtf8(const WCHAR* s, size_t cch) {
-    return strconv::WstrToUtf8(s, cch);
+    return strconv::WStrToUtf8(s, cch);
 }
 
-WCHAR* ToWstr(const char* s, size_t cb) {
-    return strconv::Utf8ToWstr(s, cb);
+WCHAR* ToWStr(const char* s, size_t cb) {
+    return strconv::Utf8ToWStr(s, cb);
 }

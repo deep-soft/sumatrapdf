@@ -29,16 +29,12 @@ LPCOLESTR myGuid = kPdfPreviewClsid;
 
 typedef HRESULT ourDllGetClassObjectT(REFCLSID rclsid, REFIID riid, void** ppv);
 
-void _uploadDebugReportIfFunc(bool, const char*) {
-    // no-op implementation to satisfy SubmitBugReport()
-}
-
 void log(const char* s, int) {
     OutputDebugStringA(s);
     printf("%s", s);
 }
 
-void log(const char* s) {
+void log(const char* s, bool) {
     int cb = (int)str::Len(s);
     log(s, cb);
 }

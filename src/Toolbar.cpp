@@ -1,6 +1,10 @@
 /* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
+extern "C" {
+#include <mupdf/fitz.h>
+}
+
 #include "utils/BaseUtil.h"
 #include "utils/ScopedWin.h"
 #include "utils/WinDynCalls.h"
@@ -11,10 +15,12 @@
 
 #include "Accelerators.h"
 #include "Settings.h"
+#include "AppSettings.h"
 #include "DocController.h"
 #include "EngineBase.h"
 #include "EngineAll.h"
 #include "DisplayModel.h"
+#include "FzImgReader.h"
 #include "AppColors.h"
 #include "GlobalPrefs.h"
 #include "ProgressUpdateUI.h"
@@ -187,7 +193,8 @@ static TBBUTTON TbButtonFromButtonInfo(int i) {
         info.iBitmap = (int)btInfo.bmpIndex;
         info.fsState = TBSTATE_ENABLED;
         info.fsStyle = TBSTYLE_BUTTON;
-        info.iString = (INT_PTR)trans::GetTranslation(btInfo.toolTip);
+        auto s = trans::GetTranslation(btInfo.toolTip);
+        info.iString = (INT_PTR)ToWStrTemp(s);
     }
     return info;
 }
@@ -209,7 +216,7 @@ void UpdateToolbarButtonsToolTipsForWindow(MainWindow* win) {
             AppendAccelKeyToMenuString(accelStr, accel);
         }
 
-        const char* s = trans::GetTranslationA(tb.toolTip);
+        const char* s = trans::GetTranslation(tb.toolTip);
         if (accelStr.size() > 0) {
             accelStr[0] = '(';
             accelStr.Append(")");
@@ -320,10 +327,11 @@ LRESULT CALLBACK BgSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
         RECT rect;
         GetClientRect(hWnd, &rect);
         SetTextColor(hdc, ThemeWindowTextColor());
-        SetBkColor(hdc, ThemeControlBackgroundColor());
-        auto bg = CreateSolidBrush(ThemeControlBackgroundColor());
-        FillRect(hdc, &rect, bg);
-        DeleteObject(bg);
+        COLORREF bgCol = ThemeControlBackgroundColor();
+        SetBkColor(hdc, bgCol);
+        auto bgBrush = CreateSolidBrush(bgCol);
+        FillRect(hdc, &rect, bgBrush);
+        DeleteObject(bgBrush);
         return 1;
     }
     if (WM_NCDESTROY == uMsg) {
@@ -750,20 +758,103 @@ void LogBitmapInfo(HBITMAP hbmp) {
     }
 }
 
+static void BlitPixmap(u8* dstSamples, ptrdiff_t dstStride, fz_pixmap* src, int dstX, int dstY, COLORREF bgCol) {
+    int dx = src->w;
+    int dy = src->h;
+    int srcN = src->n;
+    int dstN = 4;
+    auto srcStride = src->stride;
+    u8 r, g, b;
+    UnpackColor(bgCol, r, g, b);
+    for (size_t y = 0; y < (size_t)dy; y++) {
+        u8* s = src->samples + (srcStride * (size_t)y);
+        size_t atY = y + (size_t)dstY;
+        u8* d = dstSamples + (dstStride * atY) + ((size_t)dstX * dstN);
+        for (int x = 0; x < dx; x++) {
+            bool isTransparent = (s[0] == r) && (s[1] == g) && (s[2] == b);
+            // note: we're swapping red and green channel because src is rgb
+            // and we want bgr for Toolbar's IMAGELIST
+            d[0] = s[2];
+            d[1] = s[1];
+            d[2] = s[0];
+            if (isTransparent) {
+                d[3] = 0;
+            } else {
+                d[3] = 0xff;
+            }
+            d += dstN;
+            s += srcN;
+        }
+    }
+}
+
+static HBITMAP BuildIconsBitmap(int dx, int dy) {
+    fz_context* ctx = fz_new_context_windows();
+    int nIcons = (int)TbIcon::kMax;
+    int destDx = dx * nIcons;
+    ptrdiff_t dstStride;
+
+    u8* hbmpData = nullptr;
+    HBITMAP hbmp;
+    {
+        int w = destDx;
+        int h = dy;
+        int n = 4;
+        dstStride = destDx * n;
+        int imgSize = (int)dstStride * h;
+        int bitsCount = n * 8;
+
+        size_t bmiSize = sizeof(BITMAPINFO) + 255 * sizeof(RGBQUAD);
+        auto bmi = (BITMAPINFO*)calloc(1, bmiSize);
+        defer {
+            free(bmi);
+        };
+        BITMAPINFOHEADER* bmih = &bmi->bmiHeader;
+        bmih->biSize = sizeof(*bmih);
+        bmih->biWidth = w;
+        bmih->biHeight = -h;
+        bmih->biPlanes = 1;
+        bmih->biCompression = BI_RGB;
+        bmih->biBitCount = bitsCount;
+        bmih->biSizeImage = imgSize;
+        bmih->biClrUsed = 0;
+        HANDLE hFile = INVALID_HANDLE_VALUE;
+        DWORD fl = PAGE_READWRITE;
+        HANDLE hMap = CreateFileMappingW(hFile, nullptr, fl, 0, imgSize, nullptr);
+        uint usage = DIB_RGB_COLORS;
+        hbmp = CreateDIBSection(nullptr, bmi, usage, (void**)&hbmpData, hMap, 0);
+    }
+
+    COLORREF fgCol = ThemeWindowTextColor();
+    COLORREF bgCol = ThemeControlBackgroundColor();
+    for (int i = 0; i < nIcons; i++) {
+        const char* svgData = GetSvgIcon((TbIcon)i);
+        TempStr strokeCol = SerializeColorTemp(fgCol);
+        TempStr fillCol = SerializeColorTemp(bgCol);
+        TempStr fillColRepl = str::JoinTemp("fill=\"", fillCol, "\""); // fill="${col}"
+        svgData = str::ReplaceTemp(svgData, "currentColor", strokeCol);
+        svgData = str::ReplaceTemp(svgData, R"(fill="none")", fillColRepl);
+        fz_buffer* buf = fz_new_buffer_from_copied_data(ctx, (u8*)svgData, str::Len(svgData));
+        fz_image* image = fz_new_image_from_svg(ctx, buf, nullptr, nullptr);
+        image->w = dx;
+        image->h = dy;
+        fz_pixmap* pixmap = fz_get_pixmap_from_image(ctx, image, nullptr, nullptr, nullptr, nullptr);
+        BlitPixmap(hbmpData, dstStride, pixmap, dx * i, 0, bgCol);
+        fz_drop_pixmap(ctx, pixmap);
+        fz_drop_image(ctx, image);
+        fz_drop_buffer(ctx, buf);
+    }
+
+    fz_drop_context_windows(ctx);
+    return hbmp;
+}
+
 constexpr int kDefaultIconSize = 18;
 
-// https://docs.microsoft.com/en-us/windows/win32/controls/toolbar-control-reference
-void CreateToolbar(MainWindow* win) {
-    kButtonSpacingX = 0;
-    HINSTANCE hinst = GetModuleHandle(nullptr);
-    HWND hwndParent = win->hwndFrame;
-    DWORD style = WS_CHILD | WS_CLIPSIBLINGS | TBSTYLE_TOOLTIPS | TBSTYLE_FLAT;
-    style |= TBSTYLE_LIST | CCS_NODIVIDER | CCS_NOPARENTALIGN;
-    const WCHAR* cls = TOOLBARCLASSNAME;
-    HMENU cmd = (HMENU)IDC_TOOLBAR;
-    HWND hwndToolbar = CreateWindowExW(0, cls, nullptr, style, 0, 0, 0, 0, hwndParent, cmd, hinst, nullptr);
-    win->hwndToolbar = hwndToolbar;
-    SendMessageW(hwndToolbar, TB_BUTTONSTRUCTSIZE, (WPARAM)sizeof(TBBUTTON), 0);
+static int SetToolbarIconsImageList(MainWindow* win) {
+    HWND hwndToolbar = win->hwndToolbar;
+    ReportIf(!hwndToolbar);
+    HWND hwndParent = GetParent(hwndToolbar);
 
     // we call it ToolbarSize for users, but it's really size of the icon
     // toolbar size is iconSize + padding (seems to be 6)
@@ -782,19 +873,33 @@ void CreateToolbar(MainWindow* win) {
     SendMessage(hwndToolbar, TB_SETBITMAPSIZE, 0, (LPARAM)MAKELONG(dx, dx));
 
     // assume square icons
-    HIMAGELIST himl = ImageList_Create(dx, dx, ILC_COLORDDB | ILC_MASK, kButtonsCount, 0);
-    COLORREF mask = RGB(0xff, 0xff, 0xff);
+    HIMAGELIST himl = ImageList_Create(dx, dx, ILC_COLOR32, kButtonsCount, 0);
     HBITMAP hbmp = BuildIconsBitmap(dx, dx);
-    if (true) {
-        ImageList_AddMasked(himl, hbmp, mask);
-    } else {
-        int amres = ImageList_AddMasked(himl, hbmp, mask);
-        int nImages = ImageList_GetImageCount(himl);
-        logf("res: %d, nImages: %d\n", amres, nImages);
-        LogBitmapInfo(hbmp);
-    }
+    ImageList_Add(himl, hbmp, nullptr);
     DeleteObject(hbmp);
     SendMessageW(hwndToolbar, TB_SETIMAGELIST, 0, (LPARAM)himl);
+    return iconSize;
+}
+
+void UpdateToolbarAfterThemeChange(MainWindow* win) {
+    SetToolbarIconsImageList(win);
+    HwndScheduleRepaint(win->hwndToolbar);
+}
+
+// https://docs.microsoft.com/en-us/windows/win32/controls/toolbar-control-reference
+void CreateToolbar(MainWindow* win) {
+    kButtonSpacingX = 0;
+    HINSTANCE hinst = GetModuleHandle(nullptr);
+    HWND hwndParent = win->hwndFrame;
+    DWORD style = WS_CHILD | WS_CLIPSIBLINGS | TBSTYLE_TOOLTIPS | TBSTYLE_FLAT;
+    style |= TBSTYLE_LIST | CCS_NODIVIDER | CCS_NOPARENTALIGN;
+    const WCHAR* cls = TOOLBARCLASSNAME;
+    HMENU cmd = (HMENU)IDC_TOOLBAR;
+    HWND hwndToolbar = CreateWindowExW(0, cls, nullptr, style, 0, 0, 0, 0, hwndParent, cmd, hinst, nullptr);
+    win->hwndToolbar = hwndToolbar;
+    SendMessageW(hwndToolbar, TB_BUTTONSTRUCTSIZE, (WPARAM)sizeof(TBBUTTON), 0);
+
+    int iconSize = SetToolbarIconsImageList(win);
 
     TBMETRICS tbMetrics{};
     tbMetrics.cbSize = sizeof(tbMetrics);
@@ -820,9 +925,9 @@ void CreateToolbar(MainWindow* win) {
         }
     }
     BOOL ok = SendMessageW(hwndToolbar, TB_ADDBUTTONS, kButtonsCount, (LPARAM)tbButtons);
-    CrashIf(!ok);
+    ReportIf(!ok);
 
-    SendMessageW(hwndToolbar, TB_SETBUTTONSIZE, 0, MAKELONG(dx, dx));
+    SendMessageW(hwndToolbar, TB_SETBUTTONSIZE, 0, MAKELONG(iconSize, iconSize));
 
     RECT rc;
     LRESULT res = SendMessageW(hwndToolbar, TB_GETITEMRECT, 0, (LPARAM)&rc);
@@ -845,9 +950,8 @@ void CreateToolbar(MainWindow* win) {
 
     REBARBANDINFOW rbBand{};
     rbBand.cbSize = sizeof(REBARBANDINFOW);
-    rbBand.fMask = /*RBBIM_COLORS | RBBIM_TEXT | RBBIM_BACKGROUND | */
-        RBBIM_STYLE | RBBIM_CHILD | RBBIM_CHILDSIZE /*| RBBIM_SIZE*/;
-    rbBand.fStyle = /*RBBS_CHILDEDGE |*/ /* RBBS_BREAK |*/ RBBS_FIXEDSIZE /*| RBBS_GRIPPERALWAYS*/;
+    rbBand.fMask = RBBIM_STYLE | RBBIM_CHILD | RBBIM_CHILDSIZE;
+    rbBand.fStyle = RBBS_FIXEDSIZE;
     if (theme::IsAppThemed()) {
         rbBand.fStyle |= RBBS_CHILDEDGE;
     }
@@ -861,7 +965,7 @@ void CreateToolbar(MainWindow* win) {
 
     SetWindowPos(win->hwndReBar, nullptr, 0, 0, 0, 0, SWP_NOZORDER);
 
-    int defFontSize = GetSizeOfDefaultGuiFont();
+    int defFontSize = GetAppFontSize();
     // 18 was the default toolbar size, we want to scale the fonts in proportion
     int newSize = (defFontSize * gGlobalPrefs->toolbarSize) / kDefaultIconSize;
     int maxFontSize = iconSize - yPad * 2 - 2; // -2 determined empirically

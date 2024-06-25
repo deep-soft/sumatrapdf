@@ -114,13 +114,13 @@ bool FavTreeModel::IsChecked(TreeItem ti) {
 }
 
 void FavTreeModel::SetHandle(TreeItem ti, HTREEITEM hItem) {
-    CrashIf(ti < 0);
+    ReportIf(ti < 0);
     FavTreeItem* treeItem = (FavTreeItem*)ti;
     treeItem->hItem = hItem;
 }
 
 HTREEITEM FavTreeModel::GetHandle(TreeItem ti) {
-    CrashIf(ti < 0);
+    ReportIf(ti < 0);
     FavTreeItem* treeItem = (FavTreeItem*)ti;
     return treeItem->hItem;
 }
@@ -187,7 +187,7 @@ static Favorite* FindByPage(FileState* ds, int pageNo, const char* pageLabel = n
         return nullptr;
     }
     auto favs = ds->favorites;
-    int n = favs->isize();
+    int n = favs->Size();
     if (pageLabel) {
         for (int i = 0; i < n; i++) {
             auto fav = favs->at(i);
@@ -314,7 +314,7 @@ static TempStr FavCompactReadableNameTemp(FileState* fav, Favorite* fn, bool isC
 }
 
 static void AppendFavMenuItems(HMENU m, FileState* f, int& idx, bool combined, bool isCurrent) {
-    CrashIf(!f);
+    ReportIf(!f);
     if (!f) {
         return;
     }
@@ -331,7 +331,7 @@ static void AppendFavMenuItems(HMENU m, FileState* f, int& idx, bool combined, b
             s = FavReadableNameTemp(fn);
         }
         auto safeStr = MenuToSafeStringTemp(s);
-        WCHAR* ws = ToWStrTemp(safeStr);
+        TempWStr ws = ToWStrTemp(safeStr);
         AppendMenuW(m, MF_STRING, (UINT_PTR)fn->menuId, ws);
     }
 }
@@ -359,7 +359,7 @@ static void GetSortedFilePaths(StrVec& filePathsSortedOut, FileState* toIgnore =
             filePathsSortedOut.Append(fs->filePath);
         }
     }
-    filePathsSortedOut.Sort(SortByBaseFileName);
+    Sort(filePathsSortedOut, SortByBaseFileName);
 }
 
 // For easy access, we try to show favorites in the menu, similar to a list of
@@ -391,7 +391,7 @@ static void AppendFavMenus(HMENU m, const char* currFilePath) {
         filePathsSorted.InsertAt(0, currFileFav->filePath);
     }
 
-    if (filePathsSorted.size() == 0) {
+    if (filePathsSorted.Size() == 0) {
         return;
     }
 
@@ -400,31 +400,30 @@ static void AppendFavMenus(HMENU m, const char* currFilePath) {
     gFavorites.ResetMenuIds();
     int menuId = CmdFavoriteFirst;
 
-    size_t menusCount = filePathsSorted.size();
+    int menusCount = filePathsSorted.Size();
     if (menusCount > MAX_FAV_MENUS) {
         menusCount = MAX_FAV_MENUS;
     }
 
-    for (size_t i = 0; i < menusCount; i++) {
-        const char* filePath = filePathsSorted.at(i);
+    for (int i = 0; i < menusCount; i++) {
+        const char* filePath = filePathsSorted.At(i);
         FileState* f = gFavorites.GetFavByFilePath(filePath);
-        CrashIf(!f);
+        ReportIf(!f);
         if (!f) {
             continue;
         }
         HMENU sub = m;
-        bool combined = (f->favorites->size() == 1);
+        bool combined = (f->favorites->Size() == 1);
         if (!combined) {
             sub = CreateMenu();
         }
         AppendFavMenuItems(sub, f, menuId, combined, f == currFileFav);
         if (!combined) {
-            if (f == currFileFav) {
-                AppendMenuW(m, MF_POPUP | MF_STRING, (UINT_PTR)sub, _TR("Current file"));
-            } else {
-                TempStr fileName = MenuToSafeStringTemp(path::GetBaseNameTemp(filePath));
-                AppendMenuW(m, MF_POPUP | MF_STRING, (UINT_PTR)sub, ToWStrTemp(fileName));
+            const char* s = _TRA("Current file");
+            if (f != currFileFav) {
+                s = MenuToSafeStringTemp(path::GetBaseNameTemp(filePath));
             }
+            AppendMenuW(m, MF_POPUP | MF_STRING, (UINT_PTR)sub, ToWStrTemp(s));
         }
     }
 }
@@ -490,7 +489,7 @@ static void GoToFavorite(MainWindow* win, int pageNo) {
 // Going to a bookmark in another file, loads the file and scrolls to a page
 // (similar to how invoking one of the recently opened files works)
 static void GoToFavorite(MainWindow* win, FileState* fs, Favorite* fn) {
-    CrashIf(!fs || !fn);
+    ReportIf(!fs || !fn);
     if (!fs || !fn) {
         return;
     }
@@ -499,7 +498,7 @@ static void GoToFavorite(MainWindow* win, FileState* fs, Favorite* fn) {
     MainWindow* existingWin = FindMainWindowByFile(fp, true);
     if (existingWin) {
         int pageNo = fn->pageNo;
-        uitask::Post([=] { GoToFavorite(existingWin, pageNo); });
+        uitask::Post(TaskGoToFavorite, [=] { GoToFavorite(existingWin, pageNo); });
         return;
     }
 
@@ -522,7 +521,7 @@ static void GoToFavorite(MainWindow* win, FileState* fs, Favorite* fn) {
     LoadArgs args(fs->filePath, win);
     win = LoadDocument(&args);
     if (win) {
-        uitask::Post([=] { GoToFavorite(win, pageNo); });
+        uitask::Post(TaskGoToFavorite2, [=] { GoToFavorite(win, pageNo); });
     }
 }
 
@@ -603,7 +602,7 @@ static FavTreeModel* BuildFavTreeModel(MainWindow* win) {
     GetSortedFilePaths(filePathsSorted);
     for (char* path : filePathsSorted) {
         FileState* f = gFavorites.GetFavByFilePath(path);
-        CrashIf(!f);
+        ReportIf(!f);
         if (!f) {
             continue;
         }
@@ -763,14 +762,14 @@ void RememberFavTreeExpansionStateForAllWindows() {
 static void FavTreeItemClicked(TreeClickEvent* ev) {
     ev->didHandle = true;
     MainWindow* win = FindMainWindowByHwnd(ev->w->hwnd);
-    CrashIf(!win);
+    ReportIf(!win);
     GoToFavForTreeItem(win, ev->treeItem);
 }
 #endif
 
 static void FavTreeSelectionChanged(TreeSelectionChangedEvent* ev) {
     MainWindow* win = FindMainWindowByHwnd(ev->treeView->hwnd);
-    CrashIf(!win);
+    ReportIf(!win);
 
     // When the focus is set to the toc window the first item in the treeview is automatically
     // selected and a TVN_SELCHANGEDW notification message is sent with the special code pnmtv->action ==
@@ -864,17 +863,6 @@ static LRESULT CALLBACK WndProcFavBox(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     return CallWindowProc(gWndProcFavBox, hwnd, msg, wp, lp);
 }
 
-HFONT GetTreeFont() {
-    int fntSize = GetSizeOfDefaultGuiFont();
-    int fntSizeUser = gGlobalPrefs->treeFontSize;
-    int fntWeightOffsetUser = gGlobalPrefs->treeFontWeightOffset;
-    char* fntNameUser = gGlobalPrefs->treeFontName;
-    if (fntSizeUser > 5) {
-        fntSize = fntSizeUser;
-    }
-    return GetUserGuiFont(fntNameUser, fntSize, fntWeightOffsetUser);
-}
-
 // in TableOfContents.cpp
 extern LRESULT TocTreeKeyDown2(TreeKeyDownEvent*);
 
@@ -901,7 +889,7 @@ void CreateFavorites(MainWindow* win) {
     auto treeView = new TreeView();
     TreeViewCreateArgs args;
     args.parent = win->hwndFavBox;
-    args.font = GetTreeFont();
+    args.font = GetAppTreeFont();
     args.fullRowSelect = true;
     args.exStyle = WS_EX_STATICEDGE;
 
@@ -913,7 +901,7 @@ void CreateFavorites(MainWindow* win) {
     // treeView->onMouseWheel = TocTreeMouseWheelHandler;
 
     treeView->Create(args);
-    CrashIf(!treeView->hwnd);
+    ReportIf(!treeView->hwnd);
 
     win->favTreeView = treeView;
 

@@ -174,7 +174,7 @@ const char* ResolveHtmlEntities(const char* s, const char* end, Allocator* alloc
         s = curr;
     }
     *dst = 0;
-    CrashIf(dst >= res + resLen);
+    ReportIf(dst >= res + resLen);
     return (const char*)res;
 }
 
@@ -185,6 +185,11 @@ char* ResolveHtmlEntities(const char* s, size_t len) {
         return str::Dup(s, len);
     }
     return (char*)tmp;
+}
+
+TempStr ResolveHtmlEntitiesTemp(const char* s, size_t len) {
+    auto res = ResolveHtmlEntities(s, s + len, GetTempAllocator());
+    return (TempStr)res;
 }
 
 bool AttrInfo::NameIs(const char* s) const {
@@ -200,7 +205,7 @@ static bool IsNameWithNS(const char* s, size_t sLen, const char* nameToCheck) {
     if (tmp) {
         sRealStart = tmp + 1;
         size_t prefixLen = sRealStart - s;
-        CrashIf(prefixLen > len);
+        ReportIf(prefixLen > len);
         len -= prefixLen;
     }
     return str::EqNIx(sRealStart, len, nameToCheck);
@@ -209,8 +214,8 @@ static bool IsNameWithNS(const char* s, size_t sLen, const char* nameToCheck) {
 // for now just ignores any namespace qualifier
 // (i.e. succeeds for "xlink:href" with name="href" and any value of attrNS)
 // TODO: add proper namespace support
-bool AttrInfo::NameIsNS(const char* nameToCheck, const char* ns) const {
-    CrashIf(!ns);
+bool AttrInfo::NameIsNS(const char* nameToCheck, const char*) const {
+    // ReportIf(!ns);
     return IsNameWithNS(name, nameLen, nameToCheck);
 }
 
@@ -247,9 +252,9 @@ bool HtmlToken::NameIs(const char* nameToFind) const {
 // for now just ignores any namespace qualifier
 // (i.e. succeeds for "opf:content" with name="content" and any value of ns)
 // TODO: add proper namespace support
-bool HtmlToken::NameIsNS(const char* nameToCheck, const char* ns) const {
-    CrashIf(!ns);
-    // nLen is 'nameLen' i.e. first nLen characters of s is a name
+bool HtmlToken::NameIsNS(const char* nameToCheck, const char*) const {
+    // ReportIf(!ns);
+    //  nLen is 'nameLen' i.e. first nLen characters of s is a name
     return IsNameWithNS(s, nLen, nameToCheck);
 }
 
@@ -265,7 +270,7 @@ const char* HtmlToken::GetReparsePoint() const {
     if (IsText()) {
         return s;
     }
-    CrashIf(true); // don't call us on error tokens
+    ReportIf(true); // don't call us on error tokens
     return nullptr;
 }
 
@@ -412,7 +417,7 @@ Next:
         return &currToken;
     }
 
-    CrashIf('>' != *currPos);
+    ReportIf('>' != *currPos);
     if (currPos == start || currPos == start + 1 && *start == '/') {
         // skip empty tags (</>), because we're lenient
         ++currPos;

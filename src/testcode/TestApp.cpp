@@ -31,12 +31,12 @@ static ILayout* CreateMainLayout(HWND hwnd) {
     vbox->alignCross = CrossAxisAlign::CrossCenter;
 
     {
-        auto b = CreateButton(hwnd, L"Tabs test", LaunchTabs);
+        auto b = CreateButton(hwnd, "Tabs test", LaunchTabs);
         vbox->AddChild(b);
     }
 
     {
-        auto b = CreateButton(hwnd, L"Layout test", LaunchLayout);
+        auto b = CreateButton(hwnd, "Layout test", LaunchLayout);
         vbox->AddChild(b);
     }
 
@@ -45,10 +45,9 @@ static ILayout* CreateMainLayout(HWND hwnd) {
 }
 
 struct TestWnd : Wnd {
-    void OnDestroy() override;
 };
 
-void TestWnd::OnDestroy() {
+static void OnDestroy(WmDestroyEvent&) {
     ::PostQuitMessage(0);
 }
 
@@ -59,12 +58,14 @@ void TestApp(HINSTANCE hInstance) {
     gHinst = hInstance;
 
     auto w = new TestWnd();
-    //w->backgroundColor = MkColor((u8)0xae, (u8)0xae, (u8)0xae);
+    w->onDestroy = OnDestroy;
+
+    // w->backgroundColor = MkColor((u8)0xae, (u8)0xae, (u8)0xae);
     CreateCustomArgs args;
     args.pos = {CW_USEDEFAULT, CW_USEDEFAULT, 480, 640};
     args.title = "a little test app";
     HWND hwnd = w->CreateCustom(args);
-    CrashIf(!hwnd);
+    ReportIf(!hwnd);
 
     w->layout = CreateMainLayout(w->hwnd);
     LayoutToSize(w->layout, {480, 640});

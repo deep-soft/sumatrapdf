@@ -28,10 +28,7 @@ extern void TrivialHtmlParser_UnitTests();
 extern void VecTest();
 extern void WinUtilTest();
 extern void StrFormatTest();
-
-void _uploadDebugReportIfFunc(bool, const char*) {
-    // no-op implementation to satisfy SubmitBugReport()
-}
+extern void StrVecTest();
 
 int main(int, char**) {
     printf("Running unit tests\n");
@@ -51,6 +48,7 @@ int main(int, char**) {
     SquareTreeTest();
     StrFormatTest();
     StrTest();
+    StrVecTest();
     TrivialHtmlParser_UnitTests();
     VecTest();
     WinUtilTest();

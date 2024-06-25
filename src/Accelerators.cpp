@@ -191,6 +191,7 @@ ACCEL gBuiltInAccelerators[] = {
     {FSHIFT | FCONTROL | FVIRTKEY, 'T', CmdReopenLastClosedFile},
     {FCONTROL | FVIRTKEY, VK_NEXT, CmdNextTab},
     {FCONTROL | FVIRTKEY, VK_PRIOR, CmdPrevTab},
+    {FVIRTKEY, VK_F1, CmdHelpOpenManual},
 
     // need 2 entries for 'a' and 'Shift + a'
     // TODO: maybe add CmdCreateAnnotHighlightAndOpenWindow (kind of clumsy)
@@ -216,6 +217,7 @@ ACCEL gBuiltInAccelerators[] = {
     // // for Logitech's wireless presenters which target PowerPoint's shortcuts
     {0, '.', CmdPresentationBlackBackground},
     {0, 'c', CmdToggleContinuousView},
+
 };
 
 static void SkipWS(const char*& s) {
@@ -242,7 +244,7 @@ static bool SkipVirtKey(const char*& s, const char* key) {
     if (!str::StartsWithI(s, key)) {
         return false;
     }
-    s += str::Len(key);
+    s += str::Leni(key);
     SkipWS(s);
     SkipPlusOrMinus(s);
     SkipWS(s);
@@ -264,7 +266,7 @@ static WORD ParseVirtKey(const char* s) {
     if (idx < 0) {
         return 0;
     }
-    CrashIf(idx >= dimof(gVirtKeysIds));
+    ReportIf(idx >= dimof(gVirtKeysIds));
     WORD keyId = gVirtKeysIds[idx];
     return keyId;
 }
@@ -598,14 +600,12 @@ static HACCEL gAccelTables[3] = {
 /* returns a pointer to HACCEL so that we can update it and message loop will use
 the latest version */
 static void CreateSumatraAcceleratorTable() {
-    CrashIf(gAccelTables[0] || gAccelTables[1] || gAccelTables[2]);
+    ReportIf(gAccelTables[0] || gAccelTables[1] || gAccelTables[2]);
 
     int nBuiltIn = (int)dimof(gBuiltInAccelerators);
 
     int nCustomShortcuts = 0;
-    if (gGlobalPrefs->shortcuts) {
-        nCustomShortcuts = gGlobalPrefs->shortcuts->isize();
-    }
+    nCustomShortcuts = gGlobalPrefs->shortcuts->Size();
 
     // build a combined accelerator table of those defined in settings file
     // and built-in shortcuts. Custom shortcuts over-ride built-in
@@ -671,11 +671,11 @@ static void CreateSumatraAcceleratorTable() {
     gAccelsCount = nAccels;
 
     gAccelTables[0] = CreateAcceleratorTableW(gAccels, gAccelsCount);
-    CrashIf(gAccelTables[0] == nullptr);
+    ReportIf(gAccelTables[0] == nullptr);
     gAccelTables[1] = CreateAcceleratorTableW(editAccels, nEditAccels);
-    CrashIf(gAccelTables[1] == nullptr);
+    ReportIf(gAccelTables[1] == nullptr);
     gAccelTables[2] = CreateAcceleratorTableW(treeViewAccels, nTreeViewAccels);
-    CrashIf(gAccelTables[2] == nullptr);
+    ReportIf(gAccelTables[2] == nullptr);
 
     free(toFreeAccels);
 }

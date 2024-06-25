@@ -11,6 +11,7 @@
 
 #include "wingui/UIModels.h"
 
+#include "DocProperties.h"
 #include "DocController.h"
 #include "EngineBase.h"
 #include "EngineAll.h"
@@ -19,7 +20,7 @@
 
 Kind kindEnginePostScript = "enginePostScript";
 
-static char* GetGhostscriptPath() {
+static TempStr GetGhostscriptPathTemp() {
     const char* gsProducts[] = {
         "AFPL Ghostscript",
         "Aladdin Ghostscript",
@@ -54,33 +55,33 @@ TryAgain64Bit:
 #endif
             goto TryAgain64Bit;
     }
-    versions.SortNatural();
+    SortNatural(versions);
 
     // return the path to the newest installation
-    size_t nVers = versions.size();
-    for (size_t ix = nVers; ix > 0; ix--) {
+    int nVers = versions.Size();
+    for (int ix = nVers; ix > 0; ix--) {
         for (const char* gsProd : gsProducts) {
-            char* ver = versions.at(ix - 1);
+            char* ver = versions.At(ix - 1);
             TempStr keyName = str::FormatTemp("Software\\%s\\%s", gsProd, ver);
             char* GS_DLL = ReadRegStrTemp(HKEY_LOCAL_MACHINE, keyName, "GS_DLL");
             if (!GS_DLL) {
                 continue;
             }
-            char* dir = path::GetDirTemp(GS_DLL);
-            char* exe = path::JoinTemp(dir, "gswin32c.exe");
+            TempStr dir = path::GetDirTemp(GS_DLL);
+            TempStr exe = path::JoinTemp(dir, "gswin32c.exe");
             if (file::Exists(exe)) {
-                return str::Dup(exe);
+                return exe;
             }
             exe = path::JoinTemp(dir, "gswin64c.exe");
             if (file::Exists(exe)) {
-                return str::Dup(exe);
+                return exe;
             }
         }
     }
 
     // if Ghostscript isn't found in the Registry, try finding it in the %PATH%
     DWORD size = GetEnvironmentVariableW(L"PATH", nullptr, 0);
-    AutoFreeWstr envpath(AllocArray<WCHAR>(size + 1));
+    AutoFreeWStr envpath(AllocArray<WCHAR>(size + 1));
     if (size == 0) {
         return nullptr;
     }
@@ -95,7 +96,7 @@ TryAgain64Bit:
         if (!file::Exists(exe)) {
             continue;
         }
-        return str::Dup(exe);
+        return exe;
     }
     return nullptr;
 }
@@ -144,10 +145,10 @@ static Rect ExtractDSCPageSize(const WCHAR* path) {
 
 static EngineBase* ps2pdf(const char* path) {
     // TODO: read from gswin32c's stdout instead of using a TEMP file
-    AutoFreeStr shortPath = path::ShortPath(path);
-    AutoFreeStr tmpFile = path::GetTempFilePath("PsE");
+    TempStr shortPath = path::ShortPathTemp(path);
+    TempStr tmpFile = GetTempFilePathTemp("PsE");
     ScopedFile tmpFileScope(tmpFile);
-    AutoFreeStr gswin32c = GetGhostscriptPath();
+    TempStr gswin32c = GetGhostscriptPathTemp();
     if (!shortPath || !tmpFile || !gswin32c) {
         return nullptr;
     }
@@ -164,13 +165,12 @@ static EngineBase* ps2pdf(const char* path) {
     TempStr cmdLine = str::FormatTemp(
         "\"%s\" -q -dSAFER -dNOPAUSE -dBATCH -dEPSCrop -sOutputFile=\"%s\" -sDEVICE=pdfwrite "
         "-f \"%s\"",
-        gswin32c.Get(), tmpFile.Get(), shortPath.Get());
+        gswin32c, tmpFile, shortPath);
 
     {
         TempStr fileName = path::GetBaseNameTemp(__FILE__);
-        char* gswin = gswin32c.Get();
-        TempStr tmpFileName = path::GetBaseNameTemp(tmpFile.Get());
-        logf("- %s:%d: using '%s' for creating '%%TEMP%%\\%s'\n", fileName, __LINE__, gswin, tmpFileName);
+        TempStr tmpFileName = path::GetBaseNameTemp(tmpFile);
+        logf("- %s:%d: using '%s' for creating '%%TEMP%%\\%s'\n", fileName, __LINE__, gswin32c, tmpFileName);
     }
 
     // TODO: the PS-to-PDF conversion can hang the UI for several seconds
@@ -210,7 +210,7 @@ static EngineBase* ps2pdf(const char* path) {
 }
 
 static EngineBase* psgz2pdf(const char* fileName) {
-    AutoFreeStr tmpFile = path::GetTempFilePath("PsE");
+    TempStr tmpFile = GetTempFilePathTemp("PsE");
     ScopedFile tmpFileScope(tmpFile);
     if (!tmpFile) {
         return nullptr;
@@ -253,7 +253,7 @@ class EnginePs : public EngineBase {
     }
 
     ~EnginePs() override {
-        delete pdfEngine;
+        pdfEngine->Release();
     }
 
     EngineBase* Clone() override {
@@ -306,14 +306,21 @@ class EnginePs : public EngineBase {
         return pdfEngine->HasClipOptimizations(pageNo);
     }
 
-    TempStr GetPropertyTemp(DocumentProperty prop) override {
+    TempStr GetPropertyTemp(const char* name) override {
         // omit properties created by Ghostscript
-        if (!pdfEngine || DocumentProperty::CreationDate == prop || DocumentProperty::ModificationDate == prop ||
-            DocumentProperty::PdfVersion == prop || DocumentProperty::PdfProducer == prop ||
-            DocumentProperty::PdfFileStructure == prop) {
+        if (!pdfEngine) {
             return nullptr;
         }
-        return pdfEngine->GetPropertyTemp(prop);
+        static const char* toOmit[] = {kPropCreationDate, kPropModificationDate, kPropPdfVersion,
+                                       kPropPdfProducer,  kPropPdfFileStructure, nullptr};
+
+        for (const char** ptr = toOmit; *ptr; ptr++) {
+            const char* s = *ptr;
+            if (str::Eq(s, name)) {
+                return nullptr;
+            }
+        }
+        return pdfEngine->GetPropertyTemp(name);
     }
 
     bool BenchLoadPage(int pageNo) override {
@@ -348,7 +355,7 @@ class EnginePs : public EngineBase {
 
     bool Load(const char* fileName) {
         pageCount = 0;
-        CrashIf(FilePath() || pdfEngine);
+        ReportIf(FilePath() || pdfEngine);
         if (!fileName) {
             return false;
         }
@@ -381,15 +388,15 @@ class EnginePs : public EngineBase {
 EngineBase* EnginePs::CreateFromFile(const char* fileName) {
     EnginePs* engine = new EnginePs();
     if (!engine->Load(fileName)) {
-        delete engine;
+        engine->Release();
         return nullptr;
     }
     return engine;
 }
 
 bool IsEnginePsAvailable() {
-    AutoFreeStr gswin32c = GetGhostscriptPath();
-    return gswin32c.Get() != nullptr;
+    TempStr gswin32c = GetGhostscriptPathTemp();
+    return gswin32c != nullptr;
 }
 
 bool IsEnginePsSupportedFileType(Kind kind) {

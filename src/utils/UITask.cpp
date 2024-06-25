@@ -6,17 +6,46 @@
 #include "utils/WinUtil.h"
 #include "utils/UITask.h"
 
+#include "utils/Log.h"
+
+#define DEF_NAME(id) #id "\0"
+static SeqStrings gTaskNames = TASK_NAMES(DEF_NAME) "\0";
+#undef DEF_NAME
+
 namespace uitask {
 
 static HWND gTaskDispatchHwnd = nullptr;
 
 #define UITASK_CLASS_NAME L"UITask_Wnd_Class"
-#define WM_EXECUTE_TASK (WM_USER + 104)
+
+static UINT gExecuteTaskMessage = 0;
+
+static UINT GetExecuteTaskMessage() {
+    if (!gExecuteTaskMessage) {
+        gExecuteTaskMessage = RegisterWindowMessageW(UITASK_CLASS_NAME);
+    }
+    return gExecuteTaskMessage;
+}
 
 static LRESULT CALLBACK WndProcTaskDispatch(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
-    if (WM_EXECUTE_TASK == msg) {
+    UINT wmExecTask = GetExecuteTaskMessage();
+    if (wmExecTask == msg) {
         auto func = (std::function<void()>*)lp;
+        int taskId = (int)wp;
+        // logf("uitask::WndPorcTaskDispatch: about to free func 0x%p\n", (void*)func);
+        // don't log most frequent for less spammy logs
+        bool skipLog = taskId == TaskRepaintAsync;
+        if (!skipLog) {
+            auto name = seqstrings::IdxToStr(gTaskNames, taskId);
+            if (!name) {
+                name = "not found";
+            }
+            logf("uitask::WndProcTaskDispatch: will execute taskID: %d name: %s\n", taskId, name);
+        }
         (*func)();
+        if (!skipLog) {
+            logf("uitask::WndProcTaskDispatch: did execute, will delete func 0x%p\n", (void*)func);
+        }
         delete func;
         return 0;
     }
@@ -28,15 +57,16 @@ void Initialize() {
     FillWndClassEx(wcex, UITASK_CLASS_NAME, WndProcTaskDispatch);
     RegisterClassEx(&wcex);
 
-    CrashIf(gTaskDispatchHwnd);
+    ReportIf(gTaskDispatchHwnd);
     gTaskDispatchHwnd = CreateWindow(UITASK_CLASS_NAME, L"UITask Dispatch Window", WS_OVERLAPPED, 0, 0, 0, 0,
                                      HWND_MESSAGE, nullptr, GetModuleHandle(nullptr), nullptr);
 }
 
 void DrainQueue() {
-    CrashIf(!gTaskDispatchHwnd);
+    ReportIf(!gTaskDispatchHwnd);
     MSG msg;
-    while (PeekMessage(&msg, gTaskDispatchHwnd, WM_EXECUTE_TASK, WM_EXECUTE_TASK, PM_REMOVE)) {
+    UINT wmExecTask = GetExecuteTaskMessage();
+    while (PeekMessage(&msg, gTaskDispatchHwnd, wmExecTask, wmExecTask, PM_REMOVE)) {
         DispatchMessage(&msg);
     }
 }
@@ -47,12 +77,14 @@ void Destroy() {
     gTaskDispatchHwnd = nullptr;
 }
 
-void Post(const std::function<void()>& f) {
+void Post(int taskId, const std::function<void()>& f) {
     auto func = new std::function<void()>(f);
-    PostMessageW(gTaskDispatchHwnd, WM_EXECUTE_TASK, 0, (LPARAM)func);
+    // logf("uitask::Post: allocated func 0x%p\n", (void*)func);
+    UINT wmExecTask = GetExecuteTaskMessage();
+    PostMessageW(gTaskDispatchHwnd, wmExecTask, (WPARAM)taskId, (LPARAM)func);
 } // NOLINT
 
-void PostOptimized(const std::function<void()>& f) {
+void PostOptimized(int taskId, const std::function<void()>& f) {
     if (IsGUIThread(FALSE)) {
         // if we're already on ui thread, execute immediately
         // faster and easier to debug
@@ -60,7 +92,9 @@ void PostOptimized(const std::function<void()>& f) {
         return;
     }
     auto func = new std::function<void()>(f);
-    PostMessageW(gTaskDispatchHwnd, WM_EXECUTE_TASK, 0, (LPARAM)func);
+    // logf("uitask::PostOptimized: allocated func 0x%p\n", (void*)func);
+    UINT wmExecTask = GetExecuteTaskMessage();
+    PostMessageW(gTaskDispatchHwnd, wmExecTask, (WPARAM)taskId, (LPARAM)func);
 } // NOLINT
 
 } // namespace uitask

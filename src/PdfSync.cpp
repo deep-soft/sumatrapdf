@@ -44,7 +44,7 @@ struct PdfsyncPoint {
 class Pdfsync : public Synchronizer {
   public:
     Pdfsync(const char* syncfilename, EngineBase* engine) : Synchronizer(syncfilename), engine(engine) {
-        CrashIf(!str::EndsWithI(syncfilename, ".pdfsync"));
+        ReportIf(!str::EndsWithI(syncfilename, ".pdfsync"));
     }
 
     int DocToSource(int pageNo, Point pt, AutoFreeStr& filename, int* line, int* col) override;
@@ -68,7 +68,7 @@ class SyncTex : public Synchronizer {
     SyncTex(const char* syncfilename, EngineBase* engineIn) : Synchronizer(syncfilename) {
         engine = engineIn;
         scanner = nullptr;
-        CrashIf(!str::EndsWithI(syncfilename, ".synctex"));
+        ReportIf(!str::EndsWithI(syncfilename, ".synctex"));
     }
 
     ~SyncTex() override {
@@ -111,13 +111,13 @@ bool Synchronizer::NeedsToRebuildIndex() const {
 
 int Synchronizer::MarkIndexWasRebuilt() {
     needsToRebuildIndex = false;
-    WCHAR* path = ToWStrTemp(syncFilePath);
+    TempWStr path = ToWStrTemp(syncFilePath);
     _wstat(path, &syncfileTimestamp);
     return PDFSYNCERR_SUCCESS;
 }
 
 char* Synchronizer::PrependDir(const char* filename) const {
-    char* dir = path::GetDirTemp(syncFilePath);
+    TempStr dir = path::GetDirTemp(syncFilePath);
     return path::Join(dir, filename);
 }
 
@@ -160,7 +160,7 @@ int Synchronizer::Create(const char* path, EngineBase* engine, Synchronizer** sy
 
 // move to the next line in a list of zero-terminated lines
 static char* Advance0Line(char* line, char* end) {
-    line += str::Len(line);
+    line += str::Leni(line);
     // skip all zeroes until the next non-empty line
     for (; line < end && !*line; line++) {
         ;
@@ -210,7 +210,7 @@ int Pdfsync::RebuildIndexIfNeeded() {
     sheetIndex.Append(0);
 
     // add the initial tex file to the source file stack
-    filestack.Append(srcfiles.size());
+    filestack.Append((size_t)srcfiles.Size());
     srcfiles.Append(jobName);
     PdfsyncFileIndex findex{};
     fileIndex.Append(findex);
@@ -262,7 +262,7 @@ int Pdfsync::RebuildIndexIfNeeded() {
                 AutoFreeStr filename(strconv::AnsiToUtf8(line + 1));
                 // if the filename contains quotes then remove them
                 // TODO: this should never happen!?
-                if (filename[0] == '"' && filename[str::Len(filename) - 1] == '"') {
+                if (filename[0] == '"' && filename[str::Leni(filename) - 1] == '"') {
                     size_t n = str::Len(filename) - 2;
                     filename = str::Dup(filename + 1, n);
                 }
@@ -277,7 +277,7 @@ int Pdfsync::RebuildIndexIfNeeded() {
                     filename = PrependDir(filename);
                 }
 
-                filestack.Append(srcfiles.size());
+                filestack.Append((size_t)srcfiles.Size());
                 srcfiles.Append(filename);
                 findex.start = findex.end = lines.size();
                 fileIndex.Append(findex);
@@ -317,7 +317,7 @@ int Pdfsync::DocToSource(int pageNo, Point pt, AutoFreeStr& filename, int* line,
 
     // find the entry in the index corresponding to this page
     int nPages = engine->PageCount();
-    if (pageNo == 0 || pageNo >= sheetIndex.isize() || pageNo > nPages) {
+    if (pageNo == 0 || pageNo >= sheetIndex.Size() || pageNo > nPages) {
         return PDFSYNCERR_INVALID_PAGE_NUMBER;
     }
 
@@ -364,7 +364,7 @@ int Pdfsync::DocToSource(int pageNo, Point pt, AutoFreeStr& filename, int* line,
     cmp.record = selected_record;
     PdfsyncLine* found =
         (PdfsyncLine*)bsearch(&cmp, lines.LendData(), lines.size(), sizeof(PdfsyncLine), cmpLineRecords);
-    CrashIf(!found);
+    ReportIf(!found);
     if (!found) {
         return PDFSYNCERR_NO_SYNC_AT_LOCATION;
     }
@@ -407,14 +407,14 @@ UINT Pdfsync::SourceToRecord(const char* srcfilename, int line, int, Vec<size_t>
     }
 
     // find the source file entry
-    size_t isrc;
-    for (isrc = 0; isrc < srcfiles.size(); isrc++) {
+    int isrc;
+    for (isrc = 0; isrc < srcfiles.Size(); isrc++) {
         char* path = srcfiles[isrc];
         if (path::IsSame(srcfilepath, path)) {
             break;
         }
     }
-    if (isrc == srcfiles.size()) {
+    if (isrc == srcfiles.Size()) {
         return PDFSYNCERR_UNKNOWN_SOURCEFILE;
     }
 
@@ -429,7 +429,7 @@ UINT Pdfsync::SourceToRecord(const char* srcfilename, int line, int, Vec<size_t>
 
     for (size_t isec = fileIndex.at(isrc).start; isec < fileIndex.at(isrc).end; isec++) {
         // does this section belong to the desired file?
-        if (lines.at(isec).file != isrc) {
+        if (lines.at(isec).file != (size_t)isrc) {
             continue;
         }
 
@@ -532,8 +532,8 @@ int SyncTex::RebuildIndexIfNeeded() {
 
     TempStr syncPathTemp = str::DupTemp(syncFilePath.Get());
 Repeat:
-    WCHAR* ws = ToWStrTemp(syncPathTemp);
-    AutoFreeStr pathAnsi = strconv::WstrToAnsi(ws);
+    TempWStr ws = ToWStrTemp(syncPathTemp);
+    AutoFreeStr pathAnsi = strconv::WStrToAnsi(ws);
     scanner = synctex_scanner_new_with_output_file(pathAnsi, nullptr, 1);
     if (scanner) {
         logfa("synctex_scanner_new_with_output_file: ok for pathAnsi '%s'\n", pathAnsi.Get());

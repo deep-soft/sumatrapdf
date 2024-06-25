@@ -3,6 +3,9 @@
 
 #include "utils/BaseUtil.h"
 #include "utils/WinUtil.h"
+
+#include "SumatraConfig.h"
+
 #include "Translations.h"
 
 #include "utils/Log.h"
@@ -15,85 +18,62 @@ extern const char* gLangNames;
 extern const char* gLangCodes;
 extern const LANGID* GetLangIds();
 extern bool IsLangRtl(int langIdx);
-extern const char** GetOriginalStrings();
 } // namespace trans
 
 namespace trans {
 
-// translation info about a single string
-// we set str/trans once by parsing translations.txt file
-// after the user changes the language
-struct Translation {
-    // index points inside allStrings;
-    u16 idxStr = 0;
-    // translation of str/origStr in gCurrLangCode
-    // index points inside allTranslations
-    u16 idxTrans = 0;
-    // translation in WCHAR*, points inside allTranslationsW
-    u16 idxTransW = 0;
-};
-
-struct TranslationCache {
-    // english string from translations.txt file
-    // we lazily match it to origStr
-    str::Str allStrings;
-    str::Str allTranslations;
-    str::WStr allTranslationsW;
-    // TODO: maybe also cache str::WStr allTranslationsW
-    // we currently return a temp converted string but there's a chance their
-    // lifetime could survive temp allocator lifetime
-    Translation* translations = nullptr;
-    int nTranslations = 0;
-    int nUntranslated = 0;
-};
-
 // used locally, gCurrLangCode points into gLangCodes
 static const char* gCurrLangCode = nullptr;
 static int gCurrLangIdx = 0;
-static TranslationCache* gTranslationCache = nullptr;
+// for each translation: english string followed by a translation
+static StrVec* gTranslationCache = nullptr;
 
-static void UnescapeStringIntoStr(char* s, str::Str& str) {
-    for (; *s; s++) {
-        if (*s == '\\') {
-            char c = s[1];
-            switch (c) {
-                case 't':
-                    str.AppendChar('\t');
-                    break;
-                case 'n':
-                    str.AppendChar('\n');
-                    break;
-                case 'r':
-                    str.AppendChar('\r');
-                    break;
-                default:
-                    str.AppendChar(c);
-                    break;
-            }
-            s++;
-        } else {
-            str.AppendChar(*s);
+static TempStr UnescapeTemp(char* sOrig) {
+    char* s = str::DupTemp(sOrig);
+    char* unescaped = s;
+    char* dst = s;
+    char c, c2;
+    while (*s) {
+        c = *s++;
+        if (c != '\\') {
+            *dst++ = c;
+            continue;
         }
+        c2 = *s;
+        switch (c2) {
+            case '\\':
+                *dst++ = '\\';
+                break;
+            case 't':
+                *dst++ = '\t';
+                break;
+            case 'n':
+                *dst++ = '\n';
+                break;
+            case 'r':
+                *dst++ = '\r';
+                break;
+            default:
+                *dst++ = c;
+                break;
+        }
+        s++;
     }
-    str.AppendChar(0);
+    *dst = 0;
+    return unescaped;
 }
 
 static void FreeTranslations() {
-    if (!gTranslationCache) {
-        return;
-    }
     delete gTranslationCache;
     gTranslationCache = nullptr;
 }
 
-static void ParseTranslationsTxt(const ByteSlice& d, const char* langCode) {
+static void ParseTranslationsTxt(const StrSpan& d, const char* langCode) {
     langCode = str::JoinTemp(langCode, ":");
     int nLangCode = str::Len(langCode);
 
-    // parse into lines
-    char* s = (char*)d.data();
     StrVec lines;
-    Split(lines, s, "\n", true);
+    Split(lines, d.CStr(), "\n", true);
     int nStrings = 0;
     for (char* l : lines) {
         if (l[0] == ':') {
@@ -103,26 +83,18 @@ static void ParseTranslationsTxt(const ByteSlice& d, const char* langCode) {
     int nLines = lines.Size();
     logf("ParseTranslationsTxt: %d lines, nStrings: %d\n", nLines, nStrings);
 
-    FreeTranslations();
-    gTranslationCache = new TranslationCache();
-    // make index of first string to be 1 so that 0 can be
-    // "missing" value in transIdx
-    gTranslationCache->allStrings.AppendChar(' ');
-    gTranslationCache->allTranslations.AppendChar(' ');
-    gTranslationCache->allTranslationsW.AppendChar(' ');
+    delete gTranslationCache;
+    gTranslationCache = new StrVec();
     auto c = gTranslationCache;
-    c->nTranslations = nStrings;
-    c->translations = AllocArray<Translation>(c->nTranslations);
-    c->nUntranslated = 0;
+    int nUntranslated = 0;
 
     char* orig;
     char* trans;
     char* line;
     int i = 2; // skip first 2 header lines
-    int nTrans = 0;
     while (i < nLines) {
         orig = lines[i];
-        CrashIf(*orig != ':');
+        ReportIf(*orig != ':');
         orig += 1; // skip the ':' at the beginning
         i++;
         trans = nullptr;
@@ -136,80 +108,49 @@ static void ParseTranslationsTxt(const ByteSlice& d, const char* langCode) {
             i++;
         }
         if (!trans) {
-            c->nUntranslated++;
+            nUntranslated++;
         }
-        Translation& translation = c->translations[nTrans++];
-        size_t idxStr = c->allStrings.size();
-        // when this fires, we'll have to bump strIdx form u16 to u32
-        CrashIf(idxStr > 64 * 1024);
-        translation.idxStr = (u16)idxStr;
-        UnescapeStringIntoStr(orig, c->allStrings);
-        char* toConvert = c->allStrings.LendData() + idxStr; // after insertion because could re-allocate
-        if (trans) {
-            size_t idxTrans = c->allTranslations.size();
-            CrashIf(idxTrans > 64 * 1024);
-            translation.idxTrans = (u16)idxTrans;
-            UnescapeStringIntoStr(trans, c->allTranslations);
-            toConvert = c->allTranslations.LendData() + idxTrans; // after insertion because could re-allocate
+        TempStr unescaped = UnescapeTemp(orig);
+        c->Append(unescaped);
+        if (!trans) {
+            c->Append(nullptr);
+            continue;
         }
-        // if we don't have a translation, we cache WCHAR* version from original string
-        auto ws = ToWStrTemp(toConvert);
-        size_t idxTransW = c->allTranslationsW.size();
-        CrashIf(idxTransW > 64 * 1024);
-        translation.idxTransW = (u16)idxTransW;
-        size_t wsLen = str::Len(ws);
-        c->allTranslationsW.Append(ws, wsLen + 1);
+        unescaped = UnescapeTemp(trans);
+        c->Append(unescaped);
     }
-    CrashIf(nTrans != c->nTranslations);
-    if (c->nUntranslated > 0 && !str::Eq(langCode, "en:")) {
-        logf("Untranslated strings: %d for lang '%s'\n", c->nUntranslated, langCode);
+    int nTrans = c->Size();
+    ReportIf(nTrans != nStrings * 2);
+    if (nUntranslated > 0 && !str::Eq(langCode, "en:")) {
+        logf("Untranslated strings: %d for lang '%s'\n", nUntranslated, langCode);
     }
-}
-
-static Translation* FindTranslation(const char* s) {
-    CrashIf(!s);
-    CrashIf(!gTranslationCache);
-    auto c = gTranslationCache;
-    for (int i = 0; i < c->nTranslations; i++) {
-        Translation& trans = c->translations[i];
-        size_t idx = trans.idxStr;
-        const char* s2 = c->allStrings.LendData() + idx;
-        if (str::Eq(s, s2)) {
-            return &trans;
-        }
-    }
-    return nullptr;
 }
 
 // don't free
-const char* GetTranslationA(const char* s) {
+const char* GetTranslation(const char* s) {
     if (gCurrLangIdx == 0) {
+        // 0 is english, no translation needed
         return s;
     }
-    Translation* trans = FindTranslation(s);
-    // we don't have a translation for this string
-    if (!trans || trans->idxTrans == 0) {
-        logf("Didn't find translation for '%s'\n", s);
-        return s;
+    auto c = gTranslationCache;
+    int n = c->Size();
+    ReportIf(n % 2 != 0);
+    n = n / 2;
+    int sLen = str::Leni(s);
+    for (int i = 0; i < n; i++) {
+        int idx = i * 2;
+        StrSpan s2 = c->AtSpan(idx);
+        if (s2.Len() == sLen && str::Eq(s, s2.CStr())) {
+            auto tr = c->At(idx + 1);
+            if (!tr) {
+                logf("Didn't find translation for '%s'\n", s);
+                return s;
+            }
+            return tr;
+        }
     }
-    auto idx = trans->idxTrans;
-    return gTranslationCache->allTranslations.LendData() + idx;
-}
-
-// don't free
-const WCHAR* GetTranslation(const char* s) {
-    Translation* trans = FindTranslation(s);
-    // we don't have a translation for this string
-    if (!trans || trans->idxTransW == 0) {
-        logf("GetTranslation: didn't find translation for '%s'\n", s);
-        // shouldn't happen
-        // ReportIf(true);
-        // it's a mem leak but the contract is that those strings
-        // are not freed and survive long enough they can't be temp strings
-        return ToWstr(s);
-    }
-    auto idx = trans->idxTransW;
-    return gTranslationCache->allTranslationsW.LendData() + idx;
+    ReportIf(true);
+    return s;
 }
 
 int GetLangsCount() {
@@ -231,14 +172,17 @@ void SetCurrentLangByCode(const char* langCode) {
         // set to English
         idx = 0;
     }
-    CrashIf(-1 == idx);
+    ReportIf(-1 == idx);
     gCurrLangIdx = idx;
     gCurrLangCode = GetLangCodeByIdx(idx);
-
-    ByteSlice d = LoadDataResource(2);
-    CrashIf(d.empty());
+    if (idx == 0 && !gIsDebugBuild) {
+        // perf: in release builds we skip parsing translations for english
+        // in debug we want to execute this code to catch errors
+        return;
+    }
+    StrSpan d = LoadDataResource(2);
     ParseTranslationsTxt(d, langCode);
-    free(d.data());
+    str::Free(d);
 }
 
 const char* ValidateLangCode(const char* langCode) {
@@ -289,10 +233,6 @@ void Destroy() {
 
 } // namespace trans
 
-const WCHAR* _TR(const char* s) {
-    return trans::GetTranslation(s);
-}
-
 const char* _TRA(const char* s) {
-    return trans::GetTranslationA(s);
+    return trans::GetTranslation(s);
 }

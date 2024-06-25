@@ -12,6 +12,38 @@ bool isLegalUTF8String(const u8** source, const u8* sourceEnd);
 int utf8StrLen(const u8* s);
 int utf8RuneLen(const u8* s);
 
+template <typename T>
+struct Span {
+    T* d = nullptr;
+    int size = 0;
+
+    Span() = default;
+    ~Span() = default;
+    Span(const T* d, int size) : d((T*)d), size(size) {
+    }
+    T* Data() const {
+        return d;
+    }
+    int Size() const {
+        return size;
+    }
+};
+
+struct StrSpan : Span<char> {
+    StrSpan() = default;
+    StrSpan(const char* s);
+    StrSpan(const char* s, int sLen);
+    char* CStr() const {
+        return d;
+    }
+    int Len() const {
+        return size;
+    }
+    bool IsEmpty() const {
+        return !d || size == 0;
+    }
+};
+
 struct ByteSlice {
     u8* d = nullptr;
     size_t sz = 0;
@@ -96,6 +128,7 @@ int Leni(const char* s);
 
 void Free(const char*);
 void Free(const u8*);
+void Free(const StrSpan& s);
 
 void Free(const WCHAR* s);
 
@@ -108,22 +141,16 @@ char* Dup(Allocator*, const char* str, size_t cch = (size_t)-1);
 char* Dup(const char* s, size_t cch = (size_t)-1);
 char* Dup(const ByteSlice&);
 
-WCHAR* Dup(Allocator*, const WCHAR* str, size_t cch = (size_t)-1);
-WCHAR* Dup(const WCHAR* s, size_t cch = (size_t)-1);
-
 void ReplacePtr(const char** s, const char* snew);
 void ReplacePtr(char** s, const char* snew);
-void ReplacePtr(const WCHAR** s, const WCHAR* snew);
+
 void ReplaceWithCopy(const char** s, const char* snew);
 void ReplaceWithCopy(const char** s, const ByteSlice&);
 void ReplaceWithCopy(char** s, const char* snew);
-void ReplaceWithCopy(const WCHAR** s, const WCHAR* snew);
-void ReplaceWithCopy(WCHAR** s, const WCHAR* snew);
 
-char* Join(Allocator* allocator, const char* s1, const char* s2, const char* s3);
-WCHAR* Join(Allocator* allocator, const WCHAR*, const WCHAR*, const WCHAR* s3);
+char* Join(Allocator*, const char*, const char*, const char*);
+char* Join(Allocator*, const char*, const char*, const char*, const char*, const char*);
 char* Join(const char* s1, const char* s2, const char* s3 = nullptr);
-WCHAR* Join(const WCHAR*, const WCHAR*, const WCHAR* s3 = nullptr);
 
 bool Eq(const char* s1, const char* s2);
 bool Eq(const ByteSlice& sp1, const ByteSlice& sp2);
@@ -135,30 +162,16 @@ bool IsEmpty(const char* s);
 bool StartsWith(const char* str, const char* prefix);
 bool StartsWith(const u8* str, const char* prefix);
 
-bool Eq(const WCHAR*, const WCHAR*);
-bool EqI(const WCHAR*, const WCHAR*);
-bool EqIS(const WCHAR*, const WCHAR*);
-bool EqN(const WCHAR*, const WCHAR*, size_t);
-bool EqNI(const WCHAR*, const WCHAR*, size_t);
-bool IsEmpty(const WCHAR*);
-bool StartsWith(const WCHAR* str, const WCHAR* prefix);
-
 bool StartsWithI(const char* str, const char* prefix);
 bool EndsWith(const char* txt, const char* end);
 bool EndsWithI(const char* txt, const char* end);
 bool EqNIx(const char* s, size_t len, const char* s2);
 
 char* ToLowerInPlace(char*);
-WCHAR* ToLowerInPlace(WCHAR*);
 
 char* ToLower(const char*);
-WCHAR* ToLower(const WCHAR*);
 
 char* ToUpperInPlace(char*);
-
-bool StartsWithI(const WCHAR* str, const WCHAR* prefix);
-bool EndsWith(const WCHAR* txt, const WCHAR* end);
-bool EndsWithI(const WCHAR* txt, const WCHAR* end);
 
 void Utf8Encode(char*& dst, int c);
 
@@ -182,58 +195,66 @@ char* FmtVWithAllocator(Allocator* a, const char* fmt, va_list args);
 char* FmtV(const char* fmt, va_list args);
 char* Format(const char* fmt, ...);
 
-const WCHAR* FindChar(const WCHAR* str, WCHAR c);
-WCHAR* FindChar(WCHAR* str, WCHAR c);
-const WCHAR* FindCharLast(const WCHAR* str, WCHAR c);
-WCHAR* FindCharLast(WCHAR* str, WCHAR c);
-const WCHAR* Find(const WCHAR* str, const WCHAR* find);
-
-const WCHAR* FindI(const WCHAR* str, const WCHAR* find);
-bool BufFmtV(WCHAR* buf, size_t bufCchSize, const WCHAR* fmt, va_list args);
-WCHAR* FmtV(const WCHAR* fmt, va_list args);
-WCHAR* Format(const WCHAR* fmt, ...);
-
-bool IsWs(WCHAR c);
-bool IsDigit(WCHAR c);
-bool IsNonCharacter(WCHAR c);
-
 size_t TrimWSInPlace(char* s, TrimOpt opt);
-size_t TrimWSInPlace(WCHAR* s, TrimOpt opt);
 void TrimWsEnd(char* s, char*& e);
 
 size_t TransCharsInPlace(char* str, const char* oldChars, const char* newChars);
-size_t TransCharsInPlace(WCHAR* str, const WCHAR* oldChars, const WCHAR* newChars);
-
-WCHAR* Replace(const WCHAR* s, const WCHAR* toReplace, const WCHAR* replaceWith);
 
 size_t NormalizeWSInPlace(char* str);
-size_t NormalizeWSInPlace(WCHAR* str);
 size_t NormalizeNewlinesInPlace(char* s, char* e);
 size_t NormalizeNewlinesInPlace(char* s);
 size_t RemoveCharsInPlace(char* str, const char* toRemove);
-size_t RemoveCharsInPlace(WCHAR* str, const WCHAR* toRemove);
 
 int BufSet(char* dst, int dstCchSize, const char* src);
-int BufSet(WCHAR* dst, int dstCchSize, const WCHAR* src);
-int BufSet(WCHAR* dst, int dstCchSize, const char* src);
 int BufAppend(char* dst, int dstCchSize, const char* s);
-int BufAppend(WCHAR* dst, int dstCchSize, const WCHAR* s);
 
 char* MemToHex(const u8* buf, size_t len);
 bool HexToMem(const char* s, u8* buf, size_t bufLen);
 
 const char* Parse(const char* str, const char* fmt, ...);
 const char* Parse(const char* str, size_t len, const char* fmt, ...);
-const WCHAR* Parse(const WCHAR* str, const WCHAR* format, ...);
 
 int CmpNatural(const char*, const char*);
-int CmpNatural(const WCHAR*, const WCHAR*);
 
 TempStr FormatFloatWithThousandSepTemp(double number, LCID locale = LOCALE_USER_DEFAULT);
 TempStr FormatNumWithThousandSepTemp(i64 num, LCID locale = LOCALE_USER_DEFAULT);
 TempStr FormatRomanNumeralTemp(int number);
 
-bool EmptyOrWhiteSpaceOnly(const char* sv);
+bool EmptyOrWhiteSpaceOnly(const char*);
+bool Skip(const char*& s, const char* toSkip);
+
+WCHAR* Dup(Allocator*, const WCHAR* str, size_t cch = (size_t)-1);
+WCHAR* Dup(const WCHAR* s, size_t cch = (size_t)-1);
+WCHAR* Join(const WCHAR*, const WCHAR*, const WCHAR* s3 = nullptr);
+WCHAR* Join(Allocator*, const WCHAR*, const WCHAR*, const WCHAR* s3);
+bool Eq(const WCHAR*, const WCHAR*);
+bool EqI(const WCHAR*, const WCHAR*);
+bool EqN(const WCHAR*, const WCHAR*, size_t);
+bool IsEmpty(const WCHAR*);
+bool StartsWith(const WCHAR* str, const WCHAR* prefix);
+bool StartsWithI(const WCHAR* str, const WCHAR* prefix);
+bool EndsWith(const WCHAR* txt, const WCHAR* end);
+bool EndsWithI(const WCHAR* txt, const WCHAR* end);
+WCHAR* ToLower(const WCHAR*);
+WCHAR* ToLowerInPlace(WCHAR*);
+int CmpNatural(const WCHAR*, const WCHAR*);
+const WCHAR* Parse(const WCHAR* str, const WCHAR* format, ...);
+int BufAppend(WCHAR* dst, int dstCchSize, const WCHAR* s);
+int BufSet(WCHAR* dst, int dstCchSize, const WCHAR* src);
+int BufSet(WCHAR* dst, int dstCchSize, const char* src);
+size_t NormalizeWSInPlace(WCHAR* str);
+size_t RemoveCharsInPlace(WCHAR* str, const WCHAR* toRemove);
+const WCHAR* FindChar(const WCHAR* str, WCHAR c);
+WCHAR* FindChar(WCHAR* str, WCHAR c);
+const WCHAR* Find(const WCHAR* str, const WCHAR* find);
+WCHAR* FmtV(const WCHAR* fmt, va_list args);
+WCHAR* Format(const WCHAR* fmt, ...);
+bool IsWs(WCHAR c);
+bool IsDigit(WCHAR c);
+bool IsNonCharacter(WCHAR c);
+size_t TransCharsInPlace(WCHAR* str, const WCHAR* oldChars, const WCHAR* newChars);
+WCHAR* Replace(const WCHAR* s, const WCHAR* toReplace, const WCHAR* replaceWith);
+
 } // namespace str
 
 namespace url {
@@ -275,9 +296,8 @@ struct Str {
 
     explicit Str(size_t capHint = 0, Allocator* allocator = nullptr);
     Str(const Str& that);
-    Str(const char*); // NOLINT
-
     Str& operator=(const Str& that);
+    Str(const char*); // NOLINT
 
     ~Str();
 
@@ -286,17 +306,17 @@ struct Str {
     char& at(int idx) const;
     char& operator[](size_t idx) const;
     char& operator[](long idx) const;
-    char& operator[](ULONG idx) const;
     char& operator[](int idx) const;
 #if defined(_WIN64)
     char& at(u32 idx) const;
     char& operator[](u32 idx) const;
 #endif
     size_t size() const;
-    int isize() const;
+    int Size() const;
     bool InsertAt(size_t idx, char el);
     bool AppendChar(char c);
     bool Append(const char* src, size_t count = -1);
+    bool Append(const StrSpan&);
     bool Append(const Str& s);
     char RemoveAt(size_t idx, size_t count = 1);
     char RemoveLast();
@@ -310,9 +330,9 @@ struct Str {
     bool Append(const u8* src, size_t size = -1);
     bool AppendSlice(const ByteSlice& d);
     void AppendFmt(const char* fmt, ...);
-    bool AppendAndFree(const char* s);
     void Set(const char*);
     char* Get() const;
+    char* CStr() const;
     char LastChar() const;
 
     // http://www.cprogramming.com/c++11/c++11-ranged-for-loop.html
@@ -373,7 +393,6 @@ struct WStr {
     WCHAR& FindEl(const std::function<bool(WCHAR&)>& check) const;
     bool IsEmpty() const;
     void AppendFmt(const WCHAR* fmt, ...);
-    bool AppendAndFree(const WCHAR*);
     void Set(const WCHAR*);
     WCHAR* Get() const;
     WCHAR LastChar() const;
@@ -393,83 +412,3 @@ struct WStr {
 bool Replace(WStr& s, const WCHAR* toReplace, const WCHAR* replaceWith);
 
 } // namespace str
-
-//----------------
-
-typedef bool (*StrLessFunc)(const char* s1, const char* s2);
-
-struct StrVec;
-
-// strings are stored linearly in strings, separated by 0
-// index is an array of indexes i.e. strings[index[2]] is
-// beginning of string at index 2
-struct StrVec {
-    str::Str strings;
-    Vec<u32> index;
-
-    StrVec() = default;
-    ~StrVec() = default;
-    void Reset();
-
-    size_t size() const;
-    int Size() const;
-    char* at(int) const;
-    char* operator[](int) const;
-    char* operator[](size_t) const;
-
-    int Append(const char*, size_t len = 0);
-    int AppendIfNotExists(const char*);
-    bool InsertAt(int, const char*);
-    void SetAt(int idx, const char* s);
-    int Find(const char*, int startAt = 0) const;
-    int FindI(const char*, int startAt = 0) const;
-    bool Contains(const char*) const;
-    char* PopAt(int);
-    char* RemoveAtFast(size_t idx);
-    char* RemoveAt(int idx);
-    bool Remove(const char*);
-
-    void Sort(StrLessFunc lessFn = nullptr);
-    void SortNoCase();
-    void SortNatural();
-    struct Iterator {
-        using iterator_category = std::forward_iterator_tag;
-
-        Iterator(StrVec* v, int i) : v(v), idx(i) {
-        }
-
-        char* operator*() const {
-            return v->at(idx);
-        }
-
-        Iterator& operator++() {
-            idx++;
-            return *this;
-        }
-        Iterator operator++(int) {
-            Iterator tmp = *this;
-            ++(*this);
-            return tmp;
-        }
-        friend bool operator==(const Iterator& a, const Iterator& b) {
-            return a.idx == b.idx;
-        };
-        friend bool operator!=(const Iterator& a, const Iterator& b) {
-            return a.idx != b.idx;
-        };
-
-        StrVec* v;
-        int idx;
-    };
-    Iterator begin() {
-        return Iterator(this, 0);
-    }
-    Iterator end() {
-        return Iterator(this, index.isize());
-    }
-};
-
-size_t Split(StrVec& v, const char* s, const char* separator, bool collapse = false);
-char* Join(const StrVec& v, const char* sep = nullptr);
-TempStr JoinTemp(const StrVec& v, const char* sep);
-ByteSlice ToByteSlice(const char* s);

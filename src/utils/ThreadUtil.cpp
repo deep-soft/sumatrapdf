@@ -30,7 +30,7 @@ typedef struct tagTHREADNAME_INFO {
 #pragma warning(disable : 6322) // silence /analyze: Empty _except block
 void SetThreadName(const char* threadName, DWORD threadId) {
     if (DynSetThreadDescription && threadId == 0) {
-        WCHAR* ws = ToWStrTemp(threadName);
+        TempWStr ws = ToWStrTemp(threadName);
         DynSetThreadDescription(GetCurrentThread(), ws);
         return;
     }
@@ -85,7 +85,7 @@ DWORD WINAPI ThreadBase::ThreadProc(void* data) {
 }
 
 void ThreadBase::Start() {
-    CrashIf(hThread);
+    ReportIf(hThread);
     hThread = CreateThread(nullptr, 0, ThreadProc, this, 0, nullptr);
 }
 
@@ -107,21 +107,22 @@ static DWORD WINAPI ThreadFunc(void* data) {
     return 0;
 }
 
-void RunAsync(const std::function<void()>& func) {
+void RunAsync(const std::function<void()>& func, const char* threadName) {
     auto fp = new std::function<void()>(func);
-    AutoCloseHandle h(CreateThread(nullptr, 0, ThreadFunc, fp, 0, nullptr));
+    DWORD threadId = 0;
+    HANDLE hThread = CreateThread(nullptr, 0, ThreadFunc, (void*)fp, 0, &threadId);
+    if (!hThread) {
+        return;
+    }
+    if (threadName != nullptr) {
+        SetThreadName(threadName, threadId);
+    }
+    CloseHandle(hThread);
 }
 
-LONG gDangerousThreadCount = 0;
+AtomicInt gDangerousThreadCount;
 
-void IncDangerousThreadCount() {
-    InterlockedIncrement(&gDangerousThreadCount);
-}
-
-void DecDangerousThreadCount() {
-    InterlockedDecrement(&gDangerousThreadCount);
-}
 bool AreDangerousThreadsPending() {
-    LONG count = InterlockedAdd(&gDangerousThreadCount, 0);
+    auto count = gDangerousThreadCount.Get();
     return count != 0;
 }

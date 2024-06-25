@@ -18,6 +18,7 @@
 #include "wingui/FrameRateWnd.h"
 
 #include "Settings.h"
+#include "AppSettings.h"
 #include "DisplayMode.h"
 #include "AppColors.h"
 #include "Annotation.h"
@@ -75,19 +76,20 @@ void UpdateDeltaPerLine() {
         return;
     }
     // ulScrollLines usually equals 3 or 0 (for no scrolling) or -1 (for page scrolling)
-    // WHEEL_DELTA equals 120, so iDeltaPerLine will be 40
+    // WHEEL_DELTA equals 120, so gDeltaPerLine will be 40
     gDeltaPerLine = 0;
     if (ulScrollLines == (ULONG)-1) {
         gDeltaPerLine = -1;
     } else if (ulScrollLines != 0) {
         gDeltaPerLine = WHEEL_DELTA / ulScrollLines;
     }
+    // logf("SPI_GETWHEELSCROLLLINES: ulScrollLines=%d, gDeltaPerLine=%d\n", (int)ulScrollLines, gDeltaPerLine);
 }
 
 ///// methods needed for FixedPageUI canvases with document loaded /////
 
 static void OnVScroll(MainWindow* win, WPARAM wp) {
-    CrashIf(!win->AsFixed());
+    ReportIf(!win->AsFixed());
 
     SCROLLINFO si{};
     si.cbSize = sizeof(si);
@@ -152,7 +154,7 @@ static void OnVScroll(MainWindow* win, WPARAM wp) {
 }
 
 static void OnHScroll(MainWindow* win, WPARAM wp) {
-    CrashIf(!win->AsFixed());
+    ReportIf(!win->AsFixed());
 
     SCROLLINFO si{};
     si.cbSize = sizeof(si);
@@ -305,7 +307,7 @@ static bool gShowAnnotationNotification = true;
 
 static void OnMouseMove(MainWindow* win, int x, int y, WPARAM) {
     DisplayModel* dm = win->AsFixed();
-    CrashIf(!dm);
+    ReportIf(!dm);
 
     if (win->InPresentation()) {
         if (PM_BLACK_SCREEN == win->presentation || PM_WHITE_SCREEN == win->presentation) {
@@ -369,7 +371,6 @@ static void OnMouseMove(MainWindow* win, int x, int y, WPARAM) {
                         NotificationCreateArgs args;
                         args.hwndParent = win->hwndCanvas;
                         args.groupId = kNotifGroupAnnotation;
-                        args.font = GetDefaultGuiFont();
                         args.timeoutMs = -1;
                         TempStr name = annot ? AnnotationReadableNameTemp(annot->type) : (TempStr) "none";
                         args.msg = str::FormatTemp(_TRN("%s annotation. Ctrl+click to edit."), name);
@@ -470,7 +471,7 @@ static void OnMouseLeftButtonDown(MainWindow* win, int x, int y, WPARAM key) {
     if (isMoveableAnnot) {
         StartAnnotationDrag(win, annot, pt);
     } else {
-        CrashIf(win->linkOnLastButtonDown);
+        ReportIf(win->linkOnLastButtonDown);
         IPageElement* pageEl = dm->GetElementAtPos(pt, nullptr);
         if (pageEl) {
             if (pageEl->Is(kindPageElementDest)) {
@@ -501,7 +502,7 @@ static void OnMouseLeftButtonDown(MainWindow* win, int x, int y, WPARAM key) {
 
 static void OnMouseLeftButtonUp(MainWindow* win, int x, int y, WPARAM key) {
     DisplayModel* dm = win->AsFixed();
-    CrashIf(!dm);
+    ReportIf(!dm);
     auto ma = win->mouseAction;
     if (MouseAction::None == ma || IsRightDragging(win)) {
         return;
@@ -609,15 +610,22 @@ static void OnMouseLeftButtonDblClk(MainWindow* win, int x, int y, WPARAM key) {
         }
     }
 
-    Point mousePos = Point(x, y);
     DisplayModel* dm = win->AsFixed();
+    // note: before 3.5 double-click used to turn 2 pages
+    // OnMouseLeftButtonDown(win, x, y, key);
+    Point mousePos = Point(x, y);
     bool isOverText = dm->IsOverText(mousePos);
-    if (!isOverText && isLeft && (win->presentation || win->isFullScreen)) {
-        // note: before 3.5 used to turn 2 pages
-        // OnMouseLeftButtonDown(win, x, y, key);
-        ExitFullScreen(win);
-        return;
+
+    if (isLeft && (win->presentation || win->isFullScreen)) {
+        // in fullscreen we allow to exit by tapping in upper right corner
+        constexpr int kCornerSize = 64;
+        Rect r = ClientRect(win->hwndCanvas);
+        if (!isOverText && (x >= (r.dx - kCornerSize)) && (y < kCornerSize)) {
+            ExitFullScreen(win);
+            return;
+        }
     }
+
     int elementPageNo = -1;
     IPageElement* pageEl = dm->GetElementAtPos(mousePos, &elementPageNo);
 
@@ -683,7 +691,7 @@ static void OnMouseRightButtonDown(MainWindow* win, int x, int y) {
     } else if (win->mouseAction != MouseAction::None) {
         return;
     }
-    CrashIf(!win->AsFixed());
+    ReportIf(!win->AsFixed());
 
     SetFocus(win->hwndFrame);
 
@@ -694,7 +702,7 @@ static void OnMouseRightButtonDown(MainWindow* win, int x, int y) {
 }
 
 static void OnMouseRightButtonUp(MainWindow* win, int x, int y, WPARAM key) {
-    CrashIf(!win->AsFixed());
+    ReportIf(!win->AsFixed());
     if (!IsRightDragging(win)) {
         return;
     }
@@ -875,7 +883,7 @@ NO_INLINE static void PaintCurrentEditAnnotationMark(WindowTab* tab, HDC hdc, Di
 }
 
 static void DrawDocument(MainWindow* win, HDC hdc, RECT* rcArea) {
-    CrashIf(!win->AsFixed());
+    ReportIf(!win->AsFixed());
     if (!win->AsFixed()) {
         return;
     }
@@ -962,7 +970,7 @@ static void DrawDocument(MainWindow* win, HDC hdc, RECT* rcArea) {
         if (!pageInfo || 0.0f == pageInfo->visibleRatio) {
             continue;
         }
-        CrashIf(!pageInfo->shown);
+        ReportIf(!pageInfo->shown);
         if (!pageInfo->shown) {
             continue;
         }
@@ -976,7 +984,7 @@ static void DrawDocument(MainWindow* win, HDC hdc, RECT* rcArea) {
         }
 
         bool renderOutOfDateCue = false;
-        int renderDelay = gRenderCache.Paint(hdc, bounds, dm, pageNo, pageInfo, &renderOutOfDateCue);
+        int renderDelay = gRenderCache->Paint(hdc, bounds, dm, pageNo, pageInfo, &renderOutOfDateCue);
 
         if (renderDelay != 0) {
             HFONT fontRightTxt = CreateSimpleFont(hdc, "MS Shell Dlg", 14);
@@ -987,11 +995,11 @@ static void DrawDocument(MainWindow* win, HDC hdc, RECT* rcArea) {
                 if (renderDelay < REPAINT_MESSAGE_DELAY_IN_MS) {
                     RepaintAsync(win, REPAINT_MESSAGE_DELAY_IN_MS / 4);
                 } else {
-                    DrawCenteredText(hdc, bounds, _TR("Please wait - rendering..."), isRtl);
+                    DrawCenteredText(hdc, bounds, _TRA("Please wait - rendering..."), isRtl);
                 }
                 rendering = true;
             } else {
-                DrawCenteredText(hdc, bounds, _TR("Couldn't render the page"), isRtl);
+                DrawCenteredText(hdc, bounds, _TRA("Couldn't render the page"), isRtl);
             }
             SelectObject(hdc, hPrevFont);
             continue;
@@ -1113,7 +1121,7 @@ static LRESULT OnSetCursorMouseNone(MainWindow* win, HWND hwnd) {
 }
 
 static LRESULT OnSetCursor(MainWindow* win, HWND hwnd) {
-    CrashIf(win->hwndCanvas != hwnd);
+    ReportIf(win->hwndCanvas != hwnd);
     if (win->mouseAction != MouseAction::None) {
         win->DeleteToolTip();
     }
@@ -1136,6 +1144,13 @@ static LRESULT OnSetCursor(MainWindow* win, HWND hwnd) {
     return win->presentation ? TRUE : FALSE;
 }
 
+float ScaleZoomBy(MainWindow* win, float factor) {
+    auto zoomVirt = win->ctrl->GetZoomVirtual(true);
+    return factor * zoomVirt;
+}
+
+static bool gWheelScrollRelative = true;
+
 static LRESULT CanvasOnMouseWheel(MainWindow* win, UINT msg, WPARAM wp, LPARAM lp) {
     // Scroll the ToC sidebar, if it's visible and the cursor is in it
     if (win->tocVisible && IsCursorOverWindow(win->tocTreeView->hwnd) && !gWheelMsgRedirect) {
@@ -1151,12 +1166,58 @@ static LRESULT CanvasOnMouseWheel(MainWindow* win, UINT msg, WPARAM wp, LPARAM l
     short delta = GET_WHEEL_DELTA_WPARAM(wp);
 
     // Note: not all mouse drivers correctly report the Ctrl key's state
-    if ((LOWORD(wp) & MK_CONTROL) || IsCtrlPressed() || (LOWORD(wp) & MK_RBUTTON)) {
+    // isCtrl is also set if this is pinch gestore from touchpad (on thinkpad x1 at least).
+    bool isCtrl = (LOWORD(wp) & MK_CONTROL) || IsCtrlPressed();
+    bool isAlt = (LOWORD(wp) & MK_ALT) || IsAltPressed();
+    bool isRightButton = (LOWORD(wp) & MK_RBUTTON);
+    bool isZooming = isCtrl || isRightButton;
+    if (isZooming) {
         Point pt = HwndGetCursorPos(win->hwndCanvas);
 
-        float zoom = win->ctrl->GetNextZoomStep(delta < 0 ? kZoomMin : kZoomMax);
-        win->ctrl->SetZoomVirtual(zoom, &pt);
-        UpdateToolbarState(win);
+        float newZoom;
+        float factor = 0;
+        short delta2 = delta;
+        if (gWheelScrollRelative) {
+            // calc zooming factor as centered around 1.f (1 is no change, > 1 is zoom in, < 1 is zoom out)
+            // from delta values that are centered around 0
+            bool negative = false;
+            // delta is 120 (WHEEL_DELTA) when pinch on thinkpad touchpad
+            // 4 - 248 when ctrl + scrollpoint
+
+            if (delta < 0) {
+                negative = true;
+                delta2 = -delta;
+            }
+
+            if (delta2 == WHEEL_DELTA) {
+                // special case the value coming from pinch gensture on thinkpad touchpad
+                // otherwise it's too slow (would end up 6)
+                delta = 16;
+            } else {
+                // logarithmically dampen delta because otherwise it zooms too fast
+                // the higher the value, the more we dampen
+                // 2 is chosen heuristically
+                double dampenFactor = 2;
+                double logX = log10((double)delta2) / log10(dampenFactor);
+                delta2 = (int)logX;
+            }
+            factor = (float)delta2 / 100.f;
+            if (factor > 0.5f) {
+                factor = 0.5f;
+            }
+            factor = 1.f + factor;
+            if (negative) {
+                factor = 1 / factor;
+            }
+            newZoom = ScaleZoomBy(win, factor);
+        } else {
+            // before 3.6 we were scrolling by steps
+            newZoom = win->ctrl->GetNextZoomStep(delta < 0 ? kZoomMin : kZoomMax);
+        }
+        // logf("delta: %d, delta2: %d, factor: %f, newZoom: %f, isRightButton: %d, isCtrl: %d\n", delta, delta2,
+        // factor, newZoom, (int)isRightButton, (int)isCtrl);
+        bool smartZoom = false; // Note: if true will prioritze selection
+        SmartZoom(win, newZoom, &pt, smartZoom);
 
         // don't show the context menu when zooming with the right mouse-button down
         if ((LOWORD(wp) & MK_RBUTTON)) {
@@ -1170,23 +1231,51 @@ static LRESULT CanvasOnMouseWheel(MainWindow* win, UINT msg, WPARAM wp, LPARAM l
         return 0;
     }
 
-    // make sure to scroll whole pages in non-continuous Fit Content mode
-    if (!IsContinuous(win->ctrl->GetDisplayMode()) && kZoomFitContent == win->ctrl->GetZoomVirtual()) {
-        if (delta > 0) {
-            win->ctrl->GoToPrevPage();
-        } else {
-            win->ctrl->GoToNextPage();
+    bool hScroll = (LOWORD(wp) & MK_SHIFT) || IsShiftPressed();
+    bool vScroll = !hScroll;
+    bool isCont = !IsContinuous(win->ctrl->GetDisplayMode());
+
+    // logf("delta: %d, accumDelta: %d, hscroll: %d, continuous: %d, gDeltaPerLine: %d\n", (int)delta,
+    // win->wheelAccumDelta,
+    //      (int)hScroll, (int)isCont, gDeltaPerLine);
+
+    // Alt speeds up scrolling but also triggers showing menu
+    // this will suppress next menu trigger to avoid accidental triggering of menu
+    if (isAlt) {
+        gSupressNextAltMenuTrigger = true;
+    }
+
+    if (vScroll && !isCont) {
+        constexpr int pageFlipDelta = WHEEL_DELTA * 3;
+        float zoomVirt = win->ctrl->GetZoomVirtual();
+        // in fit content we might show vert scrollbar but we want to flip the whole page on mouse wheel
+        bool flipPage = zoomVirt == kZoomFitContent;
+        DisplayModel* dm = win->AsFixed();
+        if (dm && !dm->NeedVScroll()) {
+            // if page/pages fully fit in window, flip the whole page
+            // logf("  flipping page because !dm->NeedVScroll()\n");
+            flipPage = true;
         }
-        return 0;
+        // int scrolLPos = GetScrollPos(win->hwndCanvas, SB_VERT);
+        //  Note: pre 3.6 didn't care about horizontallScroll and kZoomFitPage was handled below
+        if (flipPage) {
+            win->wheelAccumDelta += delta;
+            if (win->wheelAccumDelta >= pageFlipDelta) {
+                win->ctrl->GoToPrevPage();
+                win->wheelAccumDelta -= pageFlipDelta;
+                return 0;
+            }
+            if (win->wheelAccumDelta <= -pageFlipDelta) {
+                win->ctrl->GoToNextPage();
+                win->wheelAccumDelta += pageFlipDelta;
+                return 0;
+            }
+            return 0;
+        }
     }
 
     if (gDeltaPerLine == 0) {
         return 0;
-    }
-
-    bool horizontal = (LOWORD(wp) & MK_SHIFT) || IsShiftPressed();
-    if (horizontal) {
-        gSuppressAltKey = true;
     }
 
     if (gDeltaPerLine < 0 && win->AsFixed()) {
@@ -1194,9 +1283,9 @@ static LRESULT CanvasOnMouseWheel(MainWindow* win, UINT msg, WPARAM wp, LPARAM l
         SCROLLINFO si{};
         si.cbSize = sizeof(si);
         si.fMask = SIF_PAGE;
-        GetScrollInfo(win->hwndCanvas, horizontal ? SB_HORZ : SB_VERT, &si);
+        GetScrollInfo(win->hwndCanvas, hScroll ? SB_HORZ : SB_VERT, &si);
         int scrollBy = -MulDiv(si.nPage, delta, WHEEL_DELTA);
-        if (horizontal) {
+        if (hScroll) {
             win->AsFixed()->ScrollXBy(scrollBy);
         } else {
             win->AsFixed()->ScrollYBy(scrollBy, true);
@@ -1206,8 +1295,9 @@ static LRESULT CanvasOnMouseWheel(MainWindow* win, UINT msg, WPARAM wp, LPARAM l
 
     // alt while scrolling will scroll by half a page per tick
     // usefull for browsing long files
-    if ((LOWORD(wp) & MK_ALT) || IsAltPressed()) {
-        SendMessageW(win->hwndCanvas, WM_VSCROLL, (delta > 0) ? SB_HALF_PAGEUP : SB_HALF_PAGEDOWN, 0);
+    if (isAlt) {
+        wp = (delta > 0) ? SB_HALF_PAGEUP : SB_HALF_PAGEDOWN;
+        SendMessageW(win->hwndCanvas, WM_VSCROLL, wp, 0);
         return 0;
     }
 
@@ -1215,38 +1305,54 @@ static LRESULT CanvasOnMouseWheel(MainWindow* win, UINT msg, WPARAM wp, LPARAM l
     if (IsCursorOverWindow(win->hwndCanvas)) {
         Point pt = HwndGetCursorPos(win->hwndCanvas);
         if (pt.x > win->canvasRc.dx) {
-            SendMessageW(win->hwndCanvas, WM_VSCROLL, (delta > 0) ? SB_HALF_PAGEUP : SB_HALF_PAGEDOWN, 0);
+            wp = (delta > 0) ? SB_HALF_PAGEUP : SB_HALF_PAGEDOWN;
+            SendMessageW(win->hwndCanvas, WM_VSCROLL, wp, 0);
             return 0;
         }
     }
 
     win->wheelAccumDelta += delta;
-    int currentScrollPos = GetScrollPos(win->hwndCanvas, SB_VERT);
+    int prevScrollPos = GetScrollPos(win->hwndCanvas, SB_VERT);
 
-    while (win->wheelAccumDelta >= gDeltaPerLine) {
-        if (horizontal) {
-            SendMessageW(win->hwndCanvas, WM_HSCROLL, SB_LINELEFT, 0);
-        } else {
-            SendMessageW(win->hwndCanvas, WM_VSCROLL, SB_LINEUP, 0);
+    UINT scrollMsg = hScroll ? WM_HSCROLL : WM_VSCROLL;
+    bool didScrollByLine = false;
+    if (win->wheelAccumDelta < 0) {
+        WPARAM scrollWp = hScroll ? SB_LINERIGHT : SB_LINEDOWN;
+        while (win->wheelAccumDelta <= -gDeltaPerLine) {
+            SendMessageW(win->hwndCanvas, scrollMsg, scrollWp, 0);
+            win->wheelAccumDelta += gDeltaPerLine;
+            // logf("  line down\n");
+            didScrollByLine = true;
         }
-        win->wheelAccumDelta -= gDeltaPerLine;
+    } else {
+        WPARAM scrollWp = hScroll ? SB_LINELEFT : SB_LINEUP;
+        while (win->wheelAccumDelta >= gDeltaPerLine) {
+            SendMessageW(win->hwndCanvas, scrollMsg, scrollWp, 0);
+            win->wheelAccumDelta -= gDeltaPerLine;
+            // logf("  line up\n");
+            didScrollByLine = true;
+        }
     }
-    while (win->wheelAccumDelta <= -gDeltaPerLine) {
-        if (horizontal) {
-            SendMessageW(win->hwndCanvas, WM_HSCROLL, SB_LINERIGHT, 0);
-        } else {
-            SendMessageW(win->hwndCanvas, WM_VSCROLL, SB_LINEDOWN, 0);
-        }
-        win->wheelAccumDelta += gDeltaPerLine;
+    // in non-continuous mode flip page if necessary
+    if (!vScroll || !isCont) {
+        return 0;
+    }
+    if (!didScrollByLine) {
+        // we haven't reached accumulated delta to scroll by line
+        return 0;
     }
 
-    if (!horizontal && !IsContinuous(win->ctrl->GetDisplayMode()) &&
-        GetScrollPos(win->hwndCanvas, SB_VERT) == currentScrollPos) {
-        if (delta > 0) {
-            win->ctrl->GoToPrevPage(true);
-        } else {
-            win->ctrl->GoToNextPage();
-        }
+    int currScrollPos = GetScrollPos(win->hwndCanvas, SB_VERT);
+    bool didScroll = (currScrollPos != prevScrollPos);
+    if (didScroll) {
+        // we don't flip a page if we did scroll by line
+        return 0;
+    }
+    // logf("  flip page: delta: %d, accumDelta: %d\n", (int)delta, (int)win->wheelAccumDelta);
+    if (delta > 0) {
+        win->ctrl->GoToPrevPage(true);
+    } else {
+        win->ctrl->GoToNextPage();
     }
 
     return 0;
@@ -1301,10 +1407,10 @@ const char* GiFlagsToStr(DWORD flags) {
 }
 
 static LRESULT OnGesture(MainWindow* win, UINT msg, WPARAM wp, LPARAM lp) {
-    if (!touch::SupportsGestures()) {
+    DisplayModel* dm = win->AsFixed();
+    if (!dm || !touch::SupportsGestures()) {
         return DefWindowProc(win->hwndFrame, msg, wp, lp);
     }
-    DisplayModel* dm = win->AsFixed();
 
     HGESTUREINFO hgi = (HGESTUREINFO)lp;
     GESTUREINFO gi{};
@@ -1318,18 +1424,22 @@ static LRESULT OnGesture(MainWindow* win, UINT msg, WPARAM wp, LPARAM lp) {
     }
 
     switch (gi.dwID) {
-        case GID_ZOOM:
-            if (gi.dwFlags != GF_BEGIN && win->AsFixed()) {
-                float zoom = (float)LowerU64(gi.ullArguments) / (float)touchState.startArg;
-                ZoomToSelection(win, zoom, false, true);
+        case GID_ZOOM: {
+            auto curr = (float)LowerU64(gi.ullArguments);
+            bool isBegin = gi.dwFlags & GF_BEGIN;
+            if (!isBegin) {
+                auto prev = (float)touchState.zoomIntermediate;
+                float factor = curr / prev;
+                Point pt{gi.ptsLocation.x, gi.ptsLocation.y};
+                HwndScreenToClient(win->hwndCanvas, pt);
+                float newZoom = ScaleZoomBy(win, factor);
+                SmartZoom(win, newZoom, &pt, false);
             }
-            touchState.startArg = LowerU64(gi.ullArguments);
+            touchState.zoomIntermediate = curr;
             break;
+        }
 
         case GID_PAN:
-            if (!dm) {
-                goto Exit;
-            }
             // Flicking left or right changes the page,
             // panning moves the document in the scroll window
             if (gi.dwFlags == GF_BEGIN) {
@@ -1436,7 +1546,7 @@ static LRESULT OnGesture(MainWindow* win, UINT msg, WPARAM wp, LPARAM lp) {
             // A gesture was not recognized
             break;
     }
-Exit:
+
     touch::CloseGestureInfoHandle(hgi);
     return 0;
 }
@@ -1526,13 +1636,16 @@ static LRESULT WndProcCanvasFixedPageUI(MainWindow* win, HWND hwnd, UINT msg, WP
             return OnGesture(win, msg, wp, lp);
 
         case WM_NCPAINT: {
+            DisplayModel* dm = win->AsFixed();
             // check whether scrolling is required in the horizontal and/or vertical axes
             int requiredScrollAxes = -1;
-            if (win->AsFixed()->NeedHScroll() && win->AsFixed()->NeedVScroll()) {
+            bool needH = dm->NeedHScroll();
+            bool needV = dm->NeedVScroll();
+            if (needH && needV) {
                 requiredScrollAxes = SB_BOTH;
-            } else if (win->AsFixed()->NeedHScroll()) {
+            } else if (needH) {
                 requiredScrollAxes = SB_HORZ;
-            } else if (win->AsFixed()->NeedVScroll()) {
+            } else if (needV) {
                 requiredScrollAxes = SB_VERT;
             }
 
@@ -1602,7 +1715,7 @@ static LRESULT WndProcCanvasLoadError(MainWindow* win, HWND hwnd, UINT msg, WPAR
 void RepaintAsync(MainWindow* win, int delayInMs) {
     // even though RepaintAsync is mostly called from the UI thread,
     // we depend on the repaint message to happen asynchronously
-    uitask::Post([win, delayInMs] {
+    uitask::Post(TaskRepaintAsync, [win, delayInMs] {
         if (!MainWindowStillValid(win)) {
             return;
         }
@@ -1738,7 +1851,7 @@ LRESULT CALLBACK WndProcCanvas(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     MainWindow* win = FindMainWindowByHwnd(hwnd);
     switch (msg) {
         case WM_DROPFILES:
-            CrashIf(lp != 0 && lp != 1);
+            ReportIf(lp != 0 && lp != 1);
             OnDropFiles(win, (HDROP)wp, !lp);
             return 0;
 
@@ -1804,7 +1917,7 @@ LRESULT CALLBACK WndProcCanvas(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 return WndProcCanvasChmUI(win, hwnd, msg, wp, lp);
             }
 
-            if (win->IsAboutWindow()) {
+            if (win->IsCurrentTabAbout()) {
                 return WndProcCanvasAbout(win, hwnd, msg, wp, lp);
             }
 

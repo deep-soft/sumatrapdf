@@ -7,7 +7,7 @@ are too time consuming to be part of unit tests. The tests can rely
 on presence of shared test files.
 
 Note: because it can be run as both release and debug, we can't use
-assert() or CrashIf() but CrashAlwaysIf().
+assert() or ReportIf() but ReportIf().
 
 To write new regression test:
 - add a file src/regress/Regress${NN}.cpp with Regress${NN} function
@@ -30,6 +30,7 @@ To write new regression test:
 #include "wingui/UIModels.h"
 
 #include "Settings.h"
+#include "DocProperties.h"
 #include "DocController.h"
 #include "EngineBase.h"
 #include "EbookBase.h"
@@ -64,7 +65,7 @@ static void printflush(const char* s) {
 option to specify this directory, for now just add your location(s) to the list */
 static bool FindTestFilesDir() {
     const char* dirsToCheck[] = {"C:\\Documents and Settings\\kkowalczyk\\My Documents\\Google Drive\\Sumatra",
-                            "C:\\Users\\kkowalczyk\\Google Drive\\Sumatra"};
+                                 "C:\\Users\\kkowalczyk\\Google Drive\\Sumatra"};
     for (size_t i = 0; i < dimof(dirsToCheck); i++) {
         const char* dir = dirsToCheck[i];
         if (dir::Exists(dir)) {
@@ -142,7 +143,7 @@ static void InstallCrashHandler() {
         printflush("InstallCrashHandler(): CreateEvent() failed\n");
         return;
     }
-    gDumpThread = CreateThread(nullptr, 0, CrashDumpThread, nullptr, 0, 0);
+    gDumpThread = CreateThread(nullptr, 0, CrashDumpThread, nullptr, 0, nullptr);
     if (!gDumpThread) {
         printflush("InstallCrashHandler(): CreateThread() failed\n");
         return;

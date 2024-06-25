@@ -12,6 +12,7 @@
 #include "wingui/WinGui.h"
 
 #include "Settings.h"
+#include "AppSettings.h"
 #include "SumatraPdf.h"
 #include "AppTools.h"
 
@@ -194,13 +195,7 @@ HWND NotificationWnd::Create(const NotificationCreateArgs& args) {
     cargs.style = WS_CHILD | SS_CENTER;
     cargs.title = args.msg;
     if (cargs.font == nullptr) {
-        int fontSize = GetSizeOfDefaultGuiFont();
-        // make font 1.4x bigger than system font
-        fontSize = (fontSize * 14) / 10;
-        if (fontSize < 16) {
-            fontSize = 16;
-        }
-        cargs.font = GetDefaultGuiFontOfSize(fontSize);
+        cargs.font = GetAppBiggerFont();
     }
     cargs.pos = Rect(0, 0, 0, 0);
 
@@ -217,7 +212,7 @@ HWND NotificationWnd::Create(const NotificationCreateArgs& args) {
 }
 
 void NotificationWnd::UpdateProgress(int current, int total) {
-    CrashIf(total <= 0);
+    ReportIf(total <= 0);
     if (total <= 0) {
         total = 1;
     }
@@ -251,9 +246,8 @@ void NotificationWnd::Layout(const char* message) {
     Size szText;
     {
         HDC hdc = GetDC(hwnd);
-        ScopedSelectObject fontPrev(hdc, font);
         uint fmt = DT_SINGLELINE | DT_NOPREFIX;
-        szText = HdcMeasureText(hdc, message, fmt);
+        szText = HdcMeasureText(hdc, message, fmt, font);
         ReleaseDC(hwnd, hdc);
     }
 
@@ -393,12 +387,12 @@ void NotificationWnd::OnPaint(HDC hdcIn, PAINTSTRUCT* ps) {
 }
 
 void NotificationWnd::OnTimer(UINT_PTR timerId) {
-    CrashIf(kNotifTimerTimeoutId != timerId);
+    ReportIf(kNotifTimerTimeoutId != timerId);
     // TODO a better way to delete myself
     if (wndRemovedCb) {
-        uitask::Post([this] { wndRemovedCb(this); });
+        uitask::Post(TaskNotifOnTimerRemove, [this] { wndRemovedCb(this); });
     } else {
-        uitask::Post([this] { delete this; });
+        uitask::Post(TaskNotifOnTimerDelete, [this] { delete this; });
     }
 }
 
@@ -435,9 +429,9 @@ LRESULT NotificationWnd::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         if (rClose.Contains(pt)) {
             // TODO a better way to delete myself
             if (wndRemovedCb) {
-                uitask::Post([this] { wndRemovedCb(this); });
+                uitask::Post(TaskNotifWndProcRemove, [this] { wndRemovedCb(this); });
             } else {
-                uitask::Post([this] { delete this; });
+                uitask::Post(TaskNotifWndProcDelete, [this] { delete this; });
             }
             return 0;
         }
@@ -448,7 +442,7 @@ DoDefault:
 }
 
 static void NotifsRemoveForGroup(Vec<NotificationWnd*>& wnds, Kind groupId) {
-    CrashIf(groupId == nullptr);
+    ReportIf(groupId == nullptr);
     Vec<NotificationWnd*> toRemove;
     for (auto* wnd : wnds) {
         if (wnd->groupId == groupId) {
@@ -476,7 +470,7 @@ static void NotifsAdd(NotificationWnd* wnd, Kind groupId) {
 }
 
 NotificationWnd* NotifsGetForGroup(Vec<NotificationWnd*>& wnds, Kind groupId) {
-    CrashIf(!groupId);
+    ReportIf(!groupId);
     for (auto* wnd : wnds) {
         if (wnd->groupId == groupId) {
             return wnd;
@@ -486,7 +480,7 @@ NotificationWnd* NotifsGetForGroup(Vec<NotificationWnd*>& wnds, Kind groupId) {
 }
 
 NotificationWnd* ShowNotification(const NotificationCreateArgs& args) {
-    CrashIf(!args.hwndParent);
+    ReportIf(!args.hwndParent);
 
     NotificationWnd* wnd = new NotificationWnd();
     wnd->Create(args);

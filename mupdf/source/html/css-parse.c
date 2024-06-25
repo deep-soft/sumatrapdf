@@ -1,4 +1,4 @@
-// Copyright (C) 2004-2022 Artifex Software, Inc.
+// Copyright (C) 2004-2024 Artifex Software, Inc.
 //
 // This file is part of MuPDF.
 //
@@ -897,6 +897,7 @@ static fz_css_selector *parse_selector(struct lexbuf *buf)
 	{
 		if (accept(buf, ' '))
 		{
+			white(buf);
 			if (accept(buf, '+'))
 				sel = parse_combinator(buf, '+', sel);
 			else if (accept(buf, '>'))

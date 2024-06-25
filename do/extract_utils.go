@@ -144,18 +144,28 @@ func copyFilesRecurMust(dstDir, srcDir string) {
 	}
 }
 
+var copyFileMustOverwrite = false
+var copyFilesExtsToNormalizeNL = []string{}
+
 func copyFileMust(dst, src string) {
-	_, err := os.Stat(dst)
-	if err == nil {
-		logf("destination '%s' already exists, skipping\n")
-		return
+	if !copyFileMustOverwrite {
+		_, err := os.Stat(dst)
+		if err == nil {
+			logf("destination '%s' already exists, skipping\n", dst)
+			return
+		}
 	}
 	logf("copy %s => %s\n", src, dst)
 	dstDir := filepath.Dir(dst)
-	err = os.MkdirAll(dstDir, 0755)
+	err := os.MkdirAll(dstDir, 0755)
 	must(err)
 	d, err := os.ReadFile(src)
 	must(err)
+	ext := filepath.Ext(dst)
+	ext = strings.ToLower(ext)
+	if slices.Contains(copyFilesExtsToNormalizeNL, ext) {
+		d = u.NormalizeNewlines(d)
+	}
 	err = os.WriteFile(dst, d, 0644)
 	must(err)
 }

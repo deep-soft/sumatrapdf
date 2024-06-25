@@ -1,4 +1,4 @@
-// Copyright (C) 2004-2022 Artifex Software, Inc.
+// Copyright (C) 2004-2024 Artifex Software, Inc.
 //
 // This file is part of MuPDF.
 //
@@ -748,7 +748,13 @@ do_subset(fz_context *ctx, cff_t *cff, fz_buffer **buffer, usage_list_t *keep_li
 	}
 
 	/* So we need 'required' bytes of space for the strings themselves */
-	offset_size = offsize_for_offset(required);
+	/* Do not forget to increment by one byte! This is because the
+	last entry in the offset table points to one byte beyond the end of
+	the required string data. Consider if the required string data occupies
+	255 bytes, then each offset for each of the required entries can be
+	represented by a single byte, but the last table entry would need to
+	point to offset 256, which cannot be represented by a single byte. */
+	offset_size = offsize_for_offset(required + 1);
 
 	required += 2 + 1 + (num_charstrings+1)*offset_size;
 
@@ -1258,14 +1264,14 @@ scan_charstrings(fz_context *ctx, cff_t *cff)
 	for (i = 0; i < num_charstrings; offset = end, i++)
 	{
 		end = index_get(ctx, &cff->charstrings_index, i+1);
-		if (i == 0)
-		{
-			/* Keep this. */
-		}
-		else if (gid < num_gids && i == gids[gid].num)
+		if (gid < num_gids && i == gids[gid].num)
 		{
 			/* Keep this */
 			gid++;
+		}
+		else if (i == 0)
+		{
+			/* Keep this. */
 		}
 		else
 		{
@@ -2082,7 +2088,7 @@ fz_subset_cff_for_gids(fz_context *ctx, fz_buffer *orig, int *gids, int num_gids
 		cff.headersize = base[2];
 		cff.offsize = base[3];
 
-		if (cff.offsize < 0 || cff.offsize > 4)
+		if (cff.offsize > 4)
 			fz_throw(ctx, FZ_ERROR_FORMAT, "Invalid offsize in CFF");
 
 		if (len > UINT32_MAX)

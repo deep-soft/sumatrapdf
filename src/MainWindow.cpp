@@ -49,7 +49,7 @@ struct LinkHandler : ILinkHandler {
     MainWindow* win = nullptr;
 
     explicit LinkHandler(MainWindow* w) {
-        CrashIf(!w);
+        ReportIf(!w);
         win = w;
     }
     ~LinkHandler() override;
@@ -110,17 +110,17 @@ void CreateMovePatternLazy(MainWindow* win) {
         return;
     }
     win->bmpMovePattern = CreateBitmap(8, 8, 1, 1, dotPatternBmp);
-    CrashIf(!win->bmpMovePattern);
+    ReportIf(!win->bmpMovePattern);
     win->brMovePattern = CreatePatternBrush(win->bmpMovePattern);
-    CrashIf(!win->brMovePattern);
+    ReportIf(!win->brMovePattern);
 }
 
 MainWindow::~MainWindow() {
     FinishStressTest(this);
 
-    CrashIf(TabCount() > 0);
-    // CrashIf(ctrl); // TODO: seen in crash report
-    CrashIf(linkOnLastButtonDown);
+    ReportIf(TabCount() > 0);
+    // ReportIf(ctrl); // TODO: seen in crash report
+    ReportIf(linkOnLastButtonDown);
 
     UnsubclassToc(this);
 
@@ -168,7 +168,24 @@ void ClearMouseState(MainWindow* win) {
     win->annotationUnderCursor = nullptr;
 }
 
-bool MainWindow::IsAboutWindow() const {
+bool MainWindow::HasDocsLoaded() const {
+    int nTabs = TabCount();
+    if (nTabs == 0) {
+        // logf("HasDocsLoaded: false because nTabs == 0\n");
+        return true;
+    }
+    for (int i = 0; i < nTabs; i++) {
+        auto tab = GetTab(i);
+        if (!tab->IsAboutTab()) {
+            // logf("HasDocsLoaded: true because GetTab(i) !IsAboutTab()\n");
+            return true;
+        }
+    }
+    // logf("HasDocsLoaded: false because all %d tabs are IsAboutTab()\n", nTabs);
+    return false;
+}
+
+bool MainWindow::IsCurrentTabAbout() const {
     return nullptr == CurrentTab() || CurrentTab()->IsAboutTab();
 }
 
@@ -190,14 +207,14 @@ WindowTab* MainWindow::CurrentTab() const {
     if (!tabsCtrl) {
         return nullptr;
     }
-    int idx = tabsCtrl->GetSelected();
-    if (idx >= 0) {
-        curr = GetTab(idx);
+    int i = tabsCtrl->GetSelected();
+    if (i >= 0) {
+        curr = GetTab(i);
         return curr;
     }
 #if 0
     int nTabs = TabCount();
-    CrashIf(nTabs > 0);
+    ReportIf(nTabs > 0);
     if (nTabs > 0) {
         curr = GetTab(0);
         return curr;
@@ -280,7 +297,7 @@ Size MainWindow::GetViewPortSize() const {
     if ((style & WS_HSCROLL)) {
         size.dy += GetSystemMetrics(SM_CYHSCROLL);
     }
-    CrashIf((style & (WS_VSCROLL | WS_HSCROLL)) && !AsFixed());
+    ReportIf((style & (WS_VSCROLL | WS_HSCROLL)) && !AsFixed());
     return size;
 }
 
@@ -345,7 +362,7 @@ void MainWindow::ToggleZoom() const {
 }
 
 void MainWindow::MoveDocBy(int dx, int dy) const {
-    CrashIf(!CurrentTab());
+    ReportIf(!CurrentTab());
     CurrentTab()->MoveDocBy(dx, dy);
 }
 
@@ -377,7 +394,7 @@ bool MainWindow::CreateUIAProvider() {
 }
 
 void LinkHandler::GotoLink(IPageDestination* dest) {
-    CrashIf(!win || win->linkHandler != this);
+    ReportIf(!win || win->linkHandler != this);
     if (!dest || !win || !win->IsDocLoaded()) {
         return;
     }
@@ -396,15 +413,8 @@ void LinkHandler::GotoLink(IPageDestination* dest) {
         return;
     }
     if (kindDestinationLaunchFile == kind) {
-        PageDestinationFile* pdf = (PageDestinationFile*)dest;
-        // LaunchFile only opens files inside SumatraPDF
-        // (except for allowed perceived file types)
-        TempStr tmpPath = CleanupFileURLTemp(pdf->path);
-        // heuristic: replace %20 with ' '
-        if (!file::Exists(tmpPath) && (str::Find(tmpPath, "%20") != nullptr)) {
-            tmpPath = str::ReplaceTemp(tmpPath, "%20", " ");
-        }
-        LaunchFile(tmpPath, dest);
+        PageDestinationFile* fileDest = (PageDestinationFile*)dest;
+        this->LaunchFile(fileDest->path, dest);
         return;
     }
     if (kindDestinationLaunchEmbedded == kind) {
@@ -439,12 +449,12 @@ void LinkHandler::ScrollTo(IPageDestination* dest) {
         chm->HandleLink(dest, nullptr);
         return;
     }
-    int pageNo = dest->GetPageNo();
+    int pageNo = PageDestGetPageNo(dest);
     if (!win->ctrl->ValidPageNo(pageNo)) {
         return;
     }
-    RectF rect = dest->GetRect();
-    float zoom = dest->GetZoom();
+    RectF rect = PageDestGetRect(dest);
+    float zoom = PageDestGetZoom(dest);
     win->ctrl->ScrollTo(pageNo, rect, zoom);
 }
 
@@ -465,7 +475,7 @@ void LinkHandler::LaunchURL(const char* uri) {
         str::TransCharsInPlace(path, "/", "\\");
         url::DecodeInPlace(path);
         // LaunchFile will reject unsupported file types
-        LaunchFile(path, nullptr);
+        this->LaunchFile(path, nullptr);
     } else {
         // LaunchBrowser will reject unsupported URI schemes
         // TODO: support file URIs?
@@ -473,30 +483,46 @@ void LinkHandler::LaunchURL(const char* uri) {
     }
 }
 
-void LinkHandler::LaunchFile(const char* pathOrig, IPageDestination* link) {
-    // for safety, only handle relative paths and only open them in SumatraPDF
-    // (unless they're of an allowed perceived type) and never launch any external
-    // file in plugin mode (where documents are supposed to be self-contained)
-    // TDOO: maybe should enable this in plugin mode
-    if (gPluginMode) {
+// for safety, only handle relative paths and only open them in SumatraPDF
+// (unless they're of an allowed perceived type) and never launch any external
+// file in plugin mode (where documents are supposed to be self-contained)
+void LinkHandler::LaunchFile(const char* pathOrig, IPageDestination* remoteLink) {
+    if (gPluginMode || !HasPermission(Perm::DiskAccess)) {
         return;
     }
 
-    // TODO: make it a function
     TempStr path = str::ReplaceTemp(pathOrig, "/", "\\");
     if (str::StartsWith(path, ".\\")) {
         path = path + 2;
     }
 
-    char drive;
-    bool isAbsPath = str::StartsWith(path, "\\") || str::Parse(path, "%c:\\", &drive);
+    TempStr fullPath = path;
+    bool isAbsPath = str::StartsWith(path, "\\");
+    if (str::Len(path) >= 2 && path[1] == ':') {
+        /* technically c: is not abs, only c:\\ */
+        isAbsPath = true;
+    }
+#if 0
+    // we used to not allow absolute links due to security, but if we can open
+    // the doc we should assume we can handle it securely
     if (isAbsPath) {
         return;
     }
-
-    IPageDestination* remoteLink = link;
-    TempStr fullPath = path::GetDirTemp(win->ctrl->GetFilePath());
-    fullPath = path::JoinTemp(fullPath, path);
+#endif
+    if (!isAbsPath) {
+        auto dir = path::GetDirTemp(win->ctrl->GetFilePath());
+        fullPath = path::JoinTemp(dir, path);
+    }
+    path::Type pathType = path::GetType(fullPath);
+    if (pathType == path::Type::None) {
+        auto win = gWindows[0];
+        ShowErrorLoadingNotification(win, fullPath, true);
+        return;
+    }
+    if (pathType == path::Type::Dir) {
+        SumatraOpenPathInExplorer(fullPath);
+        return;
+    }
 
     // TODO: respect link->ld.gotor.new_window for PDF documents ?
     MainWindow* newWin = FindMainWindowByFile(fullPath, true);
@@ -527,7 +553,7 @@ void LinkHandler::LaunchFile(const char* pathOrig, IPageDestination* link) {
         return;
     }
 
-    char* destName = remoteLink->GetName();
+    char* destName = PageDestGetName(remoteLink);
     if (destName) {
         IPageDestination* dest = newWin->ctrl->GetNamedDest(destName);
         if (dest) {
@@ -582,7 +608,7 @@ IPageDestination* LinkHandler::FindTocItem(TocItem* item, const char* name, bool
 }
 
 void LinkHandler::GotoNamedDest(const char* name) {
-    CrashIf(!win || win->linkHandler != this);
+    ReportIf(!win || win->linkHandler != this);
     DocController* ctrl = win->ctrl;
     if (!ctrl) {
         return;

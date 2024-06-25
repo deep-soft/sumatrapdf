@@ -149,7 +149,7 @@ void log(const char* s, bool always) {
         gLogAllocator = new HeapAllocator();
         gLogBuf = new str::Str(32 * 1024, gLogAllocator);
     } else {
-        if (gLogBuf->isize() > kMaxLogBuf) {
+        if (gLogBuf->Size() > kMaxLogBuf) {
             // TODO: use gLogBuf->Clear(), which doesn't free the allocated space
             gLogBuf->Reset();
         }
@@ -205,7 +205,7 @@ void logfa(const char* fmt, ...) {
 }
 
 void StartLogToFile(const char* path, bool removeIfExists) {
-    CrashIf(gLogFilePath);
+    ReportIf(gLogFilePath);
     gLogFilePath = str::Dup(path);
     if (removeIfExists) {
         remove(path);
@@ -217,7 +217,15 @@ bool WriteCurrentLogToFile(const char* path) {
     if (slice.empty()) {
         return false;
     }
-    bool ok = file::WriteFile(path, slice);
+    bool ok = dir::CreateForFile(path);
+    if (!ok) {
+        logf("WriteCurrentLogToFile: dir::CreateForFile('%s') failed\n", path);
+        return false;
+    }
+    ok = file::WriteFile(path, slice);
+    if (!ok) {
+        logf("WriteCurrentLogToFile: file::WriteFile('%s') failed\n", path);
+    }
     return ok;
 }
 

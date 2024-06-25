@@ -1,9 +1,9 @@
 /* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
-typedef struct fz_context fz_context;
-typedef struct fz_image fz_image;
-typedef struct pdf_document pdf_document;
+struct fz_context;
+struct fz_image;
+struct pdf_document;
 
 class PdfCreator {
   public:
@@ -17,7 +17,7 @@ class PdfCreator {
     bool AddPageFromGdiplusBitmap(Gdiplus::Bitmap* bmp, float imgDpi = 0);
     bool AddPageFromImageData(const ByteSlice& data, float imgDpi = 0) const;
 
-    bool SetProperty(DocumentProperty prop, const char* value) const;
+    bool SetProperty(const char* prop, const char* value) const;
     bool CopyProperties(EngineBase* engine) const;
 
     bool SaveToFile(const char* filePath) const;

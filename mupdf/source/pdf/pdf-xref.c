@@ -1,4 +1,4 @@
-// Copyright (C) 2004-2023 Artifex Software, Inc.
+// Copyright (C) 2004-2024 Artifex Software, Inc.
 //
 // This file is part of MuPDF.
 //
@@ -2917,6 +2917,9 @@ pdf_update_object(fz_context *ctx, pdf_document *doc, int num, pdf_obj *newobj)
 {
 	pdf_xref_entry *x;
 
+	if (!doc)
+		return;
+
 	if (doc->local_xref && doc->local_xref_nesting > 0)
 	{
 		pdf_update_local_object(ctx, doc, num, newobj);
@@ -3681,6 +3684,7 @@ pdf_document *pdf_create_document(fz_context *ctx)
 static const char *pdf_extensions[] =
 {
 	"pdf",
+	"fdf",
 	"pclm",
 	"ai",
 	NULL
@@ -3694,9 +3698,10 @@ static const char *pdf_mimetypes[] =
 };
 
 static int
-pdf_recognize_doc_content(fz_context *ctx, fz_stream *stream, fz_archive *dir)
+pdf_recognize_doc_content(fz_context *ctx, const fz_document_handler *handler, fz_stream *stream, fz_archive *dir)
 {
 	const char *match = "%PDF-";
+	const char *match2 = "%FDF-";
 	int pos = 0;
 	int n = 4096+5;
 	int c;
@@ -3709,7 +3714,7 @@ pdf_recognize_doc_content(fz_context *ctx, fz_stream *stream, fz_archive *dir)
 		c = fz_read_byte(ctx, stream);
 		if (c == EOF)
 			return 0;
-		if (c == match[pos])
+		if (c == match[pos] || c == match2[pos])
 		{
 			pos++;
 			if (pos == 5)
@@ -3727,7 +3732,7 @@ pdf_recognize_doc_content(fz_context *ctx, fz_stream *stream, fz_archive *dir)
 }
 
 static fz_document *
-open_document(fz_context *ctx, fz_stream *file, fz_stream *accel, fz_archive *zip)
+open_document(fz_context *ctx, const fz_document_handler *handler, fz_stream *file, fz_stream *accel, fz_archive *zip)
 {
 	if (file == NULL)
 		return NULL;
@@ -5022,13 +5027,18 @@ int pdf_find_version_for_obj(fz_context *ctx, pdf_document *doc, pdf_obj *obj)
 
 int pdf_validate_signature(fz_context *ctx, pdf_annot *widget)
 {
-	pdf_document *doc = widget->page->doc;
-	int unsaved_versions = pdf_count_unsaved_versions(ctx, doc);
-	int num_versions = pdf_count_versions(ctx, doc) + unsaved_versions;
-	int version = pdf_find_version_for_obj(ctx, doc, widget->obj);
-	int i;
+	pdf_document *doc;
+	int unsaved_versions, num_versions, version, i;
 	pdf_locked_fields *locked = NULL;
 	int o_xref_base;
+
+	if (!widget->page)
+		fz_throw(ctx, FZ_ERROR_GENERIC, "annotation not bound to any page");
+
+	doc = widget->page->doc;
+	unsaved_versions = pdf_count_unsaved_versions(ctx, doc);
+	num_versions = pdf_count_versions(ctx, doc) + unsaved_versions;
+	version = pdf_find_version_for_obj(ctx, doc, widget->obj);
 
 	if (version > num_versions-1)
 		version = num_versions-1;

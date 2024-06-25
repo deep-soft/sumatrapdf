@@ -1,13 +1,8 @@
 /* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
-extern "C" {
-#include <mupdf/fitz.h>
-#include <mupdf/pdf.h>
-}
-
 #include "utils/BaseUtil.h"
-#include "utils/WinUtil.h"
+#include "SvgIcons.h"
 
 // https://github.com/tabler/tabler-icons/blob/master/icons/folder.svg
 static const char* gIconFileOpen =
@@ -136,7 +131,7 @@ static const char* gIconRotateRight =
 
 // must match order in enum class TbIcon
 // clang-format off
-static const char* gAllIcons[] = {
+static const char* gIcons[] = {
     gIconFileOpen,
     gIconPrint,
     gIconPagePrev,
@@ -155,166 +150,11 @@ static const char* gAllIcons[] = {
 };
 // clang-format on
 
-struct MupdfContext {
-    fz_locks_context fz_locks_ctx{};
-    CRITICAL_SECTION mutexes[FZ_LOCK_MAX];
-    fz_context* ctx = nullptr;
-    MupdfContext();
-    ~MupdfContext();
-};
-
-static void fz_lock_context_cs(void* user, int lock) {
-    MupdfContext* ctx = (MupdfContext*)user;
-    EnterCriticalSection(&ctx->mutexes[lock]);
-}
-
-static void fz_unlock_context_cs(void* user, int lock) {
-    MupdfContext* ctx = (MupdfContext*)user;
-    LeaveCriticalSection(&ctx->mutexes[lock]);
-}
-
-MupdfContext::MupdfContext() {
-    for (int i = 0; i < FZ_LOCK_MAX; i++) {
-        InitializeCriticalSection(&mutexes[i]);
+const char* GetSvgIcon(TbIcon idx) {
+    int n = (int)idx;
+    ReportIf(n < 0 || n >= dimofi(gIcons));
+    if (n >= dimofi(gIcons)) {
+        return nullptr;
     }
-    fz_locks_ctx.user = this;
-    fz_locks_ctx.lock = fz_lock_context_cs;
-    fz_locks_ctx.unlock = fz_unlock_context_cs;
-    ctx = fz_new_context(nullptr, &fz_locks_ctx, FZ_STORE_DEFAULT);
-}
-
-MupdfContext::~MupdfContext() {
-    fz_drop_context(ctx);
-    for (int i = 0; i < FZ_LOCK_MAX; i++) {
-        DeleteCriticalSection(&mutexes[i]);
-    }
-}
-
-void BlitPixmap(fz_pixmap* dst, fz_pixmap* src, int dstX, int dstY) {
-    int dx = src->w;
-    int dy = src->h;
-    int srcN = src->n;
-    int dstN = dst->n;
-    auto srcStride = src->stride;
-    auto dstStride = dst->stride;
-    for (size_t y = 0; y < (size_t)dy; y++) {
-        u8* s = src->samples + (srcStride * (size_t)y);
-        size_t atY = y + (size_t)dstY;
-        u8* d = dst->samples + (dstStride * atY) + ((size_t)dstX * dstN);
-        for (int x = 0; x < dx; x++) {
-            d[0] = s[0];
-            d[1] = s[1];
-            d[2] = s[2];
-            d += dstN;
-            s += srcN;
-        }
-    }
-}
-
-void ClearPixmap(fz_pixmap* pixmap) {
-    auto stride = pixmap->stride;
-    size_t dx = (size_t)pixmap->w;
-    size_t dy = (size_t)pixmap->h;
-    u8* samples = pixmap->samples;
-    CrashIf(pixmap->n != 3);
-    for (size_t y = 0; y < dy; y++) {
-        u8* d = samples + (stride * y);
-        for (size_t x = 0; x < dx; x++) {
-            d[0] = 255;
-            d[1] = 0;
-            d[2] = 0;
-            d += pixmap->n;
-            if (false) {
-                if (x % 2 == 0) {
-                    *d++ = 255;
-                    *d++ = 0;
-                    *d++ = 0;
-                } else {
-                    *d++ = 0;
-                    *d++ = 0;
-                    *d++ = 255;
-                }
-            }
-        }
-    }
-}
-
-fz_pixmap* BuildIconsPixmap(MupdfContext* muctx, int dx, int dy) {
-    fz_context* ctx = muctx->ctx;
-    int nIcons = (int)dimof(gAllIcons);
-    int bmpDx = dx * nIcons;
-    int bmpDy = dy;
-    fz_pixmap* dstPixmap = fz_new_pixmap(ctx, fz_device_rgb(ctx), bmpDx, bmpDy, nullptr, 0);
-    for (int i = 0; i < nIcons; i++) {
-        const char* svgData = gAllIcons[i];
-        fz_buffer* buf = fz_new_buffer_from_copied_data(ctx, (u8*)svgData, str::Len(svgData));
-        fz_image* image = fz_new_image_from_svg(ctx, buf, nullptr, nullptr);
-        image->w = dx;
-        image->h = dy;
-        fz_pixmap* pixmap = fz_get_pixmap_from_image(ctx, image, nullptr, nullptr, nullptr, nullptr);
-
-        BlitPixmap(dstPixmap, pixmap, dx * i, 0);
-
-        fz_drop_pixmap(ctx, pixmap);
-        fz_drop_image(ctx, image);
-        fz_drop_buffer(ctx, buf);
-    }
-    return dstPixmap;
-}
-
-HBITMAP CreateBitmapFromPixmap(fz_pixmap* pixmap) {
-    int w = pixmap->w;
-    int h = pixmap->h;
-    int n = pixmap->n;
-    int imgSize = pixmap->stride * h;
-    int bitsCount = n * 8;
-
-    ScopedMem<BITMAPINFO> bmi((BITMAPINFO*)calloc(1, sizeof(BITMAPINFO) + 255 * sizeof(RGBQUAD)));
-    BITMAPINFOHEADER* bmih = &bmi.Get()->bmiHeader;
-    bmih->biSize = sizeof(*bmih);
-    bmih->biWidth = w;
-    bmih->biHeight = -h;
-    bmih->biPlanes = 1;
-    bmih->biCompression = BI_RGB;
-    bmih->biBitCount = bitsCount;
-    bmih->biSizeImage = imgSize;
-    bmih->biClrUsed = 0;
-    void* data = nullptr;
-    HANDLE hFile = INVALID_HANDLE_VALUE;
-    DWORD fl = PAGE_READWRITE;
-    HANDLE hMap = CreateFileMappingW(hFile, nullptr, fl, 0, imgSize, nullptr);
-    uint usage = DIB_RGB_COLORS;
-    HBITMAP hbmp = CreateDIBSection(nullptr, bmi, usage, &data, hMap, 0);
-    if (data) {
-        u8* samples = pixmap->samples;
-        memcpy(data, samples, imgSize);
-    }
-    return hbmp;
-}
-
-HBITMAP BuildIconsBitmap(int dx, int dy) {
-    MupdfContext* muctx = new MupdfContext();
-    fz_pixmap* pixmap = BuildIconsPixmap(muctx, dx, dy);
-    // ClearPixmap(pixmap);
-#if 1
-#if 0
-    RenderedBitmap* rbmp = NewRenderedFzPixmap(muctx->ctx, pixmap);
-    HBITMAP bmp = rbmp->hbmp;
-#else
-    HBITMAP bmp = CreateBitmapFromPixmap(pixmap);
-#endif
-    fz_drop_pixmap(muctx->ctx, pixmap);
-    delete muctx;
-    return bmp;
-#else
-    int nIcons = dimof(gAllIcons);
-    int bmpDx = dx * nIcons;
-    int bmpDy = dy;
-    u8* bits = pixmap->samples;
-    HBITMAP res = CreateBitmap(bmpDx, bmpDy, 1, 24, bits);
-    fz_drop_pixmap(muctx->ctx, pixmap);
-    delete muctx;
-
-    return res;
-#endif
+    return gIcons[n];
 }

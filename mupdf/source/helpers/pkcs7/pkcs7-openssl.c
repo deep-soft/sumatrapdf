@@ -1,4 +1,4 @@
-// Copyright (C) 2004-2021 Artifex Software, Inc.
+// Copyright (C) 2004-2024 Artifex Software, Inc.
 //
 // This file is part of MuPDF.
 //
@@ -800,9 +800,6 @@ pdf_pkcs7_signer *pkcs7_openssl_read_pfx(fz_context *ctx, const char *pfile, con
 		signer->refs = 1;
 
 		OpenSSL_add_all_algorithms();
-
-		EVP_add_digest(EVP_md5());
-		EVP_add_digest(EVP_sha1());
 
 		ERR_load_crypto_strings();
 

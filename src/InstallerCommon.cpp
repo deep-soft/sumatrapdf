@@ -63,17 +63,17 @@ Color COLOR_MSG_INSTALLATION(gCol5);
 Color COLOR_MSG_FAILED(gCol1);
 
 HWND gHwndFrame = nullptr;
-WCHAR* gFirstError = nullptr;
+char* gFirstError = nullptr;
 bool gForceCrash = false;
-WCHAR* gMsgError = nullptr;
+char* gMsgError = nullptr;
 int gBottomPartDy = 0;
 int gButtonDy = 0;
 
 Flags* gCli = nullptr;
 
-const WCHAR* gDefaultMsg = nullptr; // Note: translation, not freeing
+const char* gDefaultMsg = nullptr; // Note: translation, not freeing
 
-static AutoFreeWstr gMsg;
+static AutoFreeStr gMsg;
 static Color gMsgColor;
 
 static StrVec gProcessesToClose;
@@ -91,12 +91,12 @@ TempStr GetRegPathUninstTemp(const char* appName) {
 
 void NotifyFailed(const char* msg) {
     if (!gFirstError) {
-        gFirstError = ToWstr(msg);
+        gFirstError = str::Dup(msg);
     }
     logf("NotifyFailed: %s\n", msg);
 }
 
-void SetMsg(const WCHAR* msg, Color color) {
+void SetMsg(const char* msg, Color color) {
     gMsg.SetCopy(msg);
     gMsgColor = color;
 }
@@ -493,9 +493,9 @@ static const char* ReadableProcName(const char* procPath) {
 
 static void SetCloseProcessMsg() {
     int n = gProcessesToClose.Size();
-    const char* procNames = ReadableProcName(gProcessesToClose.at(0));
+    const char* procNames = ReadableProcName(gProcessesToClose.At(0));
     for (int i = 1; i < n; i++) {
-        const char* name = ReadableProcName(gProcessesToClose.at(i));
+        const char* name = ReadableProcName(gProcessesToClose.At(i));
         if (i < n - 1) {
             procNames = str::JoinTemp(procNames, ", ", name);
         } else {
@@ -503,7 +503,7 @@ static void SetCloseProcessMsg() {
         }
     }
     TempStr s = str::FormatTemp(_TRA("Please close %s to proceed!"), procNames);
-    SetMsg(ToWStrTemp(s), COLOR_MSG_FAILED);
+    SetMsg(s, COLOR_MSG_FAILED);
 }
 
 void SetDefaultMsg() {
@@ -526,7 +526,7 @@ bool CheckInstallUninstallPossible(bool silent) {
     gProcessesToClose.Reset();
     ProcessesUsingInstallation(gProcessesToClose);
 
-    bool possible = gProcessesToClose.size() == 0;
+    bool possible = gProcessesToClose.Size() == 0;
     if (possible) {
         SetDefaultMsg();
     } else {
@@ -681,8 +681,8 @@ static void CalcLettersLayout(Graphics& g, Font* f, int dx) {
     didLayout = TRUE;
 }
 
-static float DrawMessage(Graphics& g, const WCHAR* msg, float y, float dx, Color color) {
-    AutoFreeWstr s = str::Dup(msg);
+static float DrawMessage(Graphics& g, const char* msg, float y, float dx, Color color) {
+    TempWStr s = ToWStrTemp(msg);
 
     Font f(L"Impact", 16, FontStyleRegular);
     Gdiplus::RectF maxbox(0, y, dx, 0);

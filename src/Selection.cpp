@@ -53,7 +53,7 @@ Vec<SelectionOnPage>* SelectionOnPage::FromRectangle(DisplayModel* dm, Rect rect
 
     for (int pageNo = dm->GetEngine()->PageCount(); pageNo >= 1; --pageNo) {
         PageInfo* pageInfo = dm->GetPageInfo(pageNo);
-        CrashIf(!(!pageInfo || 0.0 == pageInfo->visibleRatio || pageInfo->shown));
+        ReportIf(!(!pageInfo || 0.0 == pageInfo->visibleRatio || pageInfo->shown));
         if (!pageInfo || !pageInfo->shown) {
             continue;
         }
@@ -134,7 +134,7 @@ void PaintTransparentRectangles(HDC hdc, Rect screenRc, Vec<Rect>& rects, COLORR
 }
 
 void PaintSelection(MainWindow* win, HDC hdc) {
-    CrashIf(!win->AsFixed());
+    ReportIf(!win->AsFixed());
 
     Vec<Rect> rects;
 
@@ -164,7 +164,7 @@ void PaintSelection(MainWindow* win, HDC hdc) {
             }
         }
 
-        CrashIf(!win->CurrentTab()->selectionOnPage);
+        ReportIf(!win->CurrentTab()->selectionOnPage);
         if (!win->CurrentTab()->selectionOnPage) {
             return;
         }
@@ -201,66 +201,10 @@ void UpdateTextSelection(MainWindow* win, bool select) {
     }
 }
 
-void ZoomToSelection(MainWindow* win, float factor, bool scrollToFit, bool relative) {
-    if (!win->IsDocLoaded()) {
-        return;
-    }
-
-    Point pt;
-    bool zoomToPt = false;
-
-    if (win->AsFixed()) {
-        DisplayModel* dm = win->AsFixed();
-        // when not zooming to fit (which contradicts zooming to a specific point), ...
-        if (!relative && (kZoomFitPage == factor || kZoomFitContent == factor) && scrollToFit) {
-            zoomToPt = false;
-        }
-        // either scroll towards the center of the current selection (if there is any) ...
-        else if (win->showSelection && win->CurrentTab()->selectionOnPage) {
-            Rect selRect;
-            for (SelectionOnPage& sel : *win->CurrentTab()->selectionOnPage) {
-                selRect = selRect.Union(sel.GetRect(dm));
-            }
-
-            Rect rc = ClientRect(win->hwndCanvas);
-            pt.x = 2 * selRect.x + selRect.dx - rc.dx / 2;
-            pt.y = 2 * selRect.y + selRect.dy - rc.dy / 2;
-            pt.x = limitValue(pt.x, selRect.x, selRect.x + selRect.dx);
-            pt.y = limitValue(pt.y, selRect.y, selRect.y + selRect.dy);
-
-            int pageNo = dm->GetPageNoByPoint(pt);
-            zoomToPt = dm->ValidPageNo(pageNo) && dm->PageVisible(pageNo);
-        }
-        // or towards the top-left-most part of the first visible page
-        else {
-            int page = dm->FirstVisiblePageNo();
-            PageInfo* pageInfo = dm->GetPageInfo(page);
-            if (pageInfo) {
-                Rect visible = pageInfo->pageOnScreen.Intersect(win->canvasRc);
-                pt = visible.TL();
-
-                int pageNo = dm->GetPageNoByPoint(pt);
-                zoomToPt = !visible.IsEmpty() && dm->ValidPageNo(pageNo) && dm->PageVisible(pageNo);
-            }
-        }
-    }
-    float zoom = factor;
-    if (relative) {
-        auto zoomVirt = win->ctrl->GetZoomVirtual(true);
-        zoom = factor * zoomVirt;
-    }
-    Point* ptPtr = nullptr;
-    if (zoomToPt) {
-        ptPtr = &pt;
-    }
-    win->ctrl->SetZoomVirtual(zoom, ptPtr);
-    UpdateToolbarState(win);
-}
-
 // isTextSelectionOut is set to true if this is text-only selection (as opposed to
 // rectangular selection)
 // caller needs to str::Free() the result
-char* GetSelectedText(WindowTab* tab, const char* lineSep, bool& isTextOnlySelectionOut) {
+TempStr GetSelectedTextTemp(WindowTab* tab, const char* lineSep, bool& isTextOnlySelectionOut) {
     if (!tab || !tab->selectionOnPage) {
         return nullptr;
     }
@@ -268,7 +212,7 @@ char* GetSelectedText(WindowTab* tab, const char* lineSep, bool& isTextOnlySelec
         return nullptr;
     }
     DisplayModel* dm = tab->AsFixed();
-    CrashIf(!dm);
+    ReportIf(!dm);
     if (!dm) {
         return nullptr;
     }
@@ -279,7 +223,7 @@ char* GetSelectedText(WindowTab* tab, const char* lineSep, bool& isTextOnlySelec
     isTextOnlySelectionOut = dm->textSelection->result.len > 0;
     if (isTextOnlySelectionOut) {
         WCHAR* s = dm->textSelection->ExtractText(lineSep);
-        char* res = ToUtf8(s);
+        TempStr res = ToUtf8Temp(s);
         str::Free(s);
         return res;
     }
@@ -291,16 +235,16 @@ char* GetSelectedText(WindowTab* tab, const char* lineSep, bool& isTextOnlySelec
         }
         str::Free(text);
     }
-    if (selections.size() == 0) {
+    if (selections.Size() == 0) {
         return nullptr;
     }
-    char* s = Join(selections, lineSep);
+    TempStr s = JoinTemp(selections, lineSep);
     return s;
 }
 
 void CopySelectionToClipboard(MainWindow* win) {
     WindowTab* tab = win->CurrentTab();
-    CrashIf(tab->selectionOnPage->size() == 0 && win->mouseAction != MouseAction::SelectingText);
+    ReportIf(tab->selectionOnPage->size() == 0 && win->mouseAction != MouseAction::SelectingText);
 
     if (!OpenClipboard(nullptr)) {
         return;
@@ -311,7 +255,7 @@ void CopySelectionToClipboard(MainWindow* win) {
     };
 
     DisplayModel* dm = win->AsFixed();
-    char* selText = nullptr;
+    TempStr selText = nullptr;
     bool isTextOnlySelectionOut = false;
     if (!gDisableDocumentRestrictions && (dm && !dm->GetEngine()->AllowsCopyingText())) {
         NotificationCreateArgs args;
@@ -319,13 +263,12 @@ void CopySelectionToClipboard(MainWindow* win) {
         args.msg = _TRA("Copying text was denied (copying as image only)");
         ShowNotification(args);
     } else {
-        selText = GetSelectedText(tab, "\r\n", isTextOnlySelectionOut);
+        selText = GetSelectedTextTemp(tab, "\r\n", isTextOnlySelectionOut);
     }
 
     if (!str::IsEmpty(selText)) {
         AppendTextToClipboard(selText);
     }
-    str::Free(selText);
 
     if (isTextOnlySelectionOut) {
         // don't also copy the first line of a text selection as an image
@@ -410,9 +353,9 @@ void OnSelectionEdgeAutoscroll(MainWindow* win, int x, int y) {
         dy = SELECT_AUTOSCROLL_STEP_LENGTH;
     }
 
-    CrashIf(NeedsSelectionEdgeAutoscroll(win, x, y) != (dx != 0 || dy != 0));
+    ReportIf(NeedsSelectionEdgeAutoscroll(win, x, y) != (dx != 0 || dy != 0));
     if (dx != 0 || dy != 0) {
-        CrashIf(!win->AsFixed());
+        ReportIf(!win->AsFixed());
         DisplayModel* dm = win->AsFixed();
         Point oldOffset = dm->GetViewPort().TL();
         win->MoveDocBy(dx, dy);
@@ -427,7 +370,7 @@ void OnSelectionEdgeAutoscroll(MainWindow* win, int x, int y) {
 }
 
 void OnSelectionStart(MainWindow* win, int x, int y, WPARAM) {
-    CrashIf(!win->AsFixed());
+    ReportIf(!win->AsFixed());
     DeleteOldSelectionInfo(win, true);
 
     win->selectionRect = Rect(x, y, 0, 0);

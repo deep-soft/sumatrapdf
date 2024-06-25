@@ -7,6 +7,7 @@
 
 #include "wingui/UIModels.h"
 
+#include "DocProperties.h"
 #include "DocController.h"
 #include "EngineBase.h"
 #include "EngineAll.h"
@@ -17,14 +18,10 @@
 
 #include "utils/Log.h"
 
-void _uploadDebugReportIfFunc(__unused bool cond, __unused const char* condStr) {
-    // no-op implementation to satisfy SubmitBugReport()
-}
-
 VOID PdfFilter::CleanUp() {
     logf("PdfFilter::Cleanup()\n");
     if (m_pdfEngine) {
-        delete m_pdfEngine;
+        m_pdfEngine->Release();
         m_pdfEngine = nullptr;
     }
     m_state = PdfFilterState::End;
@@ -96,9 +93,9 @@ HRESULT PdfFilter::GetNextChunkValue(ChunkValue& chunkValue) {
 
         case PdfFilterState::Author:
             m_state = PdfFilterState::Title;
-            prop = m_pdfEngine->GetPropertyTemp(DocumentProperty::Author);
+            prop = m_pdfEngine->GetPropertyTemp(kPropAuthor);
             if (!str::IsEmpty(prop)) {
-                ws = ToWstr(prop);
+                ws = ToWStr(prop);
                 chunkValue.SetTextValue(PKEY_Author, ws);
                 return S_OK;
             }
@@ -107,12 +104,12 @@ HRESULT PdfFilter::GetNextChunkValue(ChunkValue& chunkValue) {
 
         case PdfFilterState::Title:
             m_state = PdfFilterState::Date;
-            prop = m_pdfEngine->GetPropertyTemp(DocumentProperty::Title);
+            prop = m_pdfEngine->GetPropertyTemp(kPropTitle);
             if (!prop) {
-                prop = m_pdfEngine->GetPropertyTemp(DocumentProperty::Subject);
+                prop = m_pdfEngine->GetPropertyTemp(kPropSubject);
             }
             if (!str::IsEmpty(prop)) {
-                ws = ToWstr(prop);
+                ws = ToWStr(prop);
                 chunkValue.SetTextValue(PKEY_Title, ws);
                 return S_OK;
             }
@@ -121,9 +118,9 @@ HRESULT PdfFilter::GetNextChunkValue(ChunkValue& chunkValue) {
 
         case PdfFilterState::Date:
             m_state = PdfFilterState::Content;
-            prop = m_pdfEngine->GetPropertyTemp(DocumentProperty::ModificationDate);
+            prop = m_pdfEngine->GetPropertyTemp(kPropModificationDate);
             if (!prop) {
-                prop = m_pdfEngine->GetPropertyTemp(DocumentProperty::CreationDate);
+                prop = m_pdfEngine->GetPropertyTemp(kPropCreationDate);
             }
             if (!str::IsEmpty(prop)) {
                 SYSTEMTIME systime;

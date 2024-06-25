@@ -12,6 +12,7 @@
 #include "wingui/Layout.h"
 #include "wingui/UIModels.h"
 #include "wingui/WinGui.h"
+#include "wingui/WebView.h"
 
 #include "Settings.h"
 #include "GlobalPrefs.h"
@@ -48,11 +49,11 @@ constexpr const char* kUpdateInfoURL = "https://www.sumatrapdfreader.org/update-
 constexpr const char* kUpdateInfoURL2 = "https://sumatra-website.onrender.com/update-check-rel.txt";
 #endif
 
-#ifndef WEBSITE_DOWNLOAD_PAGE_URL
+#ifndef kWebisteDownloadPageURL
 #if defined(PRE_RELEASE_VER)
-#define WEBSITE_DOWNLOAD_PAGE_URL "https://www.sumatrapdfreader.org/prerelease"
+#define kWebisteDownloadPageURL "https://www.sumatrapdfreader.org/prerelease"
 #else
-#define WEBSITE_DOWNLOAD_PAGE_URL "https://www.sumatrapdfreader.org/download-free-pdf-viewer"
+#define kWebisteDownloadPageURL "https://www.sumatrapdfreader.org/download-free-pdf-viewer"
 #endif
 #endif
 // clang-format on
@@ -93,8 +94,7 @@ The format of update information downloaded from the server:
 
 [SumatraPDF]
 Latest: 14276
-Installer64:
-https://www.sumatrapdfreader.org/dl/prerel/14276/SumatraPDF-prerel-64-install.exe
+Installer64: https://www.sumatrapdfreader.org/dl/prerel/14276/SumatraPDF-prerel-64-install.exe
 Installer32: https://www.sumatrapdfreader.org/dl/prerel/14276/SumatraPDF-prerel-install.exe
 PortableExe64: https://www.sumatrapdfreader.org/dl/prerel/14276/SumatraPDF-prerel-64.exe
 PortableExe32: https://www.sumatrapdfreader.org/dl/prerel/14276/SumatraPDF-prerel.exe
@@ -129,6 +129,7 @@ static UpdateInfo* ParseUpdateInfo(const char* d) {
     res->installer64 = str::Dup(node->GetValue("Installer64"));
     res->installerArm64 = str::Dup(node->GetValue("InstallerArm64"));
     res->installer32 = str::Dup(node->GetValue("Installer32"));
+
     res->portable64 = str::Dup(node->GetValue("PortableExe64"));
     res->portableArm64 = str::Dup(node->GetValue("PortableExeArm64"));
     res->portable32 = str::Dup(node->GetValue("PortableExe32"));
@@ -203,22 +204,23 @@ static bool ShouldCheckForUpdate(UpdateCheck updateCheckType) {
 }
 
 static void NotifyUserOfUpdate(UpdateInfo* updateInfo) {
-    const WCHAR* mainInstr = _TR("New version available");
-    WCHAR* verTmp = ToWStrTemp(updateInfo->latestVer);
-    WCHAR* content =
-        str::Format(_TR("You have version '%s' and version '%s' is available.\nDo you want to install new version?"),
-                    CURR_VERSION_STR, verTmp);
+    auto mainInstr = _TRA("New version available");
+    auto ver = updateInfo->latestVer;
+    auto fmt = _TRA("You have version '%s' and version '%s' is available.\nDo you want to install new version?");
+    auto content = str::Format(fmt, CURR_VERSION_STRA, ver);
 
     constexpr int kBtnIdDontInstall = 100;
     constexpr int kBtnIdInstall = 101;
-    const WCHAR* title = _TR("SumatraPDF Update");
+    auto title = _TRA("SumatraPDF Update");
     TASKDIALOGCONFIG dialogConfig{};
     TASKDIALOG_BUTTON buttons[2];
 
     buttons[0].nButtonID = kBtnIdDontInstall;
-    buttons[0].pszButtonText = _TR("Don't install");
+    auto s = _TRA("Don't install");
+    buttons[0].pszButtonText = ToWStrTemp(s);
     buttons[1].nButtonID = kBtnIdInstall;
-    buttons[1].pszButtonText = _TR("Install and relaunch");
+    s = _TRA("Install and relaunch");
+    buttons[1].pszButtonText = ToWStrTemp(s);
 
     DWORD flags =
         TDF_ALLOW_DIALOG_CANCELLATION | TDF_SIZE_TO_CONTENT | TDF_ENABLE_HYPERLINKS | TDF_POSITION_RELATIVE_TO_WINDOW;
@@ -226,10 +228,11 @@ static void NotifyUserOfUpdate(UpdateInfo* updateInfo) {
         flags |= TDF_RTL_LAYOUT;
     }
     dialogConfig.cbSize = sizeof(TASKDIALOGCONFIG);
-    dialogConfig.pszWindowTitle = title;
-    dialogConfig.pszMainInstruction = mainInstr;
-    dialogConfig.pszContent = content;
-    dialogConfig.pszVerificationText = _TR("Skip this version");
+    dialogConfig.pszWindowTitle = ToWStrTemp(title);
+    dialogConfig.pszMainInstruction = ToWStrTemp(mainInstr);
+    dialogConfig.pszContent = ToWStrTemp(content);
+    s = _TRA("Skip this version");
+    dialogConfig.pszVerificationText = ToWStrTemp(s);
     dialogConfig.nDefaultButton = kBtnIdInstall;
     dialogConfig.dwFlags = flags;
     dialogConfig.cxWidth = 0;
@@ -244,10 +247,10 @@ static void NotifyUserOfUpdate(UpdateInfo* updateInfo) {
     BOOL verificationFlagChecked = false;
 
     auto hr = TaskDialogIndirect(&dialogConfig, &buttonPressedId, nullptr, &verificationFlagChecked);
-    CrashIf(hr == E_INVALIDARG);
+    ReportIf(hr == E_INVALIDARG);
     bool doInstall = (hr == S_OK) && (buttonPressedId == kBtnIdInstall);
 
-    const char* installerPath = updateInfo->installerPath;
+    auto installerPath = updateInfo->installerPath;
     if (!doInstall && verificationFlagChecked) {
         str::ReplaceWithCopy(&gGlobalPrefs->versionToSkip, updateInfo->latestVer);
     }
@@ -261,7 +264,7 @@ static void NotifyUserOfUpdate(UpdateInfo* updateInfo) {
 
     // if installer not downloaded tell user to download from website
     if (!installerPath || !file::Exists(installerPath)) {
-        SumatraLaunchBrowser(WEBSITE_DOWNLOAD_PAGE_URL);
+        SumatraLaunchBrowser(kWebisteDownloadPageURL);
         return;
     }
 
@@ -270,7 +273,11 @@ static void NotifyUserOfUpdate(UpdateInfo* updateInfo) {
     str::Str cmd;
     if (IsDllBuild()) {
         // no need for sleep because it shows the installer dialog anyway
-        cmd.Append(" -install");
+        if (gIsPreReleaseBuild) {
+            cmd.Append(" -fast-install");
+        } else {
+            cmd.Append(" -install");
+        }
     } else {
         // we're asking to over-write over ourselves, so also wait 2 secs to allow
         // our process to exit
@@ -335,7 +342,7 @@ static DWORD ShowAutoUpdateDialog(HWND hwndParent, HttpRsp* rsp, UpdateCheck upd
             if (updateCheckType == UpdateCheck::UserInitiated) {
                 RemoveNotificationsForGroup(hwndForNotif, kindNotifUpdateCheckInProgress);
                 uint flags = MB_ICONINFORMATION | MB_OK | MB_SETFOREGROUND | MB_TOPMOST;
-                MessageBoxW(hwndParent, _TR("You have the latest version."), _TR("SumatraPDF Update"), flags);
+                MsgBox(hwndParent, _TRA("You have the latest version."), _TRA("SumatraPDF Update"), flags);
             }
             return 0;
         }
@@ -362,7 +369,7 @@ static DWORD ShowAutoUpdateDialog(HWND hwndParent, HttpRsp* rsp, UpdateCheck upd
     logf("ShowAutoUpdateDialog: starting to download '%s'\n", updateInfo->dlURL);
     gUpdateCheckInProgress = true;
     RunAsync([hwndForNotif, updateInfo] { // NOLINT
-        char* installerPath = path::GetTempFilePath("sumatra-installer");
+        TempStr installerPath = GetTempFilePathTemp("sumatra-installer");
         // the installer must be named .exe or it won't be able to self-elevate
         // with "runas"
         installerPath = str::JoinTemp(installerPath, ".exe");
@@ -375,7 +382,7 @@ static DWORD ShowAutoUpdateDialog(HWND hwndParent, HttpRsp* rsp, UpdateCheck upd
         }
 
         // process the rest on ui thread to avoid threading issues
-        uitask::Post([hwndForNotif, updateInfo] {
+        uitask::Post(TaskShowAutoUpdateDialog, [hwndForNotif, updateInfo] {
             RemoveNotificationsForGroup(hwndForNotif, kindNotifUpdateCheckInProgress);
             NotifyUserOfUpdate(updateInfo);
             gUpdateCheckInProgress = false;
@@ -451,7 +458,7 @@ void CheckForUpdateAsync(MainWindow* win, UpdateCheck updateCheckType) {
             rsp->url.SetCopy(uri);
             HttpGet(uri, rsp);
         }
-        uitask::Post([=] {
+        uitask::Post(TaskCheckForUpdateAsync, [=] {
             DWORD err = ShowAutoUpdateDialog(hwnd, rsp, updateCheckType);
             if ((err != 0) && (updateCheckType == UpdateCheck::UserInitiated)) {
                 RemoveNotificationsForGroup(win->hwndCanvas, kindNotifUpdateCheckInProgress);
@@ -467,7 +474,7 @@ void CheckForUpdateAsync(MainWindow* win, UpdateCheck updateCheckType) {
 // we should copy ourselves over the existing file, launch ourselves and
 // tell our new copy to delete ourselves
 void UpdateSelfTo(const char* path) {
-    CrashIf(!path);
+    ReportIf(!path);
     if (!file::Exists(path)) {
         logf("UpdateSelfTo: failed because destination doesn't exist\n");
         return;

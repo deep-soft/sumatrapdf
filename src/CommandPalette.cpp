@@ -11,6 +11,7 @@
 #include "wingui/WinGui.h"
 
 #include "Settings.h"
+#include "AppSettings.h"
 #include "DocController.h"
 #include "EngineBase.h"
 #include "EngineAll.h"
@@ -76,8 +77,9 @@ static i32 gDocumentNotOpenWhitelist[] = {
     CmdAdvancedSettings,
     CmdChangeLanguage,
     CmdCheckUpdate,
-    CmdHelpOpenManualInBrowser,
-    CmdHelpOpenKeyboardShortcutsInBrowser,
+    CmdHelpOpenManual,
+    CmdHelpOpenManualOnWebsite,
+    CmdHelpOpenKeyboardShortcuts,
     CmdHelpVisitWebsite,
     CmdHelpAbout,
     CmdDebugDownloadSymbols,
@@ -106,8 +108,9 @@ static i32 gCommandsNoActivate[] = {
     CmdOptions,
     CmdChangeLanguage,
     CmdHelpAbout,
-    CmdHelpOpenManualInBrowser,
-    CmdHelpOpenKeyboardShortcutsInBrowser,
+    CmdHelpOpenManual,
+    CmdHelpOpenManualOnWebsite,
+    CmdHelpOpenKeyboardShortcuts,
     CmdHelpVisitWebsite,
     CmdOpenFile,
     CmdOpenFolder,
@@ -163,11 +166,9 @@ struct CommandPaletteWnd : Wnd {
 
     int currTabPos = 0;
 
-    void OnDestroy() override;
     bool PreTranslateMessage(MSG&) override;
     LRESULT WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) override;
 
-    void ScheduleDelete();
     void CollectStrings(MainWindow*);
     void FilterStringsForQuery(const char*, StrVec&);
 
@@ -193,7 +194,8 @@ struct CommandPaletteBuildCtx {
     bool hasToc = false;
     bool allowToggleMenuBar = false;
     bool canCloseOtherTabs = false;
-    bool canCloseTabsToRight = true;
+    bool canCloseTabsToRight = false;
+    bool canCloseTabsToLeft = false;
 
     ~CommandPaletteBuildCtx();
 };
@@ -206,6 +208,16 @@ static bool IsOpenExternalViewerCommand(i32 cmdId) {
 }
 
 static bool AllowCommand(const CommandPaletteBuildCtx& ctx, i32 cmdId) {
+    switch (cmdId) {
+        case CmdDebugCorruptMemory:
+        case CmdDebugCrashMe:
+        case CmdDebugDownloadSymbols:
+        case CmdDebugTestApp:
+        case CmdDebugShowNotif:
+        case CmdDebugStartStressTest:
+            return gIsDebugBuild;
+    }
+
     if (IsCmdInList(gBlacklistCommandsFromPalette)) {
         return false;
     }
@@ -215,6 +227,9 @@ static bool AllowCommand(const CommandPaletteBuildCtx& ctx, i32 cmdId) {
     }
     if (CmdCloseTabsToTheRight == cmdId) {
         return ctx.canCloseTabsToRight;
+    }
+    if (CmdCloseTabsToTheLeft == cmdId) {
+        return ctx.canCloseTabsToLeft;
     }
 
     if (CmdReopenLastClosedFile == cmdId) {
@@ -314,16 +329,6 @@ static bool AllowCommand(const CommandPaletteBuildCtx& ctx, i32 cmdId) {
     if ((cmdId == CmdToggleScrollbars) && !gGlobalPrefs->fixedPageUI.hideScrollbars) {
         return false;
     }
-
-    switch (cmdId) {
-        case CmdDebugTestApp:
-        case CmdDebugShowNotif:
-        case CmdDebugStartStressTest:
-        case CmdDebugCorruptMemory:
-        case CmdDebugCrashMe: {
-            return gIsDebugBuild;
-        }
-    }
     return true;
 }
 
@@ -346,12 +351,19 @@ void CommandPaletteWnd::CollectStrings(MainWindow* mainWin) {
     int nTabs = mainWin->TabCount();
     int currTabIdx = mainWin->GetTabIdx(tab);
     ctx.canCloseTabsToRight = currTabIdx < (nTabs - 1);
+    ctx.canCloseTabsToLeft = false;
+    int nFirstDocTab = 0;
     for (int i = 0; i < nTabs; i++) {
         WindowTab* t = mainWin->GetTab(i);
         if (t->IsAboutTab()) {
+            ReportIf(i > 0);
+            nFirstDocTab = 1;
             continue;
         }
         if (t == tab) {
+            if (i > nFirstDocTab) {
+                ctx.canCloseTabsToLeft = true;
+            }
             continue;
         }
         ctx.canCloseOtherTabs = true;
@@ -398,7 +410,7 @@ void CommandPaletteWnd::CollectStrings(MainWindow* mainWin) {
                 }
                 const char* name = tab2->filePath.Get();
                 name = path::GetBaseNameTemp(name);
-                filesInTabs.AppendIfNotExists(name);
+                AppendIfNotExists(filesInTabs, name);
                 // find current tab index
                 if (tab2 == mainWin->CurrentTab()) {
                     currTabPos = tabPos;
@@ -421,14 +433,35 @@ void CommandPaletteWnd::CollectStrings(MainWindow* mainWin) {
     int cmdId = (int)CmdFirst + 1;
     for (SeqStrings strs = gCommandDescriptions; strs; seqstrings::Next(strs, cmdId)) {
         if (AllowCommand(ctx, (i32)cmdId)) {
-            CrashIf(str::Len(strs) == 0);
+            ReportIf(str::Leni(strs) == 0);
             tempStrings.Append(strs);
         }
     }
-    tempStrings.SortNoCase();
+    SortNoCase(tempStrings);
     for (char* s : tempStrings) {
         commands.Append(s);
     }
+}
+
+static CommandPaletteWnd* gCommandPaletteWnd = nullptr;
+static HWND gHwndToActivateOnClose = nullptr;
+
+void SafeDeleteCommandPaletteWnd() {
+    if (!gCommandPaletteWnd) {
+        return;
+    }
+
+    auto tmp = gCommandPaletteWnd;
+    gCommandPaletteWnd = nullptr;
+    delete tmp;
+    if (gHwndToActivateOnClose) {
+        SetActiveWindow(gHwndToActivateOnClose);
+        gHwndToActivateOnClose = nullptr;
+    }
+}
+
+static void ScheduleDelete() {
+    uitask::Post(TaskCommandPaletteDelete, &SafeDeleteCommandPaletteWnd);
 }
 
 LRESULT CommandPaletteWnd::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -498,20 +531,20 @@ static bool FilterMatches(const char* str, const char* filter) {
         if (str::IsWs(*s)) {
             *s = 0;
             if (!wasWs) {
-                words.AppendIfNotExists(wordStart);
+                AppendIfNotExists(words, wordStart);
                 wasWs = true;
             }
             wordStart = s + 1;
         }
         s++;
     }
-    if (str::Len(wordStart) > 0) {
-        words.AppendIfNotExists(wordStart);
+    if (str::Leni(wordStart) > 0) {
+        AppendIfNotExists(words, wordStart);
     }
     // all words must be present
     int nWords = words.Size();
     for (int i = 0; i < nWords; i++) {
-        auto word = words.at(i);
+        auto word = words.At(i);
         if (!str::ContainsI(str, word)) {
             return false;
         }
@@ -568,27 +601,6 @@ void CommandPaletteWnd::QueryChanged() {
             listBox->SetCurrentSelection(0);
         }
     }
-}
-
-static CommandPaletteWnd* gCommandPaletteWnd = nullptr;
-static HWND gHwndToActivateOnClose = nullptr;
-
-void SafeDeleteCommandPaletteWnd() {
-    if (!gCommandPaletteWnd) {
-        return;
-    }
-
-    auto tmp = gCommandPaletteWnd;
-    gCommandPaletteWnd = nullptr;
-    delete tmp;
-    if (gHwndToActivateOnClose) {
-        SetActiveWindow(gHwndToActivateOnClose);
-        gHwndToActivateOnClose = nullptr;
-    }
-}
-
-void CommandPaletteWnd::ScheduleDelete() {
-    uitask::Post(&SafeDeleteCommandPaletteWnd);
 }
 
 static WindowTab* FindOpenedFile(const char* s) {
@@ -675,7 +687,7 @@ void CommandPaletteWnd::ListDoubleClick() {
     ExecuteCurrentSelection();
 }
 
-void CommandPaletteWnd::OnDestroy() {
+void OnDestroy(WmDestroyEvent&) {
     ScheduleDelete();
 }
 
@@ -719,7 +731,7 @@ bool CommandPaletteWnd::Create(MainWindow* win, const char* prefix) {
         c->maxDx = 150;
         c->onTextChanged = std::bind(&CommandPaletteWnd::QueryChanged, this);
         HWND ok = c->Create(args);
-        CrashIf(!ok);
+        ReportIf(!ok);
         editQuery = c;
         vbox->AddChild(c);
     }
@@ -733,7 +745,7 @@ bool CommandPaletteWnd::Create(MainWindow* win, const char* prefix) {
         c->idealSizeLines = 32;
         c->SetInsetsPt(4, 0);
         auto wnd = c->Create(args);
-        CrashIf(!wnd);
+        ReportIf(!wnd);
         auto m = new ListBoxModelStrings();
         FilterStringsForQuery("", m->strings);
         c->SetModel(m);
@@ -749,7 +761,7 @@ bool CommandPaletteWnd::Create(MainWindow* win, const char* prefix) {
 
         auto c = new Static();
         auto wnd = c->Create(args);
-        CrashIf(!wnd);
+        ReportIf(!wnd);
         staticHelp = c;
         vbox->AddChild(c);
     }
@@ -780,22 +792,14 @@ bool CommandPaletteWnd::Create(MainWindow* win, const char* prefix) {
 }
 
 void RunCommandPallette(MainWindow* win, const char* prefix) {
-    CrashIf(gCommandPaletteWnd);
-
-    // make min font size 16 (I get 12)
-    int fontSize = GetSizeOfDefaultGuiFont();
-    // make font 1.4x bigger than system font
-    fontSize = (fontSize * 14) / 10;
-    if (fontSize < 16) {
-        fontSize = 16;
-    }
-    HFONT font = GetDefaultGuiFontOfSize(fontSize);
+    ReportIf(gCommandPaletteWnd);
 
     auto wnd = new CommandPaletteWnd();
-    wnd->font = font;
+    wnd->onDestroy = OnDestroy;
+    wnd->font = GetAppBiggerFont();
     wnd->win = win;
     bool ok = wnd->Create(win, prefix);
-    CrashIf(!ok);
+    ReportIf(!ok);
     gCommandPaletteWnd = wnd;
     gHwndToActivateOnClose = win->hwndFrame;
 }

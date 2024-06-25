@@ -135,8 +135,8 @@ static void DrawSumatraVersion(HDC hdc, Rect rect) {
     // colorful version
     static COLORREF cols[] = {kCol1, kCol2, kCol3, kCol4, kCol5, kCol5, kCol4, kCol3, kCol2, kCol1};
     char buf[2] = {0};
-    for (size_t i = 0; i < str::Len(kAppName); i++) {
-        SetTextColor(hdc, cols[i % dimof(cols)]);
+    for (int i = 0; i < str::Leni(kAppName); i++) {
+        SetTextColor(hdc, cols[i % dimofi(cols)]);
         buf[0] = kAppName[i];
         HdcDrawText(hdc, buf, pt, fmt, fontSumatraTxt);
         txtSize = HdcMeasureText(hdc, buf, fmt, fontSumatraTxt);
@@ -299,25 +299,22 @@ static void UpdateAboutLayoutInfo(HWND hwnd, HDC hdc, Rect* rect) {
     HFONT fontLeftTxt = CreateSimpleFont(hdc, kLeftTextFont, kLeftTextFontSize);
     HFONT fontRightTxt = CreateSimpleFont(hdc, kRightTextFont, kRightTextFontSize);
 
-    HGDIOBJ origFont = SelectObject(hdc, fontLeftTxt);
-
     /* calculate minimal top box size */
     Size headerSize = CalcSumatraVersionSize(hdc);
 
     /* calculate left text dimensions */
-    SelectObject(hdc, fontLeftTxt);
     int leftLargestDx = 0;
     int leftDy = 0;
     uint fmt = DT_LEFT;
     for (AboutLayoutInfoEl* el = gAboutLayoutInfo; el->leftTxt; el++) {
-        Size txtSize = HdcMeasureText(hdc, el->leftTxt, fmt);
+        Size txtSize = HdcMeasureText(hdc, el->leftTxt, fmt, fontLeftTxt);
         el->leftPos.dx = txtSize.dx;
         el->leftPos.dy = txtSize.dy;
 
         if (el == &gAboutLayoutInfo[0]) {
             leftDy = el->leftPos.dy;
         } else {
-            CrashIf(leftDy != el->leftPos.dy);
+            ReportIf(leftDy != el->leftPos.dy);
         }
         if (leftLargestDx < el->leftPos.dx) {
             leftLargestDx = el->leftPos.dx;
@@ -325,20 +322,19 @@ static void UpdateAboutLayoutInfo(HWND hwnd, HDC hdc, Rect* rect) {
     }
 
     /* calculate right text dimensions */
-    SelectObject(hdc, fontRightTxt);
     int rightLargestDx = 0;
     int rightDy = 0;
     for (AboutLayoutInfoEl* el = gAboutLayoutInfo; el->leftTxt; el++) {
         char* s = (char*)el->rightTxt;
         s = TrimGitTemp(s);
-        Size txtSize = HdcMeasureText(hdc, s, fmt);
+        Size txtSize = HdcMeasureText(hdc, s, fmt, fontRightTxt);
         el->rightPos.dx = txtSize.dx;
         el->rightPos.dy = txtSize.dy;
 
         if (el == &gAboutLayoutInfo[0]) {
             rightDy = el->rightPos.dy;
         } else {
-            CrashIf(rightDy != el->rightPos.dy);
+            ReportIf(rightDy != el->rightPos.dy);
         }
         if (rightLargestDx < el->rightPos.dx) {
             rightLargestDx = el->rightPos.dx;
@@ -380,8 +376,6 @@ static void UpdateAboutLayoutInfo(HWND hwnd, HDC hdc, Rect* rect) {
         el->rightPos.y = currY;
         currY += rightDy + aboutTxtDy;
     }
-
-    SelectObject(hdc, origFont);
 }
 
 static void OnPaintAbout(HWND hwnd) {
@@ -398,18 +392,18 @@ static void CopyAboutInfoToClipboard() {
     str::Str info(512);
     char* ver = GetAppVersionTemp();
     info.AppendFmt("%s %s\r\n", kAppName, ver);
-    for (size_t i = info.size() - 2; i > 0; i--) {
+    for (int i = info.Size() - 2; i > 0; i--) {
         info.AppendChar('-');
     }
     info.Append("\r\n");
     // concatenate all the information into a single string
     // (cf. CopyPropertiesToClipboard in SumatraProperties.cpp)
-    size_t maxLen = 0;
+    int maxLen = 0;
     for (AboutLayoutInfoEl* el = gAboutLayoutInfo; el->leftTxt; el++) {
-        maxLen = std::max(maxLen, str::Len(el->leftTxt));
+        maxLen = std::max(maxLen, str::Leni(el->leftTxt));
     }
     for (AboutLayoutInfoEl* el = gAboutLayoutInfo; el->leftTxt; el++) {
-        for (size_t i = maxLen - str::Len(el->leftTxt); i > 0; i--) {
+        for (int i = maxLen - str::Leni(el->leftTxt); i > 0; i--) {
             info.AppendChar(' ');
         }
         info.AppendFmt("%s: %s\r\n", el->leftTxt, el->url ? el->url : el->rightTxt);
@@ -465,7 +459,7 @@ LRESULT CALLBACK WndProcAbout(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     int y = GET_Y_LPARAM(lp);
     switch (msg) {
         case WM_CREATE:
-            CrashIf(gHwndAbout);
+            ReportIf(gHwndAbout);
             break;
 
         case WM_ERASEBKGND:
@@ -515,7 +509,7 @@ LRESULT CALLBACK WndProcAbout(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_DESTROY:
             DeleteInfotip();
-            CrashIf(!gHwndAbout);
+            ReportIf(!gHwndAbout);
             gHwndAbout = nullptr;
             break;
 
@@ -539,10 +533,10 @@ void ShowAboutWindow(MainWindow* win) {
         HMODULE h = GetModuleHandleW(nullptr);
         wcex.hIcon = LoadIcon(h, MAKEINTRESOURCE(GetAppIconID()));
         gAtomAbout = RegisterClassEx(&wcex);
-        CrashIf(!gAtomAbout);
+        ReportIf(!gAtomAbout);
     }
 
-    const WCHAR* title = _TR("About SumatraPDF");
+    TempWStr title = ToWStrTemp(_TRA("About SumatraPDF"));
     DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU;
     int x = CW_USEDEFAULT;
     int y = CW_USEDEFAULT;
@@ -719,7 +713,7 @@ void DrawHomePage(MainWindow* win, HDC hdc, const FileHistory& fileHistory, COLO
     DeleteVecMembers(win->staticLinks);
     for (int row = 0; row < thumbsRows; row++) {
         for (int col = 0; col < thumbsCols; col++) {
-            if (row * thumbsCols + col >= fileStates.isize()) {
+            if (row * thumbsCols + col >= fileStates.Size()) {
                 // display the "Open a document" link right below the last row
                 thumbsRows = col > 0 ? row + 1 : row;
                 break;

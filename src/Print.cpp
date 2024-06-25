@@ -71,14 +71,19 @@ struct PrintData {
     int rotation = 0;
     ProgressUpdateUI* progressUI = nullptr;
     AbortCookieManager* abortCookie = nullptr;
+    bool failedEngineClone = false;
 
     PrintData(EngineBase* engine, Printer* printer, Vec<PRINTPAGERANGE>& ranges, Print_Advanced_Data& advData,
               int rotation = 0, Vec<SelectionOnPage>* sel = nullptr) {
         this->printer = printer;
         this->advData = advData;
         this->rotation = rotation;
-        if (engine) {
-            this->engine = engine->Clone();
+        this->engine = engine->Clone();
+        if (!this->engine) {
+            logf("PrintData: engine->Clone() failed for '%s'\n", engine->FilePath());
+            this->failedEngineClone = true;
+            engine->AddRef();
+            this->engine = engine;
         }
 
         if (!sel) {
@@ -90,7 +95,7 @@ struct PrintData {
 
     ~PrintData() {
         delete printer;
-        delete engine;
+        engine->Release();
     }
 };
 
@@ -136,7 +141,7 @@ Printer* NewPrinter(char* printerName) {
     structSize = DocumentPropertiesW(nullptr, hPrinter, printerNameW, nullptr, nullptr, 0);
     if (structSize < sizeof(DEVMODEW)) {
         // if (displayErrors) {
-        //    MessageBoxWarning(nullptr, _TR("Could not obtain Printer properties"), _TR("Printing problem."));
+        //    MessageBoxWarning(nullptr, _TRA("Could not obtain Printer properties"), _TRA("Printing problem."));
         //}
         goto Exit;
     }
@@ -146,7 +151,7 @@ Printer* NewPrinter(char* printerName) {
     ret = DocumentPropertiesW(nullptr, hPrinter, printerNameW, devMode, nullptr, DM_OUT_BUFFER);
     if (IDOK != ret) {
         // if (displayErrors) {
-        //    MessageBoxWarning(nullptr, _TR("Could not obtain Printer properties"), _TR("Printing problem."));
+        //    MessageBoxWarning(nullptr, _TRA("Could not obtain Printer properties"), _TRA("Printing problem."));
         //}
         goto Exit;
     }
@@ -284,6 +289,11 @@ static bool PrintToDevice(const PrintData& pd) {
     int res;
 
     EngineBase& engine = *pd.engine;
+
+    pd.engine->AddRef();
+    defer {
+        pd.engine->Release();
+    };
 
     DOCINFOW di{};
     di.cbSize = sizeof(DOCINFO);
@@ -614,7 +624,7 @@ class PrintThreadData : public ProgressUpdateUI {
     }
 
     void UpdateProgress(int current, int total) override {
-        uitask::Post([=] { UpdateNotificationProgress(wnd, current, total); });
+        uitask::Post(TaskPrintUpdateProgress, [=] { UpdateNotificationProgress(wnd, current, total); });
     }
 
     bool WasCanceled() override {
@@ -638,7 +648,7 @@ static DWORD WINAPI PrintThread(LPVOID data) {
     pd->abortCookie = &threadData->cookie;
     PrintToDevice(*pd);
 
-    uitask::Post([=] {
+    uitask::Post(PrintDeleteThread, [=] {
         if (MainWindowStillValid(win) && thread == win->printThread) {
             win->printThread = nullptr;
         }
@@ -738,21 +748,25 @@ void PrintCurrentFile(MainWindow* win, bool waitForCompletion) {
     if (!dm) {
         return;
     }
-    int rotation = dm->GetRotation();
     auto engine = dm->GetEngine();
+    ReportIf(!engine);
+    if (!engine) {
+        return;
+    }
+    int rotation = dm->GetRotation();
     int nPages = dm->PageCount();
 
 #ifndef DISABLE_DOCUMENT_RESTRICTIONS
-    if (!dm->GetEngine()->AllowsPrinting()) {
+    if (!engine->AllowsPrinting()) {
         return;
     }
 #endif
 
     if (win->printThread) {
         uint type = MB_ICONEXCLAMATION | MB_YESNO | MbRtlReadingMaybe();
-        const WCHAR* title = _TR("Printing in progress.");
-        const WCHAR* msg = _TR("Printing is still in progress. Abort and start over?");
-        int res = MessageBox(win->hwndFrame, msg, title, type);
+        const char* title = _TRA("Printing in progress.");
+        const char* msg = _TRA("Printing is still in progress. Abort and start over?");
+        int res = MsgBox(win->hwndFrame, msg, title, type);
         if (res == IDNO) {
             return;
         }
@@ -762,7 +776,7 @@ void PrintCurrentFile(MainWindow* win, bool waitForCompletion) {
     // the Print dialog allows access to the file system, so fall back
     // to printing the entire document without dialog if that isn't desired
     if (!HasPermission(Perm::DiskAccess)) {
-        PrintFile2(dm->GetEngine());
+        PrintFile2(engine);
         return;
     }
 
@@ -791,7 +805,6 @@ void PrintCurrentFile(MainWindow* win, bool waitForCompletion) {
     pdex.lphPropertyPages = &hPsp;
     pdex.nPropertyPages = 1;
 
-    bool failedEngineClone = false;
     PrintData* pd = nullptr;
     DEVMODE* devMode = nullptr;
     // restore remembered settings
@@ -800,9 +813,9 @@ void PrintCurrentFile(MainWindow* win, bool waitForCompletion) {
         pdex.hDevMode = GlobalMemDup(p, p->dmSize + p->dmDriverExtra);
     }
 
-    HRESULT res = PrintDlgEx(&pdex);
+    HRESULT res = PrintDlgExW(&pdex);
     if (res != S_OK) {
-        logf("OnMenuPrint: PrintDlgEx failed\n");
+        logf("PrintCurrentFile: PrintDlgEx failed\n");
         MessageBoxWarning(win->hwndFrame, _TRA("Couldn't initialize printer"), _TRA("Printing problem."));
     }
     auto action = pdex.dwResultAction;
@@ -871,24 +884,10 @@ void PrintCurrentFile(MainWindow* win, bool waitForCompletion) {
     sel = printSelection ? win->CurrentTab()->selectionOnPage : nullptr;
     pd = new PrintData(engine, printer, ranges, advanced, rotation, sel);
 
-    // if a file is missing and the engine can't thus be cloned,
-    // we print using the original engine on the main thread
-    // so that the document can't be closed and the original engine
-    // unexpectedly deleted
-    // TODO: instead prevent closing the document so that printing
-    // can still happen on a separate thread and be interruptible
-    failedEngineClone = dm->GetEngine() && !pd->engine;
-    if (failedEngineClone) {
-        pd->engine = dm->GetEngine();
-    }
-
-    if (!waitForCompletion && !failedEngineClone) {
+    if (!waitForCompletion && !pd->failedEngineClone) {
         PrintToDeviceOnThread(win, pd);
     } else {
         PrintToDevice(*pd);
-        if (failedEngineClone) {
-            pd->engine = nullptr;
-        }
         delete pd;
     }
 
@@ -1270,7 +1269,7 @@ bool PrintFile(const char* fileName, char* printerName, bool displayErrors, cons
         return false;
     }
     bool ok = PrintFile2(engine, printerName, displayErrors, settings);
-    delete engine;
+    engine->Release();
     logfa("PrintFile: finished ok\n");
     return ok;
 }

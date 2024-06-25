@@ -3,11 +3,11 @@
 
 #include "utils/BaseUtil.h"
 #include "utils/Dict.h"
-#include "utils/HtmlWindow.h"
 #include "utils/UITask.h"
 #include "utils/ScopedWin.h"
 #include "utils/WinUtil.h"
 
+#include "wingui/HtmlWindow.h"
 #include "wingui/UIModels.h"
 
 #include "Settings.h"
@@ -18,6 +18,8 @@
 #include "ChmFile.h"
 #include "GlobalPrefs.h"
 #include "ChmModel.h"
+
+#include "utils/Log.h"
 
 static IPageDestination* NewChmNamedDest(const char* url, int pageNo) {
     if (!url) {
@@ -33,7 +35,7 @@ static IPageDestination* NewChmNamedDest(const char* url, int pageNo) {
         dest = pdest;
     }
     dest->pageNo = pageNo;
-    CrashIf(!dest->kind);
+    ReportIf(!dest->kind);
     dest->rect = RectF(DEST_USE_DEFAULT, DEST_USE_DEFAULT, DEST_USE_DEFAULT, DEST_USE_DEFAULT);
     return dest;
 }
@@ -104,11 +106,11 @@ const char* ChmModel::GetDefaultFileExt() const {
 }
 
 int ChmModel::PageCount() const {
-    return (int)pages.size();
+    return pages.Size();
 }
 
-TempStr ChmModel::GetPropertyTemp(DocumentProperty prop) {
-    return doc->GetPropertyTemp(prop);
+TempStr ChmModel::GetPropertyTemp(const char* name) {
+    return doc->GetPropertyTemp(name);
 }
 
 int ChmModel::CurrentPageNo() const {
@@ -120,11 +122,11 @@ void ChmModel::GoToPage(int pageNo, bool) {
     if (!ValidPageNo(pageNo)) {
         return;
     }
-    DisplayPage(pages.at(pageNo - 1));
+    DisplayPage(pages.At(pageNo - 1));
 }
 
 bool ChmModel::SetParentHwnd(HWND hwnd) {
-    CrashIf(htmlWindow || htmlWindowCb);
+    ReportIf(htmlWindow || htmlWindowCb);
     htmlWindowCb = new HtmlWindowHandler(this);
     htmlWindow = HtmlWindow::Create(hwnd, htmlWindowCb);
     if (!htmlWindow) {
@@ -166,11 +168,16 @@ void ChmModel::CopySelection() const {
     }
 }
 
+static bool gSendingHtmlWindowMsg = false;
+
 LRESULT ChmModel::PassUIMsg(UINT msg, WPARAM wp, LPARAM lp) const {
-    if (!htmlWindow) {
+    if (!htmlWindow || gSendingHtmlWindowMsg) {
         return 0;
     }
-    return htmlWindow->SendMsg(msg, wp, lp);
+    gSendingHtmlWindowMsg = true;
+    auto res = htmlWindow->SendMsg(msg, wp, lp);
+    gSendingHtmlWindowMsg = false;
+    return res;
 }
 
 bool ChmModel::DisplayPage(const char* pageUrl) {
@@ -214,16 +221,20 @@ bool ChmModel::DisplayPage(const char* pageUrl) {
 }
 
 void ChmModel::ScrollTo(int, RectF, float) {
-    CrashIf(true);
+    ReportIf(true);
 }
 
 bool ChmModel::HandleLink(IPageDestination* link, ILinkHandler*) {
-    CrashIf(link->GetKind() != kindDestinationScrollTo);
-    char* url = link->GetName();
+    Kind k = link->GetKind();
+    if (k != kindDestinationScrollTo) {
+        logf("ChmModel::HandleLink: unsupported kind '%s'\n", k);
+        ReportIfQuick(link->GetKind() != kindDestinationScrollTo);
+    }
+    char* url = PageDestGetName(link);
     if (DisplayPage(url)) {
         return true;
     }
-    int pageNo = link->GetPageNo();
+    int pageNo = PageDestGetPageNo(link);
     GoToPage(pageNo, false);
     return true;
 }
@@ -304,7 +315,7 @@ class ChmTocBuilder : public EbookTocVisitor {
     StrVec* pages = nullptr;
     Vec<ChmTocTraceItem>* tocTrace = nullptr;
     Allocator* allocator = nullptr;
-    // TODO: could use dict::MapWStrToInt instead of StrList in the caller as well
+    // TODO: could use dict::MapStrToInt instead of StrList in the caller as well
     dict::MapStrToInt urlsSet;
 
     // We fake page numbers by doing a depth-first traversal of
@@ -316,13 +327,13 @@ class ChmTocBuilder : public EbookTocVisitor {
         }
 
         TempStr plainUrl = url::GetFullPathTemp(url);
-        int pageNo = (int)pages->size() + 1;
+        int pageNo = pages->Size() + 1;
         bool inserted = urlsSet.Insert(plainUrl, pageNo, &pageNo);
         if (inserted) {
             pages->Append(plainUrl);
-            CrashIf((size_t)pageNo != pages->size());
+            ReportIf(pageNo != pages->Size());
         } else {
-            CrashIf((size_t)pageNo == pages->size() + 1);
+            ReportIf(pageNo == pages->Size() + 1);
         }
         return pageNo;
     }
@@ -333,11 +344,11 @@ class ChmTocBuilder : public EbookTocVisitor {
         this->pages = pages;
         this->tocTrace = tocTrace;
         this->allocator = allocator;
-        int n = (int)pages->size();
+        int n = pages->Size();
         for (int i = 0; i < n; i++) {
-            const char* url = pages->at(i);
+            const char* url = pages->At(i);
             bool inserted = urlsSet.Insert(url, i + 1, nullptr);
-            CrashIf(!inserted);
+            ReportIf(!inserted);
         }
     }
 
@@ -366,8 +377,8 @@ bool ChmModel::Load(const char* fileName) {
     tocTrace = new Vec<ChmTocTraceItem>();
     ChmTocBuilder tmpTocBuilder(doc, &pages, tocTrace, &poolAlloc);
     doc->ParseToc(&tmpTocBuilder);
-    CrashIf(pages.size() == 0);
-    return pages.size() > 0;
+    ReportIf(pages.Size() == 0);
+    return pages.Size() > 0;
 }
 
 struct ChmCacheEntry {
@@ -530,7 +541,7 @@ TocTree* ChmModel::GetToc() {
         TocItem* item = NewChmTocItem(nullptr, ti.title, ti.pageNo, ti.url);
         item->id = ++idCounter;
         // append the item at the correct level
-        CrashIf(ti.level < 1);
+        ReportIf(ti.level < 1);
         if ((size_t)ti.level <= levels.size()) {
             levels.RemoveAt(ti.level, levels.size() - ti.level);
             levels.Last()->AddSiblingAtEnd(item);
@@ -566,8 +577,8 @@ float ChmModel::GetNextZoomStep(float towardsLevel) const {
     }
 
     Vec<float>* zoomLevels = gGlobalPrefs->zoomLevels;
-    CrashIf(zoomLevels->size() != 0 && (zoomLevels->at(0) < kZoomMin || zoomLevels->Last() > kZoomMax));
-    CrashIf(zoomLevels->size() != 0 && zoomLevels->at(0) > zoomLevels->Last());
+    ReportIf(zoomLevels->size() != 0 && (zoomLevels->at(0) < kZoomMin || zoomLevels->Last() > kZoomMax));
+    ReportIf(zoomLevels->size() != 0 && zoomLevels->at(0) > zoomLevels->Last());
 
     const float FUZZ = 0.01f;
     float newZoom = towardsLevel;
@@ -661,7 +672,10 @@ class ChmThumbnailTask : public HtmlWindowCallback {
                 saveThumbnail(bmp);
             }
             // TODO: why is destruction on the UI thread necessary?
-            uitask::Post([=] { delete this; });
+            uitask::Post(TaskChmModelOnDocumentComplete, [=] {
+                logf("TaskChmModelOnDocumentComplete: about to delete ChmThumbnailTask: 0x%p\n", (void*)this);
+                delete this;
+            });
         }
     }
 

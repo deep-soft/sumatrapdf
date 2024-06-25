@@ -1,4 +1,4 @@
-// Copyright (C) 2004-2023 Artifex Software, Inc.
+// Copyright (C) 2004-2024 Artifex Software, Inc.
 //
 // This file is part of MuPDF.
 //
@@ -544,6 +544,7 @@ static fz_image *load_html_image(fz_context *ctx, fz_archive *zip, const char *b
 			fz_strlcat(path, "/", sizeof path);
 			fz_strlcat(path, src, sizeof path);
 			fz_urldecode(path);
+			fz_cleanname(path);
 			buf = fz_read_archive_entry(ctx, zip, path);
 		}
 #if FZ_ENABLE_SVG
@@ -1666,12 +1667,12 @@ xml_to_boxes(fz_context *ctx, fz_html_font_set *set, fz_archive *zip, const char
 	{
 		fz_drop_tree(ctx, g.images, (void(*)(fz_context*,void*))fz_drop_image);
 		fz_drop_css(ctx, g.css);
-		g.css = fz_new_css(ctx);
-		g.images = NULL;
 		fz_rethrow_if(ctx, FZ_ERROR_TRYLATER);
 		fz_rethrow_if(ctx, FZ_ERROR_SYSTEM);
 		fz_report_error(ctx);
 		fz_warn(ctx, "ignoring styles");
+		g.css = fz_new_css(ctx);
+		g.images = NULL;
 	}
 
 #ifndef NDEBUG

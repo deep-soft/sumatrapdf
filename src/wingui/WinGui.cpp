@@ -1,4 +1,4 @@
-/* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2024 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -14,8 +14,6 @@
 #include "wingui/WinGui.h"
 
 #include "Theme.h"
-
-#include "webview2.h"
 
 #include "utils/Log.h"
 
@@ -195,7 +193,7 @@ static void WindowMapAdd(HWND hwnd, Wnd* w) {
 
 /*
 static bool WindowMapRemove(HWND hwnd) {
-    int n = gWindowToHwndMap.isize();
+    int n = gWindowToHwndMap.Size();
     for (int i = 0; i < n; i++) {
         auto&& el = gWindowToHwndMap[i];
         if (el.hwnd == hwnd) {
@@ -208,7 +206,7 @@ static bool WindowMapRemove(HWND hwnd) {
 */
 
 static bool WindowMapRemove(Wnd* w) {
-    int n = gWindowToHwndMap.isize();
+    int n = gWindowToHwndMap.Size();
     for (int i = 0; i < n; i++) {
         auto&& el = gWindowToHwndMap[i];
         if (el.window == w) {
@@ -234,7 +232,7 @@ static LRESULT CALLBACK StaticWindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPA
 
     if (msg == WM_NCCREATE) {
         CREATESTRUCT* cs = (CREATESTRUCT*)(lparam);
-        CrashIf(window);
+        ReportIf(window);
         window = (Wnd*)(cs->lpCreateParams);
         window->hwnd = hwnd;
         WindowMapAdd(hwnd, window);
@@ -267,12 +265,6 @@ Kind Wnd::GetKind() {
     return kind;
 }
 
-void Wnd::SetText(const WCHAR* s) {
-    CrashIf(!hwnd);
-    HwndSetText(hwnd, s);
-    HwndInvalidate(hwnd); // TODO: move inside HwndSetText()?
-}
-
 void Wnd::SetText(const char* s) {
     if (!s) {
         s = "";
@@ -287,7 +279,7 @@ TempStr Wnd::GetTextTemp() {
 }
 
 void Wnd::SetVisibility(Visibility newVisibility) {
-    CrashIf(!hwnd);
+    ReportIf(!hwnd);
     visibility = newVisibility;
     bool isVisible = IsVisible();
     // TODO: a different way to determine if is top level vs. child window?
@@ -374,28 +366,12 @@ int Wnd::OnCreate(CREATESTRUCT*) {
     return 0;
 }
 
-// This function is called when a window is destroyed.
-// Override it to do additional tasks, such as ending the application
-//  with PostQuitMessage.
-void Wnd::OnDestroy() {
-}
-
 // Called when the background of the window's client area needs to be erased.
 // Override this function in your derived class to perform drawing tasks.
 // Return Value: Return FALSE to also permit default erasure of the background
 //               Return TRUE to prevent default erasure of the background
 bool Wnd::OnEraseBkgnd(HDC) {
     return false;
-}
-
-// Called in response to WM_CLOSE, before the window is destroyed.
-// Override this function to suppress destroying the window.
-// WM_CLOSE is sent by SendMessage(WM_CLOSE, 0, 0) or by clicking X
-//  in the top right corner.
-// Child windows don't receive WM_CLOSE unless they are closed using
-//  the Close function.
-void Wnd::OnClose() {
-    Destroy();
 }
 
 void Wnd::OnContextMenu(Point ptScreen) {
@@ -559,7 +535,7 @@ int Wnd::MinIntrinsicWidth(int) {
 }
 
 void Wnd::Close() {
-    CrashIf(!::IsWindow(hwnd));
+    ReportIf(!::IsWindow(hwnd));
     PostMessageW(hwnd, WM_CLOSE, 0, 0);
 }
 
@@ -689,12 +665,32 @@ LRESULT TryReflectMessages(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 LRESULT Wnd::WndProcDefault(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     LRESULT result = 0;
 
-    switch (msg) {
-        case WM_CLOSE: {
-            OnClose();
-            return 0;
-        }
+    WmEvent e{hwnd, msg, wparam, lparam, this->userData, this};
 
+    if (msg == WM_CLOSE) {
+        if (onClose) {
+            WmCloseEvent ev;
+            ev.e = &e;
+            onClose(ev);
+            if (ev.e->didHandle) {
+                return 0;
+            }
+        }
+        // TODO: should only send WM_DESTROY, the rest should be hooked in OnDestroy
+        Destroy();
+        return 0;
+    }
+
+    if (msg == WM_DESTROY) {
+        if (onDestroy) {
+            WmDestroyEvent ev;
+            ev.e = &e;
+            onDestroy(ev);
+        }
+        // Note: Some controls require default processing.
+    }
+
+    switch (msg) {
         // windows don't support WM_GETFONT / WM_SETFONT
         // only controls do. not sure if we won't interfere
         // with control handling
@@ -729,11 +725,6 @@ LRESULT Wnd::WndProcDefault(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         case WM_CREATE: {
             OnCreate((CREATESTRUCT*)lparam);
             break;
-        }
-
-        case WM_DESTROY: {
-            OnDestroy();
-            break; // Note: Some controls require default processing.
         }
 
         case WM_SETFOCUS: {
@@ -908,8 +899,8 @@ bool Wnd::PreTranslateMessage(MSG& msg) {
 }
 
 void Wnd::Attach(HWND hwnd) {
-    CrashIf(!IsWindow(hwnd));
-    CrashIf(WindowMapGetWindow(hwnd));
+    ReportIf(!IsWindow(hwnd));
+    ReportIf(WindowMapGetWindow(hwnd));
 
     this->hwnd = hwnd;
     Subclass();
@@ -918,7 +909,7 @@ void Wnd::Attach(HWND hwnd) {
 
 // Attaches a CWnd object to a dialog item.
 void Wnd::AttachDlgItem(UINT id, HWND parent) {
-    CrashIf(!::IsWindow(parent));
+    ReportIf(!::IsWindow(parent));
     HWND wnd = ::GetDlgItem(parent, id);
     Attach(wnd);
 }
@@ -955,11 +946,11 @@ static void WndRegisterClass(const WCHAR* className) {
     wc.hCursor = ::LoadCursor(nullptr, IDC_ARROW);
     wc.hbrBackground = reinterpret_cast<HBRUSH>(::GetStockObject(WHITE_BRUSH));
     ATOM atom = ::RegisterClassExW(&wc);
-    CrashIf(!atom);
+    ReportIf(!atom);
 }
 
 HWND Wnd::CreateControl(const CreateControlArgs& args) {
-    CrashIf(!args.className);
+    ReportIf(!args.className);
     // TODO: validate that className is one of the known controls?
 
     font = args.font;
@@ -989,7 +980,7 @@ HWND Wnd::CreateControl(const CreateControlArgs& args) {
     void* createParams = this;
     hwnd = ::CreateWindowExW(exStyle, className, L"", style, x, y, dx, dy, parent, id, inst, createParams);
     HwndSetFont(hwnd, font);
-    CrashIf(!hwnd);
+    ReportIf(!hwnd);
 
     // TODO: validate that
     Subclass();
@@ -1043,7 +1034,7 @@ HWND Wnd::CreateCustom(const CreateCustomArgs& args) {
 
     DWORD tmpStyle = style & ~WS_VISIBLE;
     DWORD exStyle = args.exStyle;
-    CrashIf(args.menu && args.cmdId);
+    ReportIf(args.menu && args.cmdId);
     HMENU m = args.menu;
     if (m == nullptr) {
         m = (HMENU)(INT_PTR)args.cmdId;
@@ -1054,10 +1045,10 @@ HWND Wnd::CreateCustom(const CreateCustomArgs& args) {
 
     HWND hwndTmp = ::CreateWindowExW(exStyle, className, titleW, style, x, y, dx, dy, parent, m, inst, createParams);
 
-    CrashIf(!hwndTmp);
+    ReportIf(!hwndTmp);
     // hwnd should be assigned in WM_CREATE
-    CrashIf(hwndTmp != hwnd);
-    CrashIf(this != WindowMapGetWindow(hwndTmp));
+    ReportIf(hwndTmp != hwnd);
+    ReportIf(this != WindowMapGetWindow(hwndTmp));
     if (!hwnd) {
         return nullptr;
     }
@@ -1085,8 +1076,8 @@ void Wnd::SetInsetsPt(int top, int right, int bottom, int left) {
 }
 
 void Wnd::Subclass() {
-    CrashIf(!IsWindow(hwnd));
-    CrashIf(subclassId); // don't subclass multiple times
+    ReportIf(!IsWindow(hwnd));
+    ReportIf(subclassId); // don't subclass multiple times
     if (subclassId) {
         return;
     }
@@ -1094,7 +1085,7 @@ void Wnd::Subclass() {
 
     subclassId = NextSubclassId();
     BOOL ok = SetWindowSubclass(hwnd, StaticWindowProcSubclassed, subclassId, (DWORD_PTR)this);
-    CrashIf(!ok);
+    ReportIf(!ok);
 }
 
 void Wnd::UnSubclass() {
@@ -1115,7 +1106,7 @@ void Wnd::SetFont(HFONT fontIn) {
 }
 
 void Wnd::SetIsEnabled(bool isEnabled) const {
-    CrashIf(!hwnd);
+    ReportIf(!hwnd);
     BOOL enabled = isEnabled ? TRUE : FALSE;
     ::EnableWindow(hwnd, enabled);
 }
@@ -1135,7 +1126,7 @@ bool Wnd::IsFocused() const {
 }
 
 void Wnd::SetRtl(bool isRtl) const {
-    CrashIf(!hwnd);
+    ReportIf(!hwnd);
     SetWindowExStyle(hwnd, WS_EX_LAYOUTRTL | WS_EX_NOINHERITLAYOUT, isRtl);
 }
 
@@ -1218,7 +1209,7 @@ HWND Static::Create(const StaticCreateArgs& args) {
 }
 
 Size Static::GetIdealSize() {
-    CrashIf(!hwnd);
+    ReportIf(!hwnd);
     char* txt = HwndGetTextTemp(hwnd);
     HFONT hfont = GetWindowFont(hwnd);
     return HwndMeasureText(hwnd, txt, hfont);
@@ -1237,7 +1228,7 @@ bool Static::OnCommand(WPARAM wparam, LPARAM lparam) {
 void Handle_WM_CTLCOLORSTATIC(void* user, WndEvent* ev) {
     auto w = (StaticCtrl*)user;
     uint msg = ev->msg;
-    CrashIf(msg != WM_CTLCOLORSTATIC);
+    ReportIf(msg != WM_CTLCOLORSTATIC);
     HDC hdc = (HDC)ev->wp;
     if (w->textColor != ColorUnset) {
         SetTextColor(hdc, w->textColor);
@@ -1326,10 +1317,10 @@ Size Button::SetTextAndResize(const WCHAR* s) {
 }
 #endif
 
-Button* CreateButton(HWND parent, const WCHAR* s, const ClickedHandler& onClicked) {
+Button* CreateButton(HWND parent, const char* s, const ClickedHandler& onClicked) {
     ButtonCreateArgs args;
     args.parent = parent;
-    args.text = ToUtf8Temp(s);
+    args.text = s;
 
     auto b = new Button();
     b->onClicked = onClicked;
@@ -1338,27 +1329,6 @@ Button* CreateButton(HWND parent, const WCHAR* s, const ClickedHandler& onClicke
 }
 
 #define kButtonMargin 8
-
-Button* CreateDefaultButton(HWND parent, const WCHAR* s) {
-    ButtonCreateArgs args;
-    args.parent = parent;
-    args.text = ToUtf8Temp(s);
-
-    auto* b = new Button();
-    b->Create(args);
-
-    RECT r = ClientRECT(parent);
-    Size size = b->GetIdealSize();
-    int margin = DpiScale(parent, kButtonMargin);
-    int x = RectDx(r) - size.dx - margin;
-    int y = RectDy(r) - size.dy - margin;
-    r.left = x;
-    r.right = x + size.dx;
-    r.top = y;
-    r.bottom = y + size.dy;
-    b->SetPos(&r);
-    return b;
-}
 
 Button* CreateDefaultButton(HWND parent, const char* s) {
     ButtonCreateArgs args;
@@ -1444,7 +1414,7 @@ void TooltipAddTools(HWND hwnd, HWND owner, TooltipInfo* tools, int nTools) {
     for (int i = 0; i < nTools; i++) {
         TooltipInfo& tti = tools[i];
 
-        WCHAR* ws = ToWStrTemp(tti.s);
+        TempWStr ws = ToWStrTemp(tti.s);
         TOOLINFOW ti = {0};
         ti.cbSize = sizeof(ti);
         ti.hwnd = owner;
@@ -1486,7 +1456,7 @@ static bool TooltipUpdateText(HWND hwnd, HWND owner, int id, const char* s, bool
     }
 
     SetMaxWidthForText(hwnd, s, multiline);
-    WCHAR* ws = ToWStrTemp(s);
+    TempWStr ws = ToWStrTemp(s);
     TOOLINFOW ti = {0};
     ti.cbSize = sizeof(ti);
     ti.hwnd = owner;
@@ -1535,7 +1505,7 @@ void Tooltip::SetMaxWidth(int dx) {
 int Tooltip::Add(const char* s, const Rect& rc, bool multiline) {
     int id = GetNextTooltipID();
     SetMaxWidthForText(hwnd, s, multiline);
-    WCHAR* ws = ToWStrTemp(s);
+    TempWStr ws = ToWStrTemp(s);
     TOOLINFOW ti = {0};
     ti.cbSize = sizeof(ti);
     ti.hwnd = parent;
@@ -1594,11 +1564,11 @@ void Tooltip::Delete(int id) {
     if (id == 0) {
         // 0 means delete a single tool
         // should only be used if we only have single tool
-        CrashIf(Count() > 1);
+        ReportIf(Count() > 1);
         id = tooltipIds[0];
     } else {
         removeIdx = tooltipIds.Find(id);
-        CrashIf(removeIdx < 0);
+        ReportIf(removeIdx < 0);
     }
 
     TOOLINFOW ti{0};
@@ -1608,7 +1578,7 @@ void Tooltip::Delete(int id) {
     int n1 = (int)SendMessageW(hwnd, TTM_GETTOOLCOUNT, 0, 0);
     SendMessageW(hwnd, TTM_DELTOOLW, 0, (LPARAM)&ti);
     int n2 = (int)SendMessageW(hwnd, TTM_GETTOOLCOUNT, 0, 0);
-    CrashIf(n1 != n2 + 1);
+    ReportIf(n1 != n2 + 1);
     tooltipIds.RemoveAt(removeIdx);
 }
 
@@ -1616,9 +1586,9 @@ void Tooltip::Delete(int id) {
 // type is: TTDT_AUTOPOP, TTDT_INITIAL, TTDT_RESHOW, TTDT_AUTOMATIC
 // timeInMs is max 32767 (~32 secs)
 void Tooltip::SetDelayTime(int type, int timeInMs) {
-    CrashIf(!IsValidDelayType(type));
-    CrashIf(timeInMs < 0);
-    CrashIf(timeInMs > 32767); // TODO: or is it 65535?
+    ReportIf(!IsValidDelayType(type));
+    ReportIf(timeInMs < 0);
+    ReportIf(timeInMs > 32767); // TODO: or is it 65535?
     SendMessageW(hwnd, TTM_SETDELAYTIME, type, (LPARAM)timeInMs);
 }
 
@@ -1640,7 +1610,7 @@ static bool EditSetCueText(HWND hwnd, const char* s) {
     if (!hwnd) {
         return false;
     }
-    WCHAR* ws = ToWStrTemp(s);
+    TempWStr ws = ToWStrTemp(s);
     bool ok = Edit_SetCueBannerText(hwnd, ws) == TRUE;
     return ok;
 }
@@ -1776,9 +1746,9 @@ bool Edit::OnCommand(WPARAM wparam, LPARAM lparam) {
 // https://docs.microsoft.com/en-us/windows/win32/controls/wm-ctlcoloredit
 static void Handle_WM_CTLCOLOREDIT(void* user, WndEvent* ev) {
     auto w = (EditCtrl*)user;
-    CrashIf(ev->msg != WM_CTLCOLOREDIT);
+    ReportIf(ev->msg != WM_CTLCOLOREDIT);
     HWND hwndCtrl = (HWND)ev->lp;
-    CrashIf(hwndCtrl != w->hwnd);
+    ReportIf(hwndCtrl != w->hwnd);
     if (w->bgBrush == nullptr) {
         return;
     }
@@ -1940,7 +1910,7 @@ static CheckState GetButtonCheckState(HWND hwnd) {
 }
 
 static void SetButtonCheckState(HWND hwnd, CheckState newState) {
-    CrashIf(!hwnd);
+    ReportIf(!hwnd);
     Button_SetCheck(hwnd, newState);
 }
 
@@ -1975,7 +1945,7 @@ Size Checkbox::GetIdealSize() {
 }
 
 void Checkbox::SetCheckState(CheckState newState) {
-    CrashIf(!hwnd);
+    ReportIf(!hwnd);
     SetButtonCheckState(hwnd, newState);
 }
 
@@ -1984,13 +1954,13 @@ CheckState Checkbox::GetCheckState() const {
 }
 
 void Checkbox::SetIsChecked(bool isChecked) {
-    CrashIf(!hwnd);
+    ReportIf(!hwnd);
     CheckState newState = isChecked ? CheckState::Checked : CheckState::Unchecked;
     SetButtonCheckState(hwnd, newState);
 }
 
 bool Checkbox::IsChecked() const {
-    CrashIf(!hwnd);
+    ReportIf(!hwnd);
     auto state = GetCheckState();
     return state == CheckState::Checked;
 }
@@ -2057,7 +2027,7 @@ static void SetDropDownItems(HWND hwnd, StrVec& items) {
     int n = items.Size();
     for (int i = 0; i < n; i++) {
         char* s = items[i];
-        WCHAR* ws = ToWStrTemp(s);
+        TempWStr ws = ToWStrTemp(s);
         ComboBox_AddString(hwnd, ws);
     }
 }
@@ -2077,6 +2047,7 @@ HWND DropDown::Create(const DropDownCreateArgs& args) {
     cargs.parent = args.parent;
     cargs.style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST;
     cargs.className = WC_COMBOBOX;
+    cargs.font = args.font;
 
     Wnd::CreateControl(cargs);
     if (!hwnd) {
@@ -2102,8 +2073,8 @@ void DropDown::SetCurrentSelection(int n) {
         ComboBox_SetCurSel(hwnd, -1);
         return;
     }
-    int nItems = (int)items.size();
-    CrashIf(n >= nItems);
+    int nItems = items.Size();
+    ReportIf(n >= nItems);
     ComboBox_SetCurSel(hwnd, n);
 }
 
@@ -2187,6 +2158,7 @@ HWND Trackbar::Create(const TrackbarCreateArgs& args) {
     CreateControlArgs cargs;
     cargs.className = TRACKBAR_CLASS;
     cargs.parent = args.parent;
+    cargs.font = args.font;
 
     // TODO: add initial size to CreateControlArgs
     // initialSize = idealSize;
@@ -2343,7 +2315,7 @@ Splitter::~Splitter() {
 }
 
 HWND Splitter::Create(const SplitterCreateArgs& args) {
-    CrashIf(!args.parent);
+    ReportIf(!args.parent);
 
     isLive = args.isLive;
     type = args.type;
@@ -2353,9 +2325,9 @@ HWND Splitter::Create(const SplitterCreateArgs& args) {
     }
 
     bmp = CreateBitmap(8, 8, 1, 1, dotPatternBmp);
-    CrashIf(!bmp);
+    ReportIf(!bmp);
     brush = CreatePatternBrush(bmp);
-    CrashIf(!brush);
+    ReportIf(!brush);
 
     DWORD style = GetWindowLong(args.parent, GWL_STYLE);
     parentClipsChildren = bit::IsMaskSet<DWORD>(style, WS_CLIPCHILDREN);
@@ -2493,216 +2465,6 @@ std::string html_from_uri(const std::string s) {
 }
 #endif
 
-//--- WebView
-
-Kind kindWebView = "webView";
-
-char* GetWebView2VersionTemp() {
-    WCHAR* ver = nullptr;
-    HRESULT hr = GetAvailableCoreWebView2BrowserVersionString(nullptr, &ver);
-    if (FAILED(hr) || (ver == nullptr)) {
-        return nullptr;
-    }
-    char* res = ToUtf8Temp(ver);
-    return res;
-}
-
-class webview2_com_handler : public ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler,
-                             public ICoreWebView2CreateCoreWebView2ControllerCompletedHandler,
-                             public ICoreWebView2WebMessageReceivedEventHandler,
-                             public ICoreWebView2PermissionRequestedEventHandler {
-    using webview2_com_handler_cb_t = std::function<void(ICoreWebView2Controller*)>;
-
-  public:
-    webview2_com_handler(HWND hwnd, WebViewMsgCb msgCb, webview2_com_handler_cb_t cb)
-        : m_window(hwnd), msgCb(msgCb), m_cb(cb) {
-    }
-    ULONG STDMETHODCALLTYPE AddRef() {
-        return 1;
-    }
-
-    ULONG STDMETHODCALLTYPE Release() {
-        return 1;
-    }
-
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, LPVOID* ppv) {
-        return S_OK;
-    }
-
-    HRESULT STDMETHODCALLTYPE Invoke(HRESULT res, ICoreWebView2Environment* env) {
-        env->CreateCoreWebView2Controller(m_window, this);
-        return S_OK;
-    }
-
-    HRESULT STDMETHODCALLTYPE Invoke(HRESULT res, ICoreWebView2Controller* controller) {
-        controller->AddRef();
-
-        ICoreWebView2* webview;
-        ::EventRegistrationToken token;
-        controller->get_CoreWebView2(&webview);
-        webview->add_WebMessageReceived(this, &token);
-        webview->add_PermissionRequested(this, &token);
-
-        m_cb(controller);
-        return S_OK;
-    }
-
-    HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2* sender, ICoreWebView2WebMessageReceivedEventArgs* args) {
-        WCHAR* message = nullptr;
-        args->TryGetWebMessageAsString(&message);
-        if (!message) {
-            return S_OK;
-        }
-        char* s = ToUtf8Temp(message);
-        msgCb(s);
-        sender->PostWebMessageAsString(message);
-        CoTaskMemFree(message);
-        return S_OK;
-    }
-
-    HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2* sender, ICoreWebView2PermissionRequestedEventArgs* args) {
-        COREWEBVIEW2_PERMISSION_KIND kind;
-        args->get_PermissionKind(&kind);
-        if (kind == COREWEBVIEW2_PERMISSION_KIND_CLIPBOARD_READ) {
-            args->put_State(COREWEBVIEW2_PERMISSION_STATE_ALLOW);
-        }
-        return S_OK;
-    }
-
-  private:
-    HWND m_window;
-    WebViewMsgCb msgCb;
-    webview2_com_handler_cb_t m_cb;
-};
-
-Webview2Wnd::Webview2Wnd() {
-    kind = kindWebView;
-}
-
-void Webview2Wnd::UpdateWebviewSize() {
-    if (controller == nullptr) {
-        return;
-    }
-    RECT bounds = ClientRECT(hwnd);
-    controller->put_Bounds(bounds);
-}
-
-void Webview2Wnd::Eval(const char* js) {
-    WCHAR* ws = ToWStrTemp(js);
-    webview->ExecuteScript(ws, nullptr);
-}
-
-void Webview2Wnd::SetHtml(const char* html) {
-#if 0
-        std::string s = "data:text/html,";
-        s += url_encode(html);
-        WCHAR* html2 = ToWStrTemp(s.c_str());
-        m_webview->Navigate(html2);
-#else
-    WCHAR* html2 = ToWStrTemp(html);
-    webview->NavigateToString(html2);
-#endif
-}
-
-void Webview2Wnd::Init(const char* js) {
-    WCHAR* ws = ToWStrTemp(js);
-    webview->AddScriptToExecuteOnDocumentCreated(ws, nullptr);
-}
-
-void Webview2Wnd::Navigate(const char* url) {
-    WCHAR* ws = ToWStrTemp(url);
-    webview->Navigate(ws);
-}
-
-/*
-Settings:
-put_IsWebMessageEnabled(BOOL isWebMessageEnabled)
-put_AreDefaultScriptDialogsEnabled(BOOL areDefaultScriptDialogsEnabled)
-put_IsStatusBarEnabled(BOOL isStatusBarEnabled)
-put_AreDevToolsEnabled(BOOL areDevToolsEnabled)
-put_AreDefaultContextMenusEnabled(BOOL enabled)
-put_AreHostObjectsAllowed(BOOL allowed)
-put_IsZoomControlEnabled(BOOL enabled)
-put_IsBuiltInErrorPageEnabled(BOOL enabled)
-*/
-
-bool Webview2Wnd::Embed(WebViewMsgCb cb) {
-    // TODO: not sure if flag needs to be atomic i.e. is CreateCoreWebView2EnvironmentWithOptions()
-    // called on a different thread?
-    LONG flag = 0;
-    // InterlockedCompareExchange()
-    WCHAR* userDataFolder = ToWStrTemp(dataDir);
-    HRESULT hr = CreateCoreWebView2EnvironmentWithOptions(
-        nullptr, userDataFolder, nullptr, new webview2_com_handler(hwnd, cb, [&](ICoreWebView2Controller* ctrl) {
-            controller = ctrl;
-            controller->get_CoreWebView2(&webview);
-            webview->AddRef();
-            InterlockedAdd(&flag, 1);
-        }));
-    if (hr != S_OK) {
-        return false;
-    }
-    MSG msg = {};
-    while ((InterlockedAdd(&flag, 0) == 0) && GetMessage(&msg, NULL, 0, 0)) {
-        TranslateMessage(&msg);
-        DispatchMessage(&msg);
-    }
-
-    // remove window frame and decorations
-    auto style = GetWindowLong(hwnd, GWL_STYLE);
-    style &= ~(WS_OVERLAPPEDWINDOW);
-    SetWindowLong(hwnd, GWL_STYLE, style);
-
-    ICoreWebView2Settings* settings = nullptr;
-    hr = webview->get_Settings(&settings);
-    if (hr == S_OK) {
-        settings->put_AreDefaultContextMenusEnabled(FALSE);
-        settings->put_AreDevToolsEnabled(FALSE);
-        settings->put_IsStatusBarEnabled(FALSE);
-    }
-
-    Init("window.external={invoke:s=>window.chrome.webview.postMessage(s)}");
-    return true;
-}
-
-void Webview2Wnd::OnBrowserMessage(const char* msg) {
-    /*
-    auto seq = json_parse(msg, "id", 0);
-    auto name = json_parse(msg, "method", 0);
-    auto args = json_parse(msg, "params", 0);
-    if (bindings.find(name) == bindings.end()) {
-      return;
-    }
-    auto fn = bindings[name];
-    (*fn->first)(seq, args, fn->second);
-    */
-    log(msg);
-}
-
-HWND Webview2Wnd::Create(const CreateCustomArgs& args) {
-    CrashIf(!dataDir);
-    CreateCustom(args);
-    if (!hwnd) {
-        return nullptr;
-    }
-
-    auto cb = std::bind(&Webview2Wnd::OnBrowserMessage, this, std::placeholders::_1);
-    Embed(cb);
-    UpdateWebviewSize();
-    return hwnd;
-}
-
-LRESULT Webview2Wnd::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-    if (msg == WM_SIZE) {
-        UpdateWebviewSize();
-    }
-    return WndProcDefault(hwnd, msg, wparam, lparam);
-}
-
-Webview2Wnd::~Webview2Wnd() {
-    str::Free(dataDir);
-}
-
 //--- TreeView
 
 /*
@@ -2774,9 +2536,9 @@ Size TreeView::GetIdealSize() {
 }
 
 void TreeView::SetToolTipsDelayTime(int type, int timeInMs) {
-    CrashIf(!IsValidDelayType(type));
-    CrashIf(timeInMs < 0);
-    CrashIf(timeInMs > 32767); // TODO: or is it 65535?
+    ReportIf(!IsValidDelayType(type));
+    ReportIf(timeInMs < 0);
+    ReportIf(timeInMs > 32767); // TODO: or is it 65535?
     HWND hwndToolTips = GetToolTipsHwnd();
     SendMessageW(hwndToolTips, TTM_SETDELAYTIME, type, (LPARAM)timeInMs);
 }
@@ -3029,7 +2791,7 @@ HTREEITEM insertItemFront(TreeView* treeView, TreeItem ti, HTREEITEM parent) {
 
 bool TreeView::UpdateItem(TreeItem ti) {
     HTREEITEM ht = GetHandleByTreeItem(ti);
-    CrashIf(!ht);
+    ReportIf(!ht);
     if (!ht) {
         return false;
     }
@@ -3058,7 +2820,7 @@ void PopulateTreeItem(TreeView* treeView, TreeItem item, HTREEITEM parent) {
     // insert backwards, so gather the items in v first
     for (int i = 0; i < n; i++) {
         auto ti = tm->ChildAt(item, i);
-        CrashIf(ti == 0);
+        ReportIf(ti == 0);
         a[n - 1 - i] = ti;
     }
 
@@ -3081,7 +2843,7 @@ static void PopulateTree(TreeView* treeView, TreeModel* tm) {
 }
 
 void TreeView::SetTreeModel(TreeModel* tm) {
-    CrashIf(!tm);
+    ReportIf(!tm);
 
     SuspendRedraw();
 
@@ -3097,13 +2859,13 @@ void TreeView::SetTreeModel(TreeModel* tm) {
 
 void TreeView::SetCheckState(TreeItem item, bool enable) {
     HTREEITEM hi = GetHandleByTreeItem(item);
-    CrashIf(!hi);
+    ReportIf(!hi);
     TreeView_SetCheckState(hwnd, hi, enable);
 }
 
 bool TreeView::GetCheckState(TreeItem item) {
     HTREEITEM hi = GetHandleByTreeItem(item);
-    CrashIf(!hi);
+    ReportIf(!hi);
     auto res = TreeView_GetCheckState(hwnd, hi);
     return res != 0;
 }
@@ -3112,7 +2874,7 @@ TreeItemState TreeView::GetItemState(TreeItem ti) {
     TreeItemState res;
 
     TVITEMW* it = GetTVITEM(this, ti);
-    CrashIf(!it);
+    ReportIf(!it);
     if (!it) {
         return res;
     }
@@ -3439,7 +3201,7 @@ void TabsCtrl::Paint(HDC hdc, RECT& rc) {
 
     SolidBrush br(GdipCol(ThemeControlBackgroundColor()));
 
-    Font f(hdc, GetDefaultGuiFont());
+    Font f(hdc, GetFont());
 
     Gdiplus::Rect gr = ToGdipRect(rc);
     gfx.FillRectangle(&br, gr);
@@ -3514,7 +3276,7 @@ void TabsCtrl::Paint(HDC hdc, RECT& rc) {
         rTxt.X += 8;
         rTxt.Width -= (8 + r.dx + 8);
         br.SetColor(GdipCol(textColor));
-        WCHAR* ws = ToWStrTemp(ti->text);
+        TempWStr ws = ToWStrTemp(ti->text);
         gfx.DrawString(ws, -1, &f, rTxt, &sf, &br);
     }
 }
@@ -3543,14 +3305,14 @@ HBITMAP TabsCtrl::RenderForDragging(int idx) {
     gfx->FillRectangle(&br, gr);
 
     HDC hdc = GetDC(hwnd);
-    Font f(hdc, GetDefaultGuiFont());
+    Font f(hdc, GetFont());
     ReleaseDC(hwnd, hdc);
 
     Gdiplus::RectF rTxt(0, 0, ti->r.dx, ti->r.dy);
     rTxt.X += 8;
     rTxt.Width -= (8 + 8);
     br.SetColor(GdipCol(textCol));
-    WCHAR* ws = ToWStrTemp(ti->text);
+    TempWStr ws = ToWStrTemp(ti->text);
     gfx->DrawString(ws, -1, &f, rTxt, &sf, &br);
 
     HBITMAP ret;
@@ -3873,6 +3635,7 @@ LRESULT TabsCtrl::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
 
         case WM_MBUTTONDOWN: {
+            // middle-clicking unconditionally closes the tab
             if (gLogTabs) {
                 logfa(
                     "TabsCtrl::WndProc: WM_MBUTTONDOWN, tabUnderMouse: %d, tabHighlited: %d, tabBeingClosed: %d, "
@@ -3880,20 +3643,7 @@ LRESULT TabsCtrl::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     tabUnderMouse, tabHighlighted, tabBeingClosed, (int)overClose);
             }
             nWmMouseMoveCount = 0;
-            // middle-clicking unconditionally closes the tab
             tabBeingClosed = tabUnderMouse;
-            HwndScheduleRepaint(hwnd);
-            return 0;
-        }
-
-        case WM_MBUTTONUP: {
-            if (gLogTabs) {
-                logfa(
-                    "TabsCtrl::WndProc: WM_MBUTTONUP, tabUnderMouse: %d, tabHighlited: %d, tabBeingClosed: %d, "
-                    "overClose: %d\n",
-                    tabUnderMouse, tabHighlighted, tabBeingClosed, (int)overClose);
-            }
-            nWmMouseMoveCount = 0;
             if (tabBeingClosed < 0 || !canClose) {
                 return 0;
             }
@@ -3943,6 +3693,7 @@ LRESULT TabsCtrl::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
 HWND TabsCtrl::Create(TabsCreateArgs& argsIn) {
     withToolTips = argsIn.withToolTips;
+    tabDefaultDx = argsIn.tabDefaultDx;
 
     CreateControlArgs args;
     args.parent = argsIn.parent;
@@ -3985,7 +3736,7 @@ int TabsCtrl::TabCount() {
 
 // takes ownership of tab
 int TabsCtrl::InsertTab(int idx, TabInfo* tab) {
-    CrashIf(idx < 0);
+    ReportIf(idx < 0);
     TCITEMW item{0};
     item.mask = TCIF_TEXT;
     item.pszText = ToWStrTemp(tab->text);
@@ -4014,10 +3765,10 @@ void TabsCtrl::SetTextAndTooltip(int idx, const char* text, const char* tooltip)
 
 // returns userData because it's not owned by TabsCtrl
 UINT_PTR TabsCtrl::RemoveTab(int idx) {
-    CrashIf(idx < 0);
-    CrashIf(idx >= TabCount());
+    ReportIf(idx < 0);
+    ReportIf(idx >= TabCount());
     BOOL ok = TabCtrl_DeleteItem(hwnd, idx);
-    CrashIf(!ok);
+    ReportIf(!ok);
     TabInfo* tab = tabs[idx];
     UINT_PTR userData = tab->userData;
     tabs.RemoveAt(idx);
@@ -4054,7 +3805,7 @@ int TabsCtrl::GetSelected() {
 }
 
 int TabsCtrl::SetSelected(int idx) {
-    CrashIf(idx < 0 || idx >= TabCount());
+    ReportIf(idx < 0 || idx >= TabCount());
     int prevSelectedIdx = TabCtrl_SetCurSel(hwnd, idx);
     return prevSelectedIdx;
 }
@@ -4125,12 +3876,12 @@ void RunModalWindow(HWND hwndDialog, HWND hwndParent) {
 #if 0
 // sets initial position of w within hwnd. Assumes w->initialSize is set.
 void PositionCloseTo(Wnd* w, HWND hwnd) {
-    CrashIf(!hwnd);
+    ReportIf(!hwnd);
     Size is = w->initialSize;
-    CrashIf(is.IsEmpty());
+    ReportIf(is.IsEmpty());
     RECT r{};
     BOOL ok = GetWindowRect(hwnd, &r);
-    CrashIf(!ok);
+    ReportIf(!ok);
 
     // position w in the the center of hwnd
     // if window is bigger than hwnd, let the system position

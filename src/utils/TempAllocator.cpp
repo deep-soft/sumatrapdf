@@ -53,6 +53,14 @@ TempStr JoinTemp(const char* s1, const char* s2, const char* s3) {
     return Join(GetTempAllocator(), s1, s2, s3);
 }
 
+TempStr JoinTemp(const char* s1, const char* s2, const char* s3, const char* s4) {
+    return Join(GetTempAllocator(), s1, s2, s3, s4, nullptr);
+}
+
+TempStr JoinTemp(const char* s1, const char* s2, const char* s3, const char* s4, const char* s5) {
+    return Join(GetTempAllocator(), s1, s2, s3, s4, s5);
+}
+
 TempWStr JoinTemp(const WCHAR* s1, const WCHAR* s2, const WCHAR* s3) {
     return Join(GetTempAllocator(), s1, s2, s3);
 }
@@ -106,20 +114,43 @@ TempStr ReplaceTemp(const char* s, const char* toReplace, const char* replaceWit
     return result.StealData(GetTempAllocator());
 }
 
+TempStr ReplaceNoCaseTemp(const char* s, const char* toReplace, const char* replaceWith) {
+    int n = str::Leni(toReplace);
+    const char* pos = str::FindI(s, toReplace);
+    if (!pos) {
+        return (TempStr)s;
+    }
+    if (!memeq(pos, toReplace, n)) {
+        toReplace = (const char*)str::DupTemp(pos, n);
+    }
+    TempStr res = str::ReplaceTemp(s, toReplace, replaceWith);
+    return res;
+}
+
 } // namespace str
 
 TempStr ToUtf8Temp(const WCHAR* s, size_t cch) {
     if (!s) {
-        CrashIf((int)cch > 0);
+        ReportIf((int)cch > 0);
         return nullptr;
     }
-    return strconv::WstrToUtf8(s, cch, GetTempAllocator());
+    return strconv::WStrToUtf8(s, cch, GetTempAllocator());
 }
 
 TempWStr ToWStrTemp(const char* s, size_t cb) {
     if (!s) {
-        CrashIf((int)cb > 0);
+        ReportIf((int)cb > 0);
         return nullptr;
     }
-    return strconv::Utf8ToWstr(s, cb, GetTempAllocator());
+    return strconv::Utf8ToWStr(s, cb, GetTempAllocator());
+}
+
+// handles embedded 0 in the string
+TempWStr ToWStrTemp(const str::Str& str) {
+    if (str.IsEmpty()) {
+        return nullptr;
+    }
+    char* s = str.CStr();
+    size_t cb = str.Size();
+    return strconv::Utf8ToWStr(s, cb, GetTempAllocator());
 }

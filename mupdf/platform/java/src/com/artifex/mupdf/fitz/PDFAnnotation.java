@@ -1,4 +1,4 @@
-// Copyright (C) 2004-2023 Artifex Software, Inc.
+// Copyright (C) 2004-2024 Artifex Software, Inc.
 //
 // This file is part of MuPDF.
 //
@@ -123,13 +123,23 @@ public class PDFAnnotation
 	public static final int IS_TOGGLE_NO_VIEW = 1 << (9-1);
 	public static final int IS_LOCKED_CONTENTS = 1 << (10-1);
 
+	public static final int IT_DEFAULT = 0;
+	public static final int IT_FREETEXT_CALLOUT = 1;
+	public static final int IT_FREETEXT_TYPEWRITER = 2;
+	public static final int IT_LINE_ARROW = 3;
+	public static final int IT_LINE_DIMENSION = 4;
+	public static final int IT_POLYLINE_DIMENSION = 5;
+	public static final int IT_POLYGON_CLOUD = 6;
+	public static final int IT_POLYGON_DIMENSION = 7;
+	public static final int IT_STAMP_IMAGE = 8;
+	public static final int IT_STAMP_SNAPSHOT = 9;
+	public static final int IT_UNKNOWN = 255;
+
 	public native int getType();
 	public native int getFlags();
 	public native void setFlags(int flags);
 	public native String getContents();
 	public native void setContents(String contents);
-	public native float getBorder();
-	public native void setBorder(float width);
 	public native float[] getColor();
 	public native void setColor(float[] color);
 	public native float getOpacity();
@@ -271,6 +281,10 @@ public class PDFAnnotation
 	public native String getIcon();
 	public native void setIcon(String icon);
 
+	public native boolean hasPopup();
+	public native Rect getPopup();
+	public native void setPopup(Rect rect);
+
 	public native boolean hasOpen();
 	public native boolean getIsOpen();
 	public native void setIsOpen(boolean open);
@@ -282,6 +296,10 @@ public class PDFAnnotation
 	public native boolean hasFileSpecification();
 	public native void setFileSpecification(PDFObject fs);
 	public native PDFObject getFileSpecification();
+
+	public native boolean hasIntent();
+	public native int getIntent();
+	public native void setIntent(int intent);
 
 	public native void eventEnter();
 	public native void eventExit();
@@ -346,10 +364,26 @@ public class PDFAnnotation
 	public native boolean getHiddenForEditing();
 	public native void setHiddenForEditing(boolean hidden);
 
-	public boolean applyRedaction(boolean blackBoxes, int imageMethod)
+	public boolean applyRedaction(boolean blackBoxes)
 	{
-		return applyRedaction(blackBoxes, imageMethod, 0);
+		return applyRedaction(blackBoxes, PDFPage.REDACT_IMAGE_PIXELS, PDFPage.REDACT_LINE_ART_NONE, PDFPage.REDACT_TEXT_REMOVE);
 	}
 
-	public native boolean applyRedaction(boolean blackBoxes, int imageMethod, int lineArt);
+	public boolean applyRedaction(boolean blackBoxes, int imageMethod)
+	{
+		return applyRedaction(blackBoxes, imageMethod, PDFPage.REDACT_LINE_ART_NONE, PDFPage.REDACT_TEXT_REMOVE);
+	}
+
+	public boolean applyRedaction(boolean blackBoxes, int imageMethod, int lineArt)
+	{
+		return applyRedaction(blackBoxes, imageMethod, lineArt, PDFPage.REDACT_TEXT_REMOVE);
+	}
+
+	public native boolean applyRedaction(boolean blackBoxes, int imageMethod, int lineArt, int text);
+
+	/** @deprecated use getBorderWidth instead. */
+	public float getBorder() { return getBorderWidth(); }
+
+	/** @deprecated use setBorderWidth instead. */
+	public void setBorder(float width) { setBorderWidth(width); }
 }

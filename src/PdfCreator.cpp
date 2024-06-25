@@ -14,10 +14,12 @@ extern "C" {
 #include "wingui/UIModels.h"
 
 #include "Settings.h"
+#include "DocProperties.h"
 #include "DocController.h"
 #include "EngineBase.h"
 #include "Annotation.h"
 #include "EngineMupdf.h"
+#include "FzImgReader.h"
 #include "PdfCreator.h"
 
 #include "utils/Log.h"
@@ -105,7 +107,7 @@ static void installFitzErrorCallbacks(fz_context* ctx) {
 }
 
 PdfCreator::PdfCreator() {
-    ctx = fz_new_context(nullptr, nullptr, FZ_STORE_UNLIMITED);
+    ctx = fz_new_context_windows(kFzStoreUnlimited);
     if (!ctx) {
         return;
     }
@@ -123,7 +125,7 @@ PdfCreator::PdfCreator() {
 PdfCreator::~PdfCreator() {
     pdf_drop_document(ctx, doc);
     fz_flush_warnings(ctx);
-    fz_drop_context(ctx);
+    fz_drop_context_windows(ctx);
 }
 
 pdf_obj* add_image_res(fz_context* ctx, pdf_document* doc, pdf_obj* resources, char* name, fz_image* image) {
@@ -143,7 +145,7 @@ pdf_obj* add_image_res(fz_context* ctx, pdf_document* doc, pdf_obj* resources, c
 
 // based on create_page in pdfcreate.c
 bool PdfCreator::AddPageFromFzImage(fz_image* image, float imgDpi) const {
-    CrashIf(!ctx || !doc);
+    ReportIf(!ctx || !doc);
     if (!ctx || !doc) {
         return false;
     }
@@ -221,7 +223,7 @@ bool PdfCreator::AddPageFromGdiplusBitmap(Gdiplus::Bitmap* bmp, float imgDpi) {
 }
 
 bool PdfCreator::AddPageFromImageData(const ByteSlice& data, float imgDpi) const {
-    CrashIf(!ctx || !doc);
+    ReportIf(!ctx || !doc);
     if (!ctx || !doc || data.empty()) {
         return false;
     }
@@ -245,30 +247,25 @@ bool PdfCreator::AddPageFromImageData(const ByteSlice& data, float imgDpi) const
     return ok;
 }
 
-bool PdfCreator::SetProperty(DocumentProperty prop, const char* value) const {
+// clang-format off
+static const char* pdfCreatorPropsMap[] = {
+    kPropTitle, "Title",
+    kPropAuthor, "Author",
+    kPropSubject, "Subject",
+    kPropCopyright, "Copyright",
+    kPropModificationDate, "ModDate",
+    kPropCreatorApp, "Creator",
+    kPropPdfProducer, "Producer",
+    nullptr
+};
+// clang-format on
+
+bool PdfCreator::SetProperty(const char* propName, const char* value) const {
     if (!ctx || !doc) {
         return false;
     }
 
-    // adapted from EngineMupdf::GetProperty
-    static struct {
-        DocumentProperty prop;
-        const char* name;
-    } pdfPropNames[] = {
-        {DocumentProperty::Title, "Title"},
-        {DocumentProperty::Author, "Author"},
-        {DocumentProperty::Subject, "Subject"},
-        {DocumentProperty::Copyright, "Copyright"},
-        {DocumentProperty::ModificationDate, "ModDate"},
-        {DocumentProperty::CreatorApp, "Creator"},
-        {DocumentProperty::PdfProducer, "Producer"},
-    };
-    const char* name = nullptr;
-    for (int i = 0; i < dimof(pdfPropNames) && !name; i++) {
-        if (pdfPropNames[i].prop == prop) {
-            name = pdfPropNames[i].name;
-        }
-    }
+    const char* name = GetMatchingString(pdfCreatorPropsMap, propName);
     if (!name) {
         return false;
     }
@@ -295,13 +292,13 @@ bool PdfCreator::SetProperty(DocumentProperty prop, const char* value) const {
 }
 
 // clang-format off
-static DocumentProperty propsToCopy[] = {
-    DocumentProperty::Title,
-    DocumentProperty::Author,
-    DocumentProperty::Subject,
-    DocumentProperty::Copyright,
-    DocumentProperty::ModificationDate,
-    DocumentProperty::CreatorApp
+static const char* propsToCopy[] = {
+    kPropTitle,
+    kPropAuthor,
+    kPropSubject,
+    kPropCopyright,
+    kPropModificationDate,
+    kPropCreatorApp
 };
 // clang-format on
 
@@ -345,7 +342,7 @@ bool PdfCreator::SaveToFile(const char* filePath) const {
     }
 
     if (gPdfProducer) {
-        SetProperty(DocumentProperty::PdfProducer, gPdfProducer);
+        SetProperty(kPropPdfProducer, gPdfProducer);
     }
 
     fz_try(ctx) {

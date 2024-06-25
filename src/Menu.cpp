@@ -15,6 +15,7 @@
 #include "wingui/UIModels.h"
 
 #include "Settings.h"
+#include "AppSettings.h"
 #include "DisplayMode.h"
 #include "DocController.h"
 #include "EngineBase.h"
@@ -129,8 +130,12 @@ static MenuDef menuDefFile[] = {
         _TRN("Re&name..."),
         CmdRenameFile,
     },
-#endif
+    #endif
     //] ACCESSKEY_ALTERNATIVE
+    {
+        _TRN("Delete"),
+        CmdDeleteFile,
+    },
     {
         _TRN("&Print..."),
         CmdPrint,
@@ -487,19 +492,24 @@ MenuDef menuDefFavorites[] = {
 };
 //] ACCESSKEY_GROUP Favorites Menu
 
+
 //[ ACCESSKEY_GROUP Help Menu
 static MenuDef menuDefHelp[] = {
     {
-        _TRN("Visit &Website"),
-        CmdHelpVisitWebsite,
-    },
-    {
         _TRN("&Manual"),
-        CmdHelpOpenManualInBrowser,
+        CmdHelpOpenManual,
     },
     {
         _TRN("&Keyboard Shortcuts"),
-        CmdHelpOpenKeyboardShortcutsInBrowser
+        CmdHelpOpenKeyboardShortcuts
+    },
+    {
+        _TRN("Manual On Website"),
+        CmdHelpOpenManualOnWebsite,
+    },
+    {
+        _TRN("Visit &Website"),
+        CmdHelpVisitWebsite,
     },
     {
         _TRN("Check for &Updates"),
@@ -564,6 +574,14 @@ static MenuDef menuDefSelection[] = {
         CmdSearchSelectionWithBing,
     },
     {
+        _TRN("Search with &Wikipedia"),
+        CmdSearchSelectionWithWikipedia,
+    },
+    {
+        _TRN("Search with &Google Scholar"),
+        CmdSearchSelectionWithGoogleScholar,
+    },
+    {
         _TRN("Select &All"),
         CmdSelectAll,
     },
@@ -595,6 +613,14 @@ static MenuDef menuDefMainSelection[] = {
     {
         _TRN("Search With &Bing"),
         CmdSearchSelectionWithBing,
+    },
+    {
+        _TRN("Search with &Wikipedia"),
+        CmdSearchSelectionWithWikipedia,
+    },
+    {
+        _TRN("Search with &Google Scholar"),
+        CmdSearchSelectionWithGoogleScholar,
     },
     {
         _TRN("Select &All"),
@@ -843,7 +869,9 @@ static UINT_PTR disableIfNoDocument[] = {
     CmdProperties,
     CmdTogglePresentationMode,
     CmdRenameFile,
+    CmdDeleteFile,
     CmdShowInFolder,
+    CmdInvokeInverseSearch,
     // IDM_VIEW_WITH_XPS_VIEWER and IDM_VIEW_WITH_HTML_HELP
     // are removed instead of disabled (and can remain enabled
     // for broken XPS/CHM documents)
@@ -851,6 +879,7 @@ static UINT_PTR disableIfNoDocument[] = {
 
 static UINT_PTR disableIfDirectoryOrBrokenPDF[] = {
     CmdRenameFile,
+    CmdDeleteFile,
     CmdSendByEmail,
     CmdOpenWithAcrobat,
     CmdOpenWithFoxIt,
@@ -862,6 +891,8 @@ UINT_PTR disableIfNoSelection[] = {
     CmdCopySelection,
     CmdTranslateSelectionWithDeepL,
     CmdTranslateSelectionWithGoogle,
+    CmdSearchSelectionWithWikipedia,
+    CmdSearchSelectionWithGoogleScholar,
     CmdSearchSelectionWithBing,
     CmdSearchSelectionWithGoogle,
     CmdCreateAnnotHighlight,
@@ -893,9 +924,11 @@ UINT_PTR removeIfNoInternetPerms[] = {
     CmdTranslateSelectionWithDeepL,
     CmdSearchSelectionWithGoogle,
     CmdSearchSelectionWithBing,
+    CmdSearchSelectionWithWikipedia,
+    CmdSearchSelectionWithGoogleScholar,
     CmdHelpVisitWebsite,
-    CmdHelpOpenManualInBrowser,
-    CmdHelpOpenKeyboardShortcutsInBrowser,
+    CmdHelpOpenManualOnWebsite,
+    CmdHelpOpenKeyboardShortcuts,
     CmdContributeTranslation,
     0,
 };
@@ -923,6 +956,8 @@ UINT_PTR removeIfNoCopyPerms[] = {
     CmdTranslateSelectionWithDeepL,
     CmdSearchSelectionWithGoogle,
     CmdSearchSelectionWithBing,
+    CmdSearchSelectionWithWikipedia,
+    CmdSearchSelectionWithGoogleScholar,
     CmdSelectAll,
 
     CmdCopySelection,
@@ -935,6 +970,7 @@ UINT_PTR removeIfNoCopyPerms[] = {
 };
 
 // TODO: all prefs params also fall under disk access
+// also CanViewExternally()
 UINT_PTR removeIfNoDiskAccessPerm[] = {
     CmdNewWindow, // ???
     CmdOpenFile,
@@ -943,6 +979,7 @@ UINT_PTR removeIfNoDiskAccessPerm[] = {
     CmdShowInFolder,
     CmdSaveAs,
     CmdRenameFile,
+    CmdDeleteFile,
     CmdSendByEmail, // ???
     CmdContributeTranslation, // ???
     CmdAdvancedOptions,
@@ -953,6 +990,7 @@ UINT_PTR removeIfNoDiskAccessPerm[] = {
     CmdOpenSelectedDocument,
     CmdPinSelectedDocument,
     CmdForgetSelectedDocument,
+    CmdInvokeInverseSearch,
     0,
 };
 
@@ -986,6 +1024,7 @@ UINT_PTR removeIfChm[] = {
     CmdZoom800,
     CmdZoom12_5,
     CmdZoom8_33,
+    CmdInvokeInverseSearch,
     (UINT_PTR)menuDefContext,
     0,
 };
@@ -1006,7 +1045,7 @@ static bool __cmdIdInList(UINT_PTR cmdId, UINT_PTR* idsList, int n) {
 // shorten a string to maxLen characters, adding ellipsis in the middle
 // ascii version that doesn't handle UTF-8
 static TempStr ShortenStringTemp(char* s, int maxLen) {
-    int sLen = (int)str::Len(s);
+    int sLen = str::Leni(s);
     if (sLen <= maxLen) {
         return s;
     }
@@ -1042,11 +1081,11 @@ static TempStr ShortenStringUtf8Temp(char* s, int maxRunes) {
     int n;
     for (int i = 0; i < nRunes; i++) {
         n = utf8RuneLen((const u8*)s);
-        CrashIf(n <= 0);
+        ReportIf(n <= 0);
         if (i < removeStartingAt || i >= removeStartingAt + toRemove) {
             switch (n) {
                 default:
-                    CrashIf(true);
+                    ReportIf(true);
                     break;
                 case 4:
                     *tmp++ = *s++;
@@ -1286,7 +1325,7 @@ static void RebuildFileMenu(WindowTab* tab, HMENU menu) {
 }
 
 HMENU BuildMenuFromMenuDef(MenuDef* menuDef, HMENU menu, BuildMenuCtx* ctx) {
-    CrashIf(!menu);
+    ReportIf(!menu);
 
     bool isDebugMenu = menuDef == menuDefDebug;
     int i = 0;
@@ -1371,7 +1410,7 @@ HMENU BuildMenuFromMenuDef(MenuDef* menuDef, HMENU menu, BuildMenuCtx* ctx) {
         noTranslate |= (subMenuDef == menuDefDebug);
         const char* title = md.title;
         if (!noTranslate) {
-            title = trans::GetTranslationA(md.title);
+            title = trans::GetTranslation(md.title);
         }
 
         if (isSubMenu) {
@@ -1380,7 +1419,7 @@ HMENU BuildMenuFromMenuDef(MenuDef* menuDef, HMENU menu, BuildMenuCtx* ctx) {
             if (subMenuDef == menuDefFile) {
                 DynamicPartOfFileMenu(subMenu, ctx);
             }
-            WCHAR* ws = ToWStrTemp(title);
+            TempWStr ws = ToWStrTemp(title);
             AppendMenuW(menu, flags, (UINT_PTR)subMenu, ws);
         } else {
             str::Str title2 = title;
@@ -1391,7 +1430,7 @@ HMENU BuildMenuFromMenuDef(MenuDef* menuDef, HMENU menu, BuildMenuCtx* ctx) {
                 }
             }
             UINT flags = MF_STRING | (disableMenu ? MF_DISABLED : MF_ENABLED);
-            WCHAR* ws = ToWStrTemp(title2.Get());
+            TempWStr ws = ToWStrTemp(title2.Get());
             AppendMenuW(menu, flags, md.idOrSubmenu, ws);
         }
 
@@ -1446,12 +1485,12 @@ float ZoomMenuItemToZoom(int menuItemId) {
             return it.zoom;
         }
     }
-    CrashIf(true);
+    ReportIf(true);
     return 100.0;
 }
 
 static void ZoomMenuItemCheck(HMENU m, int menuItemId, bool canZoom) {
-    CrashIf((CmdZoomFirst > menuItemId) || (menuItemId > CmdZoomLast));
+    ReportIf((CmdZoomFirst > menuItemId) || (menuItemId > CmdZoomLast));
 
     for (auto&& it : gZoomMenuIds) {
         MenuSetEnabled(m, it.itemId, canZoom);
@@ -1487,7 +1526,7 @@ void MenuUpdatePrintItem(MainWindow* win, HMENU menu, bool disableOnly = false) 
         if (def.idOrSubmenu != CmdPrint) {
             continue;
         }
-        str::Str printItem = trans::GetTranslationA(def.title);
+        str::Str printItem = trans::GetTranslation(def.title);
         if (!filePrintAllowed) {
             printItem = _TRA("&Print... (denied)");
         } else {
@@ -1497,7 +1536,7 @@ void MenuUpdatePrintItem(MainWindow* win, HMENU menu, bool disableOnly = false) 
             }
         }
         if (!filePrintAllowed || !disableOnly) {
-            WCHAR* ws = ToWStrTemp(printItem.Get());
+            TempWStr ws = ToWStrTemp(printItem.Get());
             ModifyMenuW(menu, CmdPrint, MF_BYCOMMAND | MF_STRING, (UINT_PTR)CmdPrint, ws);
         }
         MenuSetEnabled(menu, CmdPrint, filePrintEnabled && filePrintAllowed);
@@ -1542,7 +1581,7 @@ void MenuUpdateDisplayMode(MainWindow* win) {
     } else if (IsBookView(displayMode)) {
         id = CmdBookView;
     } else {
-        CrashIf(win->ctrl || DisplayMode::Automatic != displayMode);
+        ReportIf(win->ctrl || DisplayMode::Automatic != displayMode);
     }
 
     CheckMenuRadioItem(win->menu, CmdViewLayoutFirst, CmdViewLayoutLast, id, MF_BYCOMMAND);
@@ -1609,22 +1648,13 @@ static void MenuUpdateStateForWindow(MainWindow* win) {
 
     if (win->IsDocLoaded() && !fileExists) {
         MenuSetEnabled(win->menu, CmdRenameFile, false);
+        MenuSetEnabled(win->menu, CmdDeleteFile, false);
     }
 
     int themeCmdId = CmdThemeFirst + GetCurrentThemeIndex();
     CheckMenuRadioItem(win->menu, CmdThemeFirst, CmdThemeLast, themeCmdId, MF_BYCOMMAND);
 
     MenuSetChecked(win->menu, CmdToggleLinks, gGlobalPrefs->showLinks);
-}
-
-// TODO: not the best file for this
-void ShowFileInFolder(const char* path) {
-    if (!HasPermission(Perm::DiskAccess)) {
-        return;
-    }
-    const char* process = "explorer.exe";
-    TempStr args = str::FormatTemp("/select,\"%s\"", path);
-    CreateProcessHelper(process, args);
 }
 
 void OnAboutContextMenu(MainWindow* win, int x, int y) {
@@ -1639,7 +1669,7 @@ void OnAboutContextMenu(MainWindow* win, int x, int y) {
     }
 
     FileState* fs = gFileHistory.FindByPath(path);
-    CrashIf(!fs);
+    ReportIf(!fs);
     if (!fs) {
         return;
     }
@@ -1661,7 +1691,7 @@ void OnAboutContextMenu(MainWindow* win, int x, int y) {
     }
 
     if (CmdShowInFolder == cmd) {
-        ShowFileInFolder(path);
+        SumatraOpenPathInExplorer(path);
         return;
     }
 
@@ -1673,23 +1703,33 @@ void OnAboutContextMenu(MainWindow* win, int x, int y) {
     }
 
     if (CmdForgetSelectedDocument == cmd) {
-        if (fs->favorites->size() > 0) {
-            // just hide documents with favorites
+        TempStr filePath = str::DupTemp(fs->filePath);
+        if (!fs->favorites->IsEmpty()) {
+            // only hide documents with favorites
             gFileHistory.MarkFileInexistent(fs->filePath, true);
         } else {
             gFileHistory.Remove(fs);
             DeleteDisplayState(fs);
         }
-        CleanUpThumbnailCache(gFileHistory);
+        DeleteThumbnailForFile(filePath);
+        SaveSettings();
         win->DeleteToolTip();
         win->RedrawAll(true);
         return;
     }
 }
 
+// s could be in format "file://path.pdf#page=1" or "mailto:foo@bar.com"
+// We only want the "path.pdf" / "foo@bar.com"
+static TempStr CleanupURLForClipbardCopyTemp(const char* s) {
+    str::Skip(s, "file:");
+    str::Skip(s, "mailto:");
+    return str::DupTemp(s);
+}
+
 void OnWindowContextMenu(MainWindow* win, int x, int y) {
     DisplayModel* dm = win->AsFixed();
-    CrashIf(!dm);
+    ReportIf(!dm);
     if (!dm) {
         return;
     }
@@ -1803,6 +1843,8 @@ void OnWindowContextMenu(MainWindow* win, int x, int y) {
         case CmdTranslateSelectionWithDeepL:
         case CmdSearchSelectionWithGoogle:
         case CmdSearchSelectionWithBing:
+        case CmdSearchSelectionWithWikipedia:
+        case CmdSearchSelectionWithGoogleScholar:
         case CmdSelectAll:
         case CmdSaveAs:
         case CmdPrint:
@@ -1823,7 +1865,7 @@ void OnWindowContextMenu(MainWindow* win, int x, int y) {
             // note: those are duplicated in SumatraPDF.cpp to enable keyboard shortcuts for them
 #if 0
         case CmdSelectAnnotation:
-            CrashIf(!buildCtx.annotationUnderCursor);
+            ReportIf(!buildCtx.annotationUnderCursor);
             [[fallthrough]];
 #endif
 
@@ -1896,7 +1938,7 @@ void OnWindowContextMenu(MainWindow* win, int x, int y) {
         SetSelectedAnnotation(tab, annot);
     }
     /*
-        { _TR("Line"), CmdCreateAnnotLine, },
+        { _TRA("Line"), CmdCreateAnnotLine, },
         { _TR_TODON("Highlight"), CmdCreateAnnotHighlight, },
         { _TR_TODON("Underline"), CmdCreateAnnotUnderline, },
         { _TR_TODON("Strike Out"), CmdCreateAnnotStrikeOut, },
@@ -1952,7 +1994,7 @@ void FreeMenuOwnerDrawInfoData(HMENU hmenu) {
     for (int i = 0; i < n; i++) {
         mii.fMask = MIIM_DATA | MIIM_FTYPE | MIIM_SUBMENU;
         BOOL ok = GetMenuItemInfoW(hmenu, (uint)i, TRUE /* by position */, &mii);
-        CrashIf(!ok);
+        ReportIf(!ok);
         auto modi = (MenuOwnerDrawInfo*)mii.dwItemData;
         if (modi != nullptr) {
             FreeMenuOwnerDrawInfo(modi);
@@ -2007,7 +2049,7 @@ void MarkMenuOwnerDraw(HMENU hmenu) {
         mii.dwTypeData = &(buf[0]);
         mii.cch = dimof(buf);
         BOOL ok = GetMenuItemInfoW(hmenu, (uint)i, TRUE /* by position */, &mii);
-        CrashIf(!ok);
+        ReportIf(!ok);
         mii.fMask = MIIM_FTYPE | MIIM_DATA;
         mii.fType |= MFT_OWNERDRAW;
         if (mii.dwItemData != 0) {
@@ -2021,7 +2063,7 @@ void MarkMenuOwnerDraw(HMENU hmenu) {
         modi->hbmpItem = mii.hbmpItem;
         modi->hbmpChecked = mii.hbmpChecked;
         modi->hbmpUnchecked = mii.hbmpUnchecked;
-        if (str::Len(buf) > 0) {
+        if (str::Leni(buf) > 0) {
             modi->text = ToUtf8(buf);
         }
         mii.dwItemData = (ULONG_PTR)modi;
@@ -2031,6 +2073,18 @@ void MarkMenuOwnerDraw(HMENU hmenu) {
             MarkMenuOwnerDraw(mii.hSubMenu);
         }
     }
+}
+
+static int GetMenuCheckMarkCx(HWND hwnd) {
+    int cx = DpiScale(hwnd, GetSystemMetrics(SM_CXMENUCHECK));
+    if (!IsMenuFontSizeDefault()) {
+        cx = GetAppMenuFontSize();
+        // this applies scaling for default values on my win 11 i.e.:
+        // font size is 12, menu checkmark is 15
+        cx = (cx * 15) / 12;
+        cx = DpiScale(hwnd, cx);
+    }
+    return cx;
 }
 
 constexpr int kMenuPaddingY = 4;
@@ -2050,7 +2104,7 @@ void MenuCustomDrawMesureItem(HWND hwnd, MEASUREITEMSTRUCT* mis) {
     }
 
     auto text = modi && modi->text ? modi->text : "Dummy";
-    HFONT font = GetMenuFont();
+    HFONT font = GetAppMenuFont();
     char* shortcutText = nullptr;
     char* menuText = ParseMenuTextTemp(text, &shortcutText);
 
@@ -2067,9 +2121,9 @@ void MenuCustomDrawMesureItem(HWND hwnd, MEASUREITEMSTRUCT* mis) {
     auto padX = DpiScale(hwnd, kMenuPaddingX);
     auto padY = DpiScale(hwnd, kMenuPaddingY);
 
-    auto cxMenuCheck = GetSystemMetrics(SM_CXMENUCHECK);
+    int cxMenuCheckMark = GetMenuCheckMarkCx(hwnd);
     mis->itemHeight += padY * 2;
-    mis->itemWidth = uint(dx + DpiScale(hwnd, cxMenuCheck) + (padX * 2));
+    mis->itemWidth = uint(dx + cxMenuCheckMark + (padX * 2));
 }
 
 // https://gist.github.com/kjk/1df108aa126b7d8e298a5092550a53b7
@@ -2108,7 +2162,7 @@ void MenuCustomDrawItem(HWND hwnd, DRAWITEMSTRUCT* dis) {
     // bool isDefault = bit::IsMaskSet(modi->fState, (uint)MFS_DEFAULT);
 
     // disabled should be drawn grayed out
-    // bool isDisabled = bit::IsMaskSet(modi->fState, (uint)MFS_DISABLED);
+    bool isDisabled = bit::IsMaskSet(modi->fState, (uint)MFS_DISABLED);
 
     // don't know what that means
     // bool isHilited = bit::IsMaskSet(modi->fState, (uint)MFS_HILITE);
@@ -2120,7 +2174,7 @@ void MenuCustomDrawItem(HWND hwnd, DRAWITEMSTRUCT* dis) {
     bool isRadioCheck = bit::IsMaskSet(modi->fType, (uint)MFT_RADIOCHECK);
 
     auto hdc = dis->hDC;
-    HFONT font = GetMenuFont();
+    HFONT font = GetAppMenuFont();
     ScopedSelectFont restoreFont(hdc, font);
 
     COLORREF bgCol = ThemeMainWindowBackgroundColor();
@@ -2128,6 +2182,9 @@ void MenuCustomDrawItem(HWND hwnd, DRAWITEMSTRUCT* dis) {
     // TODO: if isDisabled, pick a color that represents disabled
     // either add it to theme definition or auto-generate
     // (lighter if dark color, darker if light color)
+    if (isDisabled) {
+        txtCol = ThemeWindowTextDisabledColor();
+    }
 
     bool isSelected = bit::IsMaskSet(dis->itemState, (uint)ODS_SELECTED);
     if (isSelected) {
@@ -2138,9 +2195,9 @@ void MenuCustomDrawItem(HWND hwnd, DRAWITEMSTRUCT* dis) {
     RECT rc = dis->rcItem;
     int rcDy = RectDy(rc);
 
+    int cxCheckMark = GetMenuCheckMarkCx(hwnd);
     int padY = DpiScale(hwnd, kMenuPaddingY);
     int padX = DpiScale(hwnd, kMenuPaddingX);
-    int dxCheckMark = DpiScale(hwnd, GetSystemMetrics(SM_CXMENUCHECK));
 
     COLORREF prevTxtCol = SetTextColor(hdc, txtCol);
     COLORREF prevBgCol = SetBkColor(hdc, bgCol);
@@ -2159,8 +2216,8 @@ void MenuCustomDrawItem(HWND hwnd, DRAWITEMSTRUCT* dis) {
     };
 
     if (isSeparator) {
-        CrashIf(modi->text);
-        int sx = rc.left + dxCheckMark;
+        ReportIf(modi->text);
+        int sx = rc.left + cxCheckMark;
         int y = rc.top + (rcDy / 2);
         int ex = rc.right - padX;
         auto pen = CreatePen(PS_SOLID, 1, txtCol);
@@ -2182,14 +2239,14 @@ void MenuCustomDrawItem(HWND hwnd, DRAWITEMSTRUCT* dis) {
 
     // DrawTextEx handles & => underscore drawing
     rc.top += padY;
-    rc.left += dxCheckMark;
-    WCHAR* ws = ToWStrTemp(menuText);
+    rc.left += cxCheckMark;
+    TempWStr ws = ToWStrTemp(menuText);
     DrawTextExW(hdc, ws, -1, &rc, DT_LEFT, nullptr);
     if (shortcutText != nullptr) {
         ws = ToWStrTemp(shortcutText);
         rc = dis->rcItem;
         rc.top += padY;
-        rc.right -= (padX + dxCheckMark / 2);
+        rc.right -= (padX + cxCheckMark / 2);
         DrawTextExW(hdc, ws, -1, &rc, DT_RIGHT, nullptr);
     }
 
@@ -2200,7 +2257,7 @@ void MenuCustomDrawItem(HWND hwnd, DRAWITEMSTRUCT* dis) {
         if (isRadioCheck) {
             int dx = DpiScale(hwnd, kRadioCircleDx);
             int offX = DpiScale(hwnd, 1); // why? beause it looks better
-            rc.left = rc.left + offX + (dxCheckMark / 2) - (dx / 2);
+            rc.left = rc.left + offX + (cxCheckMark / 2) - (dx / 2);
             rc.right = rc.left + dx;
             rc.top = rc.top + (rcDy / 2) - (dx / 2);
             rc.bottom = rc.top + dx;
@@ -2215,8 +2272,8 @@ void MenuCustomDrawItem(HWND hwnd, DRAWITEMSTRUCT* dis) {
         POINT points[3];
         int offX = DpiScale(hwnd, 6); // 6 is chosen experimentally
         points[0] = {rc.left + offX, rc.top + (rcDy / 2)};
-        points[1] = {rc.left + (dxCheckMark / 2), rc.bottom - (padY * 3)};
-        points[2] = {rc.left + dxCheckMark - offX, rc.top + (padY * 3)};
+        points[1] = {rc.left + (cxCheckMark / 2), rc.bottom - (padY * 3)};
+        points[2] = {rc.left + cxCheckMark - offX, rc.top + (padY * 3)};
         Polyline(hdc, points, dimof(points));
     }
 }
@@ -2234,7 +2291,7 @@ HMENU BuildMenu(MainWindow* win) {
 }
 
 void UpdateAppMenu(MainWindow* win, HMENU m) {
-    CrashIf(!win);
+    ReportIf(!win);
     if (!win) {
         return;
     }
@@ -2253,7 +2310,8 @@ void UpdateAppMenu(MainWindow* win, HMENU m) {
 // show/hide top-level menu bar. This doesn't persist across launches
 // so that accidental removal of the menu isn't catastrophic
 void ToggleMenuBar(MainWindow* win, bool showTemporarily) {
-    CrashIf(!win->menu);
+    ReportIf(!win->menu);
+
     if (win->presentation || win->isFullScreen) {
         return;
     }

@@ -56,7 +56,7 @@ class EngineMupdf : public EngineBase {
     PageText ExtractPageText(int pageNo) override;
 
     bool HasClipOptimizations(int pageNo) override;
-    TempStr GetPropertyTemp(DocumentProperty prop) override;
+    TempStr GetPropertyTemp(const char* name) override;
 
     bool BenchLoadPage(int pageNo) override;
 
@@ -72,6 +72,8 @@ class EngineMupdf : public EngineBase {
     TempStr GetPageLabeTemp(int pageNo) const override;
     int GetPageByLabel(const char* label) const override;
 
+    fz_context* Ctx() const;
+
     // make sure to never ask for pagesAccess in an ctxAccess
     // protected critical section in order to avoid deadlocks
     CRITICAL_SECTION* ctxAccess;
@@ -79,7 +81,7 @@ class EngineMupdf : public EngineBase {
 
     CRITICAL_SECTION mutexes[FZ_LOCK_MAX];
 
-    fz_context* ctx = nullptr;
+    fz_context* _ctx = nullptr;
     fz_locks_context fz_locks_ctx;
     int displayDPI{96};
     fz_document* _doc = nullptr;
@@ -105,8 +107,9 @@ class EngineMupdf : public EngineBase {
     bool FinishLoading();
     RenderedBitmap* GetPageImage(int pageNo, RectF rect, int imageIdx);
 
+    FzPageInfo* GetFzPageInfoCanFail(int pageNo);
     FzPageInfo* GetFzPageInfoFast(int pageNo);
-    FzPageInfo* GetFzPageInfo(int pageNo, bool loadQuick);
+    FzPageInfo* GetFzPageInfo(int pageNo, bool loadQuick, fz_cookie* cookie = nullptr);
     fz_matrix viewctm(int pageNo, float zoom, int rotation);
     fz_matrix viewctm(fz_page* page, float zoom, int rotation) const;
     TocItem* BuildTocTree(TocItem* parent, fz_outline* outline, int& idCounter, bool isAttachment);
@@ -122,3 +125,5 @@ RectF ToRectF(fz_rect rect);
 RenderedBitmap* NewRenderedFzPixmap(fz_context* ctx, fz_pixmap* pixmap);
 void MarkNotificationAsModified(EngineMupdf*, Annotation*, AnnotationChange = AnnotationChange::Modify);
 Annotation* MakeAnnotationWrapper(EngineMupdf* engine, pdf_annot* annot, int pageNo);
+
+void InitializeEngineMupdf();

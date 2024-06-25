@@ -95,15 +95,15 @@ static void StrConvTest() {
     char cbuf[4];
     size_t conv = strconv::Utf8ToWcharBuf("testing", 4, wbuf, dimof(wbuf));
     utassert(conv == 3 && str::Eq(wbuf, L"tes"));
-    conv = strconv::WstrToUtf8Buf(L"abc", cbuf, dimof(cbuf));
+    conv = strconv::WStrToUtf8Buf(L"abc", cbuf, dimof(cbuf));
     utassert(conv == 3 && str::Eq(cbuf, "abc"));
     conv = strconv::Utf8ToWcharBuf("ab\xF0\x90\x82\x80", 6, wbuf, dimof(wbuf));
     utassert(conv == 3 && str::StartsWith(wbuf, L"ab") && wbuf[2] == 0xD800);
     conv = strconv::Utf8ToWcharBuf("ab\xF0\x90\x82\x80", 6, wbuf, dimof(wbuf) - 1);
     utassert(conv == 1 && str::Eq(wbuf, L"a"));
-    conv = strconv::WstrToUtf8Buf(L"ab\u20AC", cbuf, dimof(cbuf));
+    conv = strconv::WStrToUtf8Buf(L"ab\u20AC", cbuf, dimof(cbuf));
     utassert(conv == 0 && str::Eq(cbuf, ""));
-    conv = strconv::WstrToUtf8Buf(L"abcd", cbuf, dimof(cbuf));
+    conv = strconv::WStrToUtf8Buf(L"abcd", cbuf, dimof(cbuf));
     utassert(conv == 0 && str::Eq(cbuf, ""));
 #endif
 }
@@ -225,205 +225,6 @@ void strWStrTest() {
     }
 }
 
-static void assertStrEq(const char* s1, const char* s2) {
-    bool ok = str::Eq(s1, s2);
-    utassert(ok);
-}
-
-static void CheckRemoveAt(StrVec& v) {
-    while (v.Size() > 0) {
-        int n = v.Size();
-        int idx = v.Size() / 2;
-        auto exp = v[idx];
-        char* got;
-        if (n % 2 == 0) {
-            got = v.RemoveAt(idx);
-        } else {
-            got = v.RemoveAtFast(idx);
-        }
-        utassert(exp == got); // should be exact same pointer value
-        utassert(v.Size() == n - 1);
-    }
-}
-
-static void StrVecCheckIter(StrVec& v, const char** strs) {
-    int i = 0;
-    for (char* s : v) {
-        char* s2 = v[i];
-        utassert(str::Eq(s, s2));
-        if (strs) {
-            const char* s3 = strs[i];
-            utassert(str::Eq(s, s3));
-        }
-        i++;
-    }
-}
-
-static void StrVecTest() {
-    const char* strs[] = {"foo", "bar", "Blast", nullptr, "this is a large string, my friend"};
-    int unsortedOrder[] = {0, 1, 2, 3, 4};
-    int sortedOrder[]{3, 2, 1, 0, 4};
-    int sortedNoCaseOrder[]{3, 1, 2, 0, 4};
-
-    int n = (int)dimof(strs);
-    StrVec v;
-    utassert(v.Size() == 0);
-    for (int i = 0; i < n; i++) {
-        v.Append(strs[i]);
-        utassert(v.Size() == i + 1);
-    }
-    StrVecCheckIter(v, strs);
-
-    StrVec sortedView = v;
-    sortedView.Sort();
-
-    for (int i = 0; i < n; i++) {
-        char* got = sortedView.at(i);
-        auto exp = strs[sortedOrder[i]];
-        assertStrEq(got, exp);
-    }
-
-    // allocate a bunch to test allocating
-    for (int i = 0; i < 1024; i++) {
-        v.Append(strs[4]);
-    }
-    utassert(v.Size() == 1024 + n);
-
-    for (int i = 0; i < n; i++) {
-        auto got = v.at(i);
-        auto exp = strs[unsortedOrder[i]];
-        assertStrEq(got, exp);
-    }
-
-    for (int i = 0; i < 1024; i++) {
-        auto got = v.at(i + n);
-        auto exp = strs[4];
-        assertStrEq(got, exp);
-    }
-    sortedView.SortNoCase();
-
-    for (int i = 0; i < n; i++) {
-        auto got = sortedView.at(i);
-        auto exp = strs[sortedNoCaseOrder[i]];
-        assertStrEq(got, exp);
-    }
-
-    v.Sort();
-    for (int i = 0; i < n; i++) {
-        char* got = v.at(i);
-        auto exp = strs[sortedOrder[i]];
-        assertStrEq(got, exp);
-    }
-    StrVecCheckIter(v, nullptr);
-    v.SortNoCase();
-    for (int i = 0; i < n; i++) {
-        char* got = v.at(i);
-        auto exp = strs[sortedNoCaseOrder[i]];
-        assertStrEq(got, exp);
-    }
-    v.SetAt(3, nullptr);
-    utassert(nullptr == v[3]);
-    CheckRemoveAt(v);
-}
-
-static void StrVecTest2() {
-    StrVec v;
-    v.Append("foo");
-    v.Append("bar");
-    char* s = Join(v);
-    utassert(v.size() == 2);
-    utassert(str::Eq("foobar", s));
-    str::Free(s);
-
-    s = Join(v, ";");
-    utassert(v.size() == 2);
-    utassert(str::Eq("foo;bar", s));
-    str::Free(s);
-
-    v.Append(nullptr);
-    utassert(v.size() == 3);
-
-    v.Append("glee");
-    s = Join(v, "_ _");
-    utassert(v.size() == 4);
-    utassert(str::Eq("foo_ _bar_ _glee", s));
-    str::Free(s);
-
-    StrVecCheckIter(v, nullptr);
-    v.Sort();
-    const char* strsSorted[] = {nullptr, "bar", "foo", "glee"};
-    StrVecCheckIter(v, strsSorted);
-
-    s = Join(v, "++");
-    utassert(v.size() == 4);
-    utassert(str::Eq("bar++foo++glee", s));
-    str::Free(s);
-
-    s = Join(v);
-    utassert(str::Eq("barfooglee", s));
-    str::Free(s);
-
-    {
-        StrVec v2(v);
-        utassert(str::Eq(v2.at(2), "foo"));
-        v2.Append("nobar");
-        utassert(str::Eq(v2.at(4), "nobar"));
-        v2 = v;
-        utassert(v2.size() == 4);
-        // copies should be same values but at different addresses
-        utassert(v2.at(1) != v.at(1));
-        utassert(str::Eq(v2.at(1), v.at(1)));
-        s = v2.at(2);
-        utassert(str::Eq(s, "foo"));
-        CheckRemoveAt(v2);
-    }
-
-    {
-        StrVec v2;
-        size_t count = Split(v2, "a,b,,c,", ",");
-        utassert(count == 5 && v2.Find("c") == 3);
-        utassert(v2.Find("") == 2);
-        utassert(v2.Find("", 3) == 4);
-        utassert(v2.Find("", 5) == -1);
-        utassert(v2.Find("B") == -1 && v2.FindI("B") == 1);
-        TempStr joined = JoinTemp(v2, ";");
-        utassert(str::Eq(joined, "a;b;;c;"));
-        CheckRemoveAt(v2);
-    }
-
-    {
-        StrVec v2;
-        size_t count = Split(v2, "a,b,,c,", ",", true);
-        utassert(count == 3 && v2.Find("c") == 2);
-        TempStr joined = JoinTemp(v2, ";");
-        utassert(str::Eq(joined, "a;b;c"));
-        StrVecCheckIter(v2, nullptr);
-
-#if 0
-        AutoFreeWstr last(v2.Pop());
-        utassert(v2.size() == 2 && str::Eq(last, L"c"));
-#endif
-        CheckRemoveAt(v2);
-    }
-    CheckRemoveAt(v);
-}
-
-static void StrVecTest3() {
-    StrVec v;
-    utassert(v.size() == 0);
-    v.Append(str::Dup("one"));
-    v.Append(str::Dup("two"));
-    v.Append(str::Dup("One"));
-    utassert(v.size() == 3);
-    utassert(str::Eq(v.at(0), "one"));
-    utassert(str::EqI(v.at(2), "one"));
-    utassert(v.Find("One") == 2);
-    utassert(v.FindI("One") == 0);
-    utassert(v.Find("Two") == -1);
-    StrVecCheckIter(v, nullptr);
-    CheckRemoveAt(v);
-}
-
 void StrTest() {
     WCHAR buf[32];
     const WCHAR* str = L"a string";
@@ -433,7 +234,6 @@ void StrTest() {
     utassert(str::EqI(str, L"A String") && str::EqI(str, str));
     utassert(!str::EqI(str, nullptr) && str::EqI((char*)nullptr, (char*)nullptr));
     utassert(str::EqN(L"abcd", L"abce", 3) && !str::EqN(L"abcd", L"Abcd", 3));
-    utassert(str::EqNI(L"abcd", L"ABCE", 3) && !str::EqNI(L"abcd", L"Ebcd", 3));
     utassert(str::StartsWith(str, L"a s") && str::StartsWithI(str, L"A Str"));
     utassert(!str::StartsWith(str, L"Astr"));
     utassert(str::EndsWith(str, L"ing") && str::EndsWithI(str, L"ING"));
@@ -455,7 +255,7 @@ void StrTest() {
     utassert(str::Eq(str, buf));
     str::Free(str);
     {
-        AutoFreeWstr large(AllocArray<WCHAR>(2000));
+        AutoFreeWStr large(AllocArray<WCHAR>(2000));
         memset(large, 0x11, 1998);
         str = str::Format(L"%s", large.Get());
         utassert(str::Eq(str, large));
@@ -518,7 +318,7 @@ void StrTest() {
 
     {
         uint u1 = 0;
-        AutoFreeWstr str1;
+        AutoFreeWStr str1;
         const WCHAR* end = str::Parse(str, L"[Open(\"%S\",0%?,%u,0)]", &str1, &u1);
         utassert(end && !*end);
         utassert(u1 == 1 && str::Eq(str1, L"filename.pdf"));
@@ -598,7 +398,7 @@ void StrTest() {
         utassert(str::Eq(str1, "ansi string") && i == -30 && j == 20 && f == 1.5f);
     }
     {
-        AutoFreeWstr str1;
+        AutoFreeWStr str1;
         int i, j;
         float f;
         utassert(str::Parse(L"wide string, -30-20 1.5%", L"%S,%d%?-%2u%f%%%$", &str1, &i, &j, &f));
@@ -625,9 +425,9 @@ void StrTest() {
     // the test string should only contain ASCII characters,
     // as all others might not be available in all code pages
 #define TEST_STRING "aBc"
-    AutoFree strA = strconv::WstrToAnsi(TEXT(TEST_STRING));
+    AutoFree strA = strconv::WStrToAnsi(TEXT(TEST_STRING));
     utassert(str::Eq(strA.Get(), TEST_STRING));
-    str = strconv::AnsiToWstr(strA.Get());
+    str = strconv::AnsiToWStr(strA.Get());
     utassert(str::Eq(str, TEXT(TEST_STRING)));
     str::Free(str);
 #undef TEST_STRING
@@ -767,19 +567,19 @@ void StrTest() {
     }
 
     {
-        AutoFree tmp = strconv::ToMultiByte("abc", 9876, 123456);
+        TempStr tmp = strconv::ToMultiByteTemp("abc", 9876, 123456);
+        utassert(!tmp);
+    }
+    {
+        AutoFree tmp = strconv::WStrToCodePage(98765, L"abc");
         utassert(!tmp.Get());
     }
     {
-        AutoFree tmp = strconv::WstrToCodePage(98765, L"abc");
-        utassert(!tmp.Get());
-    }
-    {
-        AutoFreeWstr tmp(strconv::StrToWstr("abc", 12345));
+        AutoFreeWStr tmp(strconv::StrToWStr("abc", 12345));
         utassert(str::IsEmpty(tmp.Get()));
     }
     {
-        AutoFree tmp = strconv::WstrToCodePage(987654, L"abc");
+        AutoFree tmp = strconv::WStrToCodePage(987654, L"abc");
         utassert(str::IsEmpty(tmp.Get()));
     }
 
@@ -822,26 +622,6 @@ void StrTest() {
         }
     }
 
-    {
-        utassert(str::Eq(str::FindI(L"test", nullptr), nullptr));
-        utassert(str::Eq(str::FindI(nullptr, L"test"), nullptr));
-        utassert(str::Eq(str::FindI(L"test", L""), L"test"));
-        utassert(str::Eq(str::FindI(L"test", L"ES"), L"est"));
-        utassert(str::Eq(str::FindI(L"test", L"Te"), L"test"));
-        utassert(str::Eq(str::FindI(L"testx", L"X"), L"x"));
-        utassert(str::Eq(str::FindI(L"test", L"st"), L"st"));
-        utassert(str::Eq(str::FindI(L"t\xE4st", L"\xC4s"), nullptr));
-        utassert(str::Eq(str::FindI(L"t\xE4st", L"T\xC5"), nullptr));
-
-        utassert(str::Eq(str::FindI("test", nullptr), nullptr));
-        utassert(str::Eq(str::FindI(nullptr, "test"), nullptr));
-        utassert(str::Eq(str::FindI("test", ""), "test"));
-        utassert(str::Eq(str::FindI("test", "ES"), "est"));
-        utassert(str::Eq(str::FindI("test", "Te"), "test"));
-        utassert(str::Eq(str::FindI("testx", "X"), "x"));
-        utassert(str::Eq(str::FindI("test", "st"), "st"));
-    }
-
     strStrTest();
     strWStrTest();
     StrIsDigitTest();
@@ -850,7 +630,4 @@ void StrTest() {
     StrConvTest();
     StrUrlExtractTest();
     // ParseUntilTest();
-    StrVecTest();
-    StrVecTest2();
-    StrVecTest3();
 }

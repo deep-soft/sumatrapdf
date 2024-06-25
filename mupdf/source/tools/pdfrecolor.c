@@ -1,4 +1,4 @@
-// Copyright (C) 2004-2023 Artifex Software, Inc.
+// Copyright (C) 2004-2024 Artifex Software, Inc.
 //
 // This file is part of MuPDF.
 //
@@ -71,6 +71,9 @@ image_rewrite(fz_context *ctx, void *opaque, fz_image **image, fz_matrix ctm, pd
 	fz_colorspace* dst_cs;
 
 	fz_var(pix);
+
+	if ((*image)->imagemask)
+		return;
 
 	dst_cs = outcs;
 	pix = fz_get_unscaled_pixmap_from_image(ctx, orig);

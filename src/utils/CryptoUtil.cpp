@@ -9,47 +9,49 @@
 #endif
 
 // TODO: could use CryptoNG available starting in Vista
-static NO_INLINE void CalcDigestWin(const void* data, size_t dataSize, u8* digest, DWORD digestSize,
-                                    const WCHAR* provider, DWORD type, ALG_ID alg) {
+static NO_INLINE void CalcDigestWin(const void* data, int dataSize, u8* digest, DWORD digestSize, const WCHAR* provider,
+                                    DWORD type, ALG_ID alg) {
     HCRYPTPROV hProv = 0;
     HCRYPTHASH hHash = 0;
     BOOL ok = CryptAcquireContextW(&hProv, nullptr, provider, type, CRYPT_VERIFYCONTEXT);
-    CrashIf(!ok);
+    ReportIf(!ok);
     ok = CryptCreateHash(hProv, alg, 0, 0, &hHash);
-    CrashIf(!ok);
+    ReportIf(!ok);
 
 #ifdef _WIN64
     for (; dataSize > DWORD_MAX; data = (const BYTE*)data + DWORD_MAX, dataSize -= DWORD_MAX) {
         ok = CryptHashData(hHash, (const BYTE*)data, DWORD_MAX, 0);
-        CrashIf(!ok);
+        ReportIf(!ok);
     }
 #endif
-    CrashIf(dataSize > DWORD_MAX);
+    ReportIf(dataSize > DWORD_MAX);
     ok = CryptHashData(hHash, (const BYTE*)data, (DWORD)dataSize, 0);
-    CrashIf(!ok);
+    ReportIf(!ok);
 
     DWORD hashLen = 0;
     DWORD argSize = sizeof(DWORD);
     ok = CryptGetHashParam(hHash, HP_HASHSIZE, (BYTE*)&hashLen, &argSize, 0);
-    CrashIf(sizeof(DWORD) != argSize);
-    CrashIf(!ok);
-    CrashIf(digestSize != hashLen);
+    ReportIf(sizeof(DWORD) != argSize);
+    ReportIf(!ok);
+    if (digestSize != hashLen) {
+        ReportIf(digestSize != hashLen);
+    }
     ok = CryptGetHashParam(hHash, HP_HASHVAL, digest, &hashLen, 0);
-    CrashIf(!ok);
-    CrashIf(digestSize != hashLen);
+    ReportIf(!ok);
+    ReportIf(digestSize != hashLen);
     CryptDestroyHash(hHash);
     CryptReleaseContext(hProv, 0);
 }
 
-void CalcMD5Digest(const void* data, size_t dataSize, u8 digest[16]) {
+void CalcMD5Digest(const void* data, int dataSize, u8 digest[16]) {
     CalcDigestWin(data, dataSize, digest, 16, MS_DEF_PROV, PROV_RSA_FULL, CALG_MD5);
 }
 
-void CalcSHA1Digest(const void* data, size_t dataSize, u8 digest[20]) {
+void CalcSHA1Digest(const void* data, int dataSize, u8 digest[20]) {
     CalcDigestWin(data, dataSize, digest, 20, MS_DEF_PROV, PROV_RSA_FULL, CALG_SHA1);
 }
 
-void CalcSHA2Digest(const void* data, size_t dataSize, u8 digest[32]) {
+void CalcSHA2Digest(const void* data, int dataSize, u8 digest[32]) {
     CalcDigestWin(data, dataSize, digest, 32, MS_ENH_RSA_AES_PROV, PROV_RSA_AES, CALG_SHA_256);
 }
 

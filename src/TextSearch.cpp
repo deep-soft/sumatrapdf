@@ -35,9 +35,9 @@ TextSearch::~TextSearch() {
 }
 
 void TextSearch::Clear() {
-    str::ReplaceWithCopy(&findText, nullptr);
-    str::ReplaceWithCopy(&anchor, nullptr);
-    str::ReplaceWithCopy(&lastText, nullptr);
+    str::FreePtr(&findText);
+    str::FreePtr(&anchor);
+    str::FreePtr(&lastText);
     Reset();
 }
 
@@ -131,7 +131,7 @@ void TextSearch::SetDirection(TextSearchDirection direction) {
 void TextSearch::SetLastResult(TextSelection* sel) {
     CopySelection(sel);
 
-    AutoFreeWstr selection(ExtractText(" "));
+    AutoFreeWStr selection(ExtractText(" "));
     str::NormalizeWSInPlace(selection);
     SetText(selection);
 
@@ -360,7 +360,7 @@ TextSel* TextSearch::FindFirst(int page, const WCHAR* text, ProgressUpdateUI* tr
 }
 
 TextSel* TextSearch::FindNext(ProgressUpdateUI* tracker) {
-    CrashIf(!findText);
+    ReportIf(!findText);
     if (!findText) {
         return nullptr;
     }

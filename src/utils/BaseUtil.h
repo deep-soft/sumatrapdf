@@ -84,7 +84,9 @@
 #include "BuildConfig.h"
 
 #define NOMINMAX
+#include <winsock2.h> // must include before <windows.h>
 #include <windows.h>
+#include <ws2def.h>
 #include <unknwn.h>
 #include <shlwapi.h>
 #include <shlobj.h>
@@ -187,6 +189,11 @@ char (&DimofSizeHelper(T (&array)[N]))[N];
 #define IS_UNUSED __attribute__((unused))
 #endif
 
+// __analysis_assume is defined by msvc for prefast analysis
+#if !defined(__analysis_assume)
+#define __analysis_assume(x)
+#endif
+
 #if COMPILER_MSVC
 #pragma warning(push)
 #pragma warning(disable : 6011) // silence /analyze: de-referencing a nullptr pointer
@@ -205,66 +212,53 @@ inline void CrashMe() {
 #pragma warning(pop)
 #endif
 
-// CrashIf() is like assert() except it crashes in debug and pre-release builds.
+// ReportIf() is like assert() except it sends crash report in pre-release and debug
+// builds.
 // The idea is that assert() indicates "can't possibly happen" situation and if
 // it does happen, we would like to fix the underlying cause.
 // In practice in our testing we rarely get notified when an assert() is triggered
 // and they are disabled in builds running on user's computers.
-// Now that we have crash reporting, we can get notified about such cases if we
-// use CrashIf() instead of assert(), which we should be doing from now on.
 //
+// ReportAlwaysIf() sends a report even in release builds. This is to catch the most
+// thorny scenarios.
 // Enabling it in pre-release builds but not in release builds is trade-off between
-// shipping small executables (each CrashIf() adds few bytes of code) and having
+// shipping small executables (each ReportIf() adds few bytes of code) and having
 // more testing on user's machines and not only in our personal testing.
-// To crash uncoditionally use CrashAlwaysIf(). It should only be used in
+// To crash uncoditionally use ReportIf(). It should only be used in
 // rare cases where we really want to know a given condition happens. Before
-// each release we should audit the uses of CrashAlawysIf()
-//
-// Just as with assert(), the condition is not guaranteed to be executed
-// in some builds, so it shouldn't contain the actual logic of the code
+// each release we should audit the uses of ReportAlwaysIf()
 
-// TODO: maybe change to NO_INLINE since now I can filter callstack
-// on the server
-inline void CrashIfFunc(bool cond) {
-    if (!cond) {
-        return;
-    }
-    if (IsDebuggerPresent()) {
-        DebugBreak();
-        return;
-    }
+// in release builds ReportIf()/ReportIfQuick() will break if running under
+// the debugger. In other builds it send a debug report
+#undef UPLOAD_REPORT
 #if defined(PRE_RELEASE_VER) || defined(DEBUG) || defined(ASAN_BUILD)
-    CrashMe();
-#endif
-}
-
-// __analysis_assume is defined by msvc for prefast analysis
-#if !defined(__analysis_assume)
-#define __analysis_assume(x)
+#define UPLOAD_REPORT
 #endif
 
-#define CrashAlwaysIf(cond)         \
+extern void _uploadDebugReport(const char*, bool, bool);
+void BreakIfUnderDebugger();
+
+#ifdef UPLOAD_REPORT
+#define ReportIfCond(cond, condStr, isCrash, captureCallstack)      \
+    __analysis_assume(!(cond));                                     \
+    do {                                                            \
+        if (cond) {                                                 \
+            _uploadDebugReport(condStr, isCrash, captureCallstack); \
+        }                                                           \
+    } while (0)
+#else
+// version that is a no-op
+#define ReportIfCond(cond, x, y, z) \
+    __analysis_assume(!(cond));     \
     do {                            \
-        __analysis_assume(!(cond)); \
         if (cond) {                 \
-            CrashMe();              \
+            BreakIfUnderDebugger(); \
         }                           \
     } while (0)
+#endif
 
-#define CrashIf(cond)               \
-    do {                            \
-        __analysis_assume(!(cond)); \
-        CrashIfFunc(cond);          \
-    } while (0)
-
-// must be defined in the app. can be no-op to disable this functionality
-void _uploadDebugReportIfFunc(bool cond, const char*);
-
-#define ReportIf(cond)                         \
-    do {                                       \
-        __analysis_assume(!(cond));            \
-        _uploadDebugReportIfFunc(cond, #cond); \
-    } while (0)
+#define ReportIf(cond) ReportIfCond(cond, #cond, false, true)
+#define ReportIfQuick(cond) ReportIfCond(cond, #cond, false, false)
 
 void* AllocZero(size_t count, size_t size);
 
@@ -289,25 +283,14 @@ inline void ZeroArray(T& a) {
     ZeroMemory((void*)&a, size);
 }
 
-template <typename T>
-inline T limitValue(T val, T min, T max) {
-    if (min > max) {
-        std::swap(min, max);
-    }
-    CrashIf(min > max);
-    if (val < min) {
-        return min;
-    }
-    if (val > max) {
-        return max;
-    }
-    return val;
-}
+int limitValue(int val, int min, int max);
+DWORD limitValue(DWORD val, DWORD min, DWORD max);
+float limitValue(float val, float min, float max);
 
 // return true if adding n to val overflows. Only valid for n > 0
 template <typename T>
 inline bool addOverflows(T val, T n) {
-    CrashIf(!(n > 0));
+    ReportIf(!(n > 0));
     T res = val + n;
     return val > res;
 }
@@ -540,6 +523,11 @@ struct Foo {
     Kind kind;
 };
 
+or:
+
+struct Foo : KindBase {
+};
+
 extern Kind kindFoo;
 
 // in foo.cpp
@@ -547,6 +535,15 @@ Kind kindFoo = "foo";
 */
 
 using Kind = const char*;
+
+struct KindBase {
+    Kind kind;
+
+    Kind GetKind() const {
+        return kind;
+    }
+};
+
 inline bool isOfKindHelper(Kind k1, Kind k2) {
     return k1 == k2;
 }
@@ -583,6 +580,45 @@ class ExitScopeHelp {
     }
 };
 
+// it's 32-bit value which we cast to int for ease of use
+struct AtomicInt {
+    AtomicInt() = default;
+    ~AtomicInt() = default;
+    int Set(int n);
+    int Inc();
+    int Dec();
+    int Add(int n);
+    int Sub(int n);
+    int Get() const;
+
+  private:
+    volatile LONG val = 0;
+};
+
+class AtomicBool {
+  public:
+    AtomicBool() = default;
+    ~AtomicBool() = default;
+    bool Get() const;
+    bool Set(bool newValue);
+
+  private:
+    volatile LONG val = 0;
+};
+
+struct AtomicRefCount {
+    AtomicRefCount() = default;
+    ~AtomicRefCount() = default;
+    int Add();
+    // returns true if counter reaches 0, meaning it has been released
+    // by all who held a reference to it
+    bool Dec();
+
+  private:
+    // starts life as acquired
+    volatile LONG val = 1;
+};
+
 #define defer const auto& CONCAT(defer__, __LINE__) = ExitScopeHelp() + [&]()
 
 extern LONG gAllowAllocFailure;
@@ -593,10 +629,15 @@ defer { fclose(f); };
 defer { instance->Release(); };
 */
 
+// exists just to mark the intent, needed by both StrUtil.h and TempAllocator.h
+using TempStr = char*;
+using TempWStr = WCHAR*;
+
 #include "GeomUtil.h"
 #include "Vec.h"
-#include "TempAllocator.h"
 #include "StrUtil.h"
+#include "TempAllocator.h"
+#include "StrVec.h"
 #include "StrconvUtil.h"
 #include "Scoped.h"
 #include "ColorUtil.h"

@@ -33,6 +33,7 @@ void MoveWindow(HWND hwnd, RECT* r);
 
 bool IsOs64();
 bool IsProcess64();
+bool IsProcess32();
 bool IsArmBuild();
 bool IsRunningInWow64();
 bool IsProcessAndOsArchSame();
@@ -40,6 +41,8 @@ bool IsProcessAndOsArchSame();
 bool GetOsVersion(OSVERSIONINFOEX& ver);
 TempStr OsNameFromVerTemp(const OSVERSIONINFOEX& ver);
 TempStr GetWindowsVerTemp();
+
+TempStr GetEnvVariableTemp(const char*);
 
 TempStr GetLastErrorStrTemp(DWORD err = 0);
 void LogLastError(DWORD err = 0);
@@ -81,8 +84,9 @@ IDataObject* GetDataObjectForFile(const char* filePath, HWND hwnd = nullptr);
 HANDLE LaunchProces(const char* exe, const char* cmdLine);
 HANDLE LaunchProcess(const char* cmdLine, const char* currDir = nullptr, DWORD flags = 0);
 bool CreateProcessHelper(const char* exe, const char* args);
-bool LaunchFile(const char* path, const char* params = nullptr, const char* verb = nullptr, bool hidden = false);
+bool LaunchFileShell(const char* path, const char* params = nullptr, const char* verb = nullptr, bool hidden = false);
 bool LaunchBrowser(const char* url);
+void OpenPathInExplorer(const char* path);
 
 bool LaunchElevated(const char* path, const char* cmdline);
 bool IsProcessRunningElevated();
@@ -111,15 +115,14 @@ void FillRect(HDC, const Rect&, HBRUSH);
 void FillRect(HDC hdc, const Rect&, COLORREF);
 void DrawLine(HDC, const Rect&);
 
-void DrawCenteredText(HDC hdc, Rect r, const WCHAR* txt, bool isRTL = false);
 void DrawCenteredText(HDC hdc, Rect r, const char* txt, bool isRTL = false);
-void DrawCenteredText(HDC, const RECT& r, const WCHAR* txt, bool isRTL = false);
 Size HwndMeasureText(HWND hwnd, const char* txt, HFONT font = nullptr);
+int FontDyPx(HWND hwnd, HFONT hfont);
 
 int HdcDrawText(HDC hdc, const char* s, RECT* r, uint format, HFONT font = nullptr);
 int HdcDrawText(HDC hdc, const char* s, const Rect& r, uint format, HFONT font = nullptr);
 int HdcDrawText(HDC hdc, const char* s, const Point& pos, uint fmt, HFONT font = nullptr);
-Size HdcMeasureText(HDC hdc, const char* s, uint format, HFONT font = nullptr);
+Size HdcMeasureText(HDC hdc, const char* s, uint format, HFONT font);
 Size HdcMeasureText(HDC hdc, const char* s, HFONT font = nullptr);
 
 bool HwndIsFocused(HWND);
@@ -133,6 +136,7 @@ void HwndMakeVisible(HWND);
 
 bool IsMouseOverRect(HWND hwnd, const Rect& r);
 void CenterDialog(HWND hDlg, HWND hParent = nullptr);
+void SetDlgItemFont(HWND hDlg, int nIDDlgItem, HFONT fnt);
 
 char* GetDefaultPrinterNameTemp();
 
@@ -155,7 +159,7 @@ HFONT GetMenuFont();
 HFONT CreateSimpleFont(HDC hdc, const char* fontName, int fontSize);
 HFONT GetDefaultGuiFont(bool bold = false, bool italic = false);
 HFONT GetDefaultGuiFontOfSize(int size);
-HFONT GetUserGuiFont(char* fontName, int size, int weightOffset);
+HFONT GetUserGuiFont(const char* fontName, int size);
 int GetSizeOfDefaultGuiFont();
 void DeleteCreatedFonts();
 
@@ -283,7 +287,7 @@ double GetProcessRunningTime();
 
 void RunNonElevated(const char* exePath);
 void VariantInitBstr(VARIANT& urlVar, const WCHAR* s);
-ByteSlice LoadDataResource(int resId);
+StrSpan LoadDataResource(int resId);
 bool DDEExecute(const WCHAR* server, const WCHAR* topic, const WCHAR* command);
 
 void RectInflateTB(RECT& r, int top, int bottom);
@@ -297,9 +301,14 @@ void DeleteCachedCursors();
 int GetMeasurementSystem();
 bool TrackMouseLeave(HWND);
 
+struct LoadedDataResource {
+    const u8* data = nullptr;
+    int dataSize = 0;
+};
+bool LockDataResource(int resId, LoadedDataResource*);
+
 HINSTANCE GetInstance();
 Size ButtonGetIdealSize(HWND hwnd);
-ByteSlice LockDataResource(int id);
 bool IsValidDelayType(int type);
 
 void HwndResizeClientSize(HWND, int, int);
@@ -308,9 +317,13 @@ size_t HwndGetTextLen(HWND hwnd);
 TempWStr HwndGetTextWTemp(HWND hwnd);
 TempStr HwndGetTextTemp(HWND hwnd);
 void HwndSetText(HWND, const char* s);
-void HwndSetText(HWND, const WCHAR*);
 bool HwndHasFrameThickness(HWND hwnd);
 bool HwndHasCaption(HWND hwnd);
+
+void HwndSetDlgItemText(HWND, int, const char*);
+
+void CbAddString(HWND, const char*);
+void CbSetCurrentSelection(HWND, int);
 
 HICON HwndGetIcon(HWND);
 HICON HwndSetIcon(HWND, HICON);
@@ -344,3 +357,15 @@ TempStr HGLOBALToStrTemp(HGLOBAL h, bool isUnicode);
 HGLOBAL MemToHGLOBAL(void* src, int n, UINT flags = GMEM_MOVEABLE);
 HGLOBAL StrToHGLOBAL(const char* s, UINT flags = GMEM_MOVEABLE);
 TempStr AtomToStrTemp(ATOM a);
+int MsgBox(HWND, const char*, const char*, UINT);
+
+constexpr u32 kCpuMMX = 1 << 1;
+constexpr u32 kCpuSSE = 1 << 2;
+constexpr u32 kCpuSSE2 = 1 << 2;
+constexpr u32 kCpuSSE3 = 1 << 3;
+constexpr u32 kCpuSSE41 = 1 << 4;
+constexpr u32 kCpuSSE42 = 1 << 5;
+constexpr u32 kCpuAVX = 1 << 6;
+constexpr u32 kCpuAVX2 = 1 << 7;
+
+u32 CpuID();

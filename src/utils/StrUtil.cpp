@@ -189,9 +189,19 @@ bool IsEqual(const ByteSlice& d1, const ByteSlice& d2) {
     if (d1.sz == 0) {
         return true;
     }
-    CrashIf(!d1.d || !d2.d);
+    ReportIf(!d1.d || !d2.d);
     int res = memcmp(d1.d, d2.d, d1.sz);
     return res == 0;
+}
+
+StrSpan::StrSpan(const char* s) {
+    d = (char*)s;
+    size = str::Leni(s);
+}
+
+StrSpan::StrSpan(const char* s, int sLen) {
+    d = (char*)s;
+    size = sLen;
 }
 
 namespace str {
@@ -222,6 +232,10 @@ void Free(const u8* s) {
 
 void Free(const WCHAR* s) {
     free((void*)s);
+}
+
+void Free(const StrSpan& s) {
+    free(s.CStr());
 }
 
 void FreePtr(const char** s) {
@@ -452,13 +466,6 @@ void ReplacePtr(char** s, const char* snew) {
     ReplacePtr((const char**)s, snew);
 }
 
-void ReplacePtr(const WCHAR** s, const WCHAR* snew) {
-    if (*s != snew) {
-        str::Free(*s);
-        *s = (WCHAR*)snew;
-    }
-}
-
 void ReplaceWithCopy(const char** s, const char* snew) {
     if (*s != snew) {
         str::Free(*s);
@@ -480,15 +487,29 @@ void ReplaceWithCopy(char** s, const char* snew) {
     }
 }
 
-void ReplaceWithCopy(const WCHAR** s, const WCHAR* snew) {
-    if (*s != snew) {
-        str::Free(*s);
-        *s = str::Dup(snew);
-    }
-}
+char* Join(Allocator* allocator, const char* s1, const char* s2, const char* s3, const char* s4, const char* s5) {
+    size_t s1Len = str::Len(s1);
+    size_t s2Len = str::Len(s2);
+    size_t s3Len = str::Len(s3);
+    size_t s4Len = str::Len(s4);
+    size_t s5Len = str::Len(s5);
+    size_t len = s1Len + s2Len + s3Len + s4Len + s5Len + 1;
+    char* res = (char*)Allocator::Alloc(allocator, len);
 
-void ReplaceWithCopy(WCHAR** s, const WCHAR* snew) {
-    ReplaceWithCopy((const WCHAR**)s, snew);
+    char* s = res;
+    memcpy(s, s1, s1Len);
+    s += s1Len;
+    memcpy(s, s2, s2Len);
+    s += s2Len;
+    memcpy(s, s3, s3Len);
+    s += s3Len;
+    memcpy(s, s4, s4Len);
+    s += s4Len;
+    memcpy(s, s5, s5Len);
+    s += s5Len;
+    *s = 0;
+
+    return res;
 }
 
 char* Join(Allocator* allocator, const char* s1, const char* s2, const char* s3) {
@@ -624,27 +645,28 @@ bool BufFmt(char* buf, size_t bufCchSize, const char* fmt, ...) {
 
 // TODO: need to finish StrFormat and use it instead.
 char* FmtVWithAllocator(Allocator* a, const char* fmt, va_list args) {
-    char message[256]{};
-    size_t bufCchSize = dimof(message);
+    char message[512]{};
+    int bufCchSize = dimofi(message);
     char* buf = message;
     for (;;) {
-        int count = vsnprintf(buf, bufCchSize, fmt, args);
+        int count = vsnprintf(buf, (size_t)bufCchSize, fmt, args);
         // happened in https://github.com/sumatrapdfreader/sumatrapdf/issues/878
         // when %S string had certain Unicode characters
-        CrashIf(count == -1);
-        if ((count >= 0) && ((size_t)count < bufCchSize)) {
+        ReportIf(count == -1);
+        if (count < 0) {
+            str::BufSet(buf, bufCchSize, "vsnprintf() returned -1");
+            break;
+        }
+
+        if ((count >= 0) && (count < bufCchSize)) {
             break;
         }
         /* we have to make the buffer bigger. The algorithm used to calculate
            the new size is arbitrary (aka. educated guess) */
         if (buf != message) {
-            free(buf);
+            Allocator::Free(a, buf);
         }
-        if (bufCchSize < 4 * 1024) {
-            bufCchSize += bufCchSize;
-        } else {
-            bufCchSize += 1024;
-        }
+        bufCchSize = count + 2; // +2 just in case
         buf = Allocator::AllocArray<char>(a, bufCchSize);
         if (!buf) {
             break;
@@ -1023,7 +1045,7 @@ bool IsAlNum(char c) {
    // TODO: this should be utf8-aware, see e.g. cbx\bug1234-*.cbr file
 */
 int CmpNatural(const char* a, const char* b) {
-    CrashAlwaysIf(!a || !b);
+    ReportIf(!a || !b);
     const char *aStart = a, *bStart = b;
     int diff = 0;
 
@@ -1098,6 +1120,14 @@ bool EmptyOrWhiteSpaceOnly(const char* s) {
         }
     }
     return true;
+}
+
+bool Skip(const char*& s, const char* toSkip) {
+    if (str::StartsWith(s, toSkip)) {
+        s = s + str::Len(toSkip);
+        return true;
+    }
+    return false;
 }
 
 } // namespace str
@@ -1211,7 +1241,7 @@ int StrToIdxIS(SeqStrings strs, const char* toFind) {
 // Given an index in the "array" of sequentially laid out strings,
 // returns a strings at that index.
 const char* IdxToStr(SeqStrings strs, int idx) {
-    CrashIf(idx < 0);
+    ReportIf(idx < 0);
     const char* s = strs;
     while (idx > 0) {
         Next(s);
@@ -1271,7 +1301,7 @@ static char* EnsureCap(Str* s, size_t needed) {
         newEls = (char*)Allocator::Realloc(s->allocator, s->els, allocSize);
     }
     if (!newEls) {
-        CrashAlwaysIf(InterlockedExchangeAdd(&gAllowAllocFailure, 0) == 0);
+        ReportIf(InterlockedExchangeAdd(&gAllowAllocFailure, 0) == 0);
         return nullptr;
     }
     s->els = newEls;
@@ -1280,7 +1310,7 @@ static char* EnsureCap(Str* s, size_t needed) {
 }
 
 static char* MakeSpaceAt(Str* s, size_t idx, size_t count) {
-    CrashIf(count == 0);
+    ReportIf(count == 0);
     u32 newLen = std::max(s->len, (u32)idx) + (u32)count;
     char* buf = EnsureCap(s, newLen);
     if (!buf) {
@@ -1365,30 +1395,22 @@ Str::~Str() {
 }
 
 char& Str::at(size_t idx) const {
-    CrashIf(idx >= (u32)len);
+    ReportIf(idx >= (u32)len);
     return els[idx];
 }
 
 char& Str::at(int idx) const {
-    CrashIf(idx < 0);
+    ReportIf(idx < 0);
     return at((size_t)idx);
-}
-
-char& Str::operator[](size_t idx) const {
-    return at(idx);
 }
 
 char& Str::operator[](long idx) const {
-    CrashIf(idx < 0);
-    return at((size_t)idx);
-}
-
-char& Str::operator[](ULONG idx) const {
+    ReportIf(idx < 0);
     return at((size_t)idx);
 }
 
 char& Str::operator[](int idx) const {
-    CrashIf(idx < 0);
+    ReportIf(idx < 0);
     return at((size_t)idx);
 }
 
@@ -1405,7 +1427,8 @@ char& Str::operator[](u32 idx) const {
 size_t Str::size() const {
     return len;
 }
-int Str::isize() const {
+
+int Str::Size() const {
     return (int)len;
 }
 
@@ -1420,6 +1443,10 @@ bool Str::InsertAt(size_t idx, char el) {
 
 bool Str::AppendChar(char c) {
     return InsertAt(len, c);
+}
+
+bool Str::Append(const StrSpan& s) {
+    return Append(s.CStr(), (size_t)s.Len());
 }
 
 bool Str::Append(const char* src, size_t count) {
@@ -1462,7 +1489,7 @@ char Str::RemoveLast() {
 }
 
 char& Str::Last() const {
-    CrashIf(0 == len);
+    ReportIf(0 == len);
     return at(len - 1);
 }
 
@@ -1545,17 +1572,11 @@ void Str::AppendFmt(const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
     char* res = FmtV(fmt, args);
-    AppendAndFree(res);
-    va_end(args);
-}
-
-bool Str::AppendAndFree(const char* s) {
-    if (!s) {
-        return true;
+    if (res) {
+        Append(res);
+        str::Free(res);
     }
-    bool ok = Append(s, str::Len(s));
-    str::Free(s);
-    return ok;
+    va_end(args);
 }
 
 #if 0
@@ -1578,6 +1599,10 @@ void Str::Set(const char* s) {
 }
 
 char* Str::Get() const {
+    return els;
+}
+
+char* Str::CStr() const {
     return els;
 }
 
@@ -1630,7 +1655,7 @@ static WCHAR* EnsureCap(WStr* s, size_t needed) {
     }
 
     if (!newEls) {
-        CrashAlwaysIf(InterlockedExchangeAdd(&gAllowAllocFailure, 0) == 0);
+        ReportIf(InterlockedExchangeAdd(&gAllowAllocFailure, 0) == 0);
         return nullptr;
     }
     s->els = newEls;
@@ -1639,7 +1664,7 @@ static WCHAR* EnsureCap(WStr* s, size_t needed) {
 }
 
 static WCHAR* MakeSpaceAt(WStr* s, size_t idx, size_t count) {
-    CrashIf(count == 0);
+    ReportIf(count == 0);
     u32 newLen = std::max(s->len, (u32)idx) + (u32)count;
     WCHAR* buf = EnsureCap(s, newLen);
     if (!buf) {
@@ -1722,12 +1747,12 @@ WStr::~WStr() {
 }
 
 WCHAR& WStr::at(size_t idx) const {
-    CrashIf(idx >= len);
+    ReportIf(idx >= len);
     return els[idx];
 }
 
 WCHAR& WStr::at(int idx) const {
-    CrashIf(idx < 0);
+    ReportIf(idx < 0);
     return at((size_t)idx);
 }
 
@@ -1736,7 +1761,7 @@ WCHAR& WStr::operator[](size_t idx) const {
 }
 
 WCHAR& WStr::operator[](long idx) const {
-    CrashIf(idx < 0);
+    ReportIf(idx < 0);
     return at((size_t)idx);
 }
 
@@ -1745,7 +1770,7 @@ WCHAR& WStr::operator[](ULONG idx) const {
 }
 
 WCHAR& WStr::operator[](int idx) const {
-    CrashIf(idx < 0);
+    ReportIf(idx < 0);
     return at((size_t)idx);
 }
 
@@ -1814,7 +1839,7 @@ WCHAR WStr::RemoveLast() {
 }
 
 WCHAR& WStr::Last() const {
-    CrashIf(0 == len);
+    ReportIf(0 == len);
     return at(len - 1);
 }
 
@@ -1882,17 +1907,11 @@ void WStr::AppendFmt(const WCHAR* fmt, ...) {
     va_list args;
     va_start(args, fmt);
     WCHAR* res = FmtV(fmt, args);
-    AppendAndFree(res);
-    va_end(args);
-}
-
-bool WStr::AppendAndFree(const WCHAR* s) {
-    if (!s) {
-        return true;
+    if (res) {
+        Append(res);
+        str::Free(res);
     }
-    bool ok = Append(s, str::Len(s));
-    str::Free(s);
-    return ok;
+    va_end(args);
 }
 
 // returns true if was replaced
@@ -1903,7 +1922,10 @@ bool Replace(WStr& s, const WCHAR* toReplace, const WCHAR* replaceWith) {
     }
     WCHAR* newStr = str::Replace(s.els, toReplace, replaceWith);
     s.Reset();
-    s.AppendAndFree(newStr);
+    if (newStr) {
+        s.Append(newStr);
+        str::Free(newStr);
+    }
     return true;
 }
 
@@ -1962,36 +1984,6 @@ bool EqI(const WCHAR* s1, const WCHAR* s2) {
     return 0 == _wcsicmp(s1, s2);
 }
 
-// compares two strings ignoring case and whitespace
-bool EqIS(const WCHAR* s1, const WCHAR* s2) {
-    if (s1 == s2) {
-        return true;
-    }
-    if (!s1 || !s2) {
-        return false;
-    }
-
-    while (*s1 && *s2) {
-        // skip whitespace
-        for (; IsWs(*s1); s1++) {
-            // do nothing
-        }
-        for (; IsWs(*s2); s2++) {
-            // do nothing
-        }
-
-        if (towlower(*s1) != towlower(*s2)) {
-            return false;
-        }
-        if (*s1) {
-            s1++;
-            s2++;
-        }
-    }
-
-    return !*s1 && !*s2;
-}
-
 bool EqN(const WCHAR* s1, const WCHAR* s2, size_t len) {
     if (s1 == s2) {
         return true;
@@ -2000,16 +1992,6 @@ bool EqN(const WCHAR* s1, const WCHAR* s2, size_t len) {
         return false;
     }
     return 0 == wcsncmp(s1, s2, len);
-}
-
-bool EqNI(const WCHAR* s1, const WCHAR* s2, size_t len) {
-    if (s1 == s2) {
-        return true;
-    }
-    if (!s1 || !s2) {
-        return false;
-    }
-    return 0 == _wcsnicmp(s1, s2, len);
 }
 
 bool IsEmpty(const WCHAR* s) {
@@ -2063,37 +2045,8 @@ WCHAR* FindChar(WCHAR* str, WCHAR c) {
     return (WCHAR*)wcschr(str, c);
 }
 
-const WCHAR* FindCharLast(const WCHAR* str, WCHAR c) {
-    return (const WCHAR*)wcsrchr(str, c);
-}
-
-WCHAR* FindCharLast(WCHAR* str, const WCHAR c) {
-    return wcsrchr(str, c);
-}
-
 const WCHAR* Find(const WCHAR* str, const WCHAR* find) {
     return wcsstr(str, find);
-}
-
-const WCHAR* FindI(const WCHAR* s, const WCHAR* toFind) {
-    if (!s || !toFind) {
-        return nullptr;
-    }
-
-    WCHAR first = towlower(*toFind);
-    if (!first) {
-        return s;
-    }
-    while (*s) {
-        WCHAR c = towlower(*s);
-        if (c == first) {
-            if (str::StartsWithI(s, toFind)) {
-                return s;
-            }
-        }
-        s++;
-    }
-    return nullptr;
 }
 
 char* ToUpperInPlace(char* s) {
@@ -2115,12 +2068,6 @@ WCHAR* ToLowerInPlace(WCHAR* s) {
 WCHAR* ToLower(const WCHAR* s) {
     WCHAR* s2 = str::Dup(s);
     return ToLowerInPlace(s2);
-}
-
-bool BufFmtV(WCHAR* buf, size_t bufCchSize, const WCHAR* fmt, va_list args) {
-    int count = _vsnwprintf_s(buf, bufCchSize, _TRUNCATE, fmt, args);
-    buf[bufCchSize - 1] = 0;
-    return (count >= 0) && ((size_t)count < bufCchSize);
 }
 
 WCHAR* FmtV(const WCHAR* fmt, va_list args) {
@@ -2158,33 +2105,6 @@ WCHAR* Format(const WCHAR* fmt, ...) {
     WCHAR* res = FmtV(fmt, args);
     va_end(args);
     return res;
-}
-
-// Trim whitespace characters, in-place, inside s.
-// Returns number of trimmed characters.
-size_t TrimWSInPlace(WCHAR* s, TrimOpt opt) {
-    size_t sLen = str::Len(s);
-    WCHAR* ns = s;
-    WCHAR* e = s + sLen;
-    WCHAR* ne = e;
-    if ((TrimOpt::Left == opt) || (TrimOpt::Both == opt)) {
-        while (IsWs(*ns)) {
-            ++ns;
-        }
-    }
-
-    if ((TrimOpt::Right == opt) || (TrimOpt::Both == opt)) {
-        while (((ne - 1) >= ns) && IsWs(ne[-1])) {
-            --ne;
-        }
-    }
-    *ne = 0;
-    size_t trimmed = (ns - s) + (e - ne);
-    if (ns != s) {
-        size_t toCopy = (sLen - trimmed + 1) * sizeof(WCHAR); // +1 for terminating 0
-        memmove(s, ns, toCopy);
-    }
-    return trimmed;
 }
 
 size_t TransCharsInPlace(WCHAR* str, const WCHAR* oldChars, const WCHAR* newChars) {
@@ -2252,7 +2172,7 @@ size_t NormalizeWSInPlace(WCHAR* str) {
 // handling buffers in OS-defined structures)
 // returns the number of characters written (without the terminating \0)
 int BufSet(char* dst, int cchDst, const char* src) {
-    CrashAlwaysIf(0 == cchDst || !dst);
+    ReportIf(0 == cchDst || !dst);
     if (!src) {
         *dst = 0;
         return 0;
@@ -2262,13 +2182,13 @@ int BufSet(char* dst, int cchDst, const char* src) {
     int toCopy = std::min(cchDst - 1, srcCchSize);
 
     errno_t err = strncpy_s(dst, (size_t)cchDst, src, (size_t)toCopy);
-    CrashIf(err || dst[toCopy] != '\0');
+    ReportIf(err || dst[toCopy] != '\0');
 
     return toCopy;
 }
 
 int BufSet(WCHAR* dst, int cchDst, const WCHAR* src) {
-    CrashAlwaysIf(0 == cchDst || !dst);
+    ReportIf(0 == cchDst || !dst);
     if (!src) {
         *dst = 0;
         return 0;
@@ -2287,7 +2207,7 @@ int BufSet(WCHAR* dst, int dstCchSize, const char* src) {
 }
 
 int BufAppend(WCHAR* dst, int cchDst, const WCHAR* s) {
-    CrashAlwaysIf(0 == cchDst);
+    ReportIf(0 == cchDst);
 
     int currDstCchLen = str::Leni(dst);
     if (currDstCchLen + 1 >= cchDst) {
@@ -2298,7 +2218,7 @@ int BufAppend(WCHAR* dst, int cchDst, const WCHAR* s) {
     int toCopy = std::min(left, srcCchSize);
 
     errno_t err = wcsncat_s(dst, cchDst, s, toCopy);
-    CrashIf(err || dst[currDstCchLen + toCopy] != '\0');
+    ReportIf(err || dst[currDstCchLen + toCopy] != '\0');
 
     return toCopy;
 }
@@ -2306,7 +2226,7 @@ int BufAppend(WCHAR* dst, int cchDst, const WCHAR* s) {
 // append as much of s at the end of dst (which must be properly null-terminated)
 // as will fit.
 int BufAppend(char* dst, int dstCch, const char* s) {
-    CrashAlwaysIf(0 == dstCch);
+    ReportIf(0 == dstCch);
 
     int currDstCchLen = str::Leni(dst);
     if (currDstCchLen + 1 >= dstCch) {
@@ -2317,7 +2237,7 @@ int BufAppend(char* dst, int dstCch, const char* s) {
     int toCopy = std::min(left, srcCchSize);
 
     errno_t err = strncat_s(dst, dstCch, s, toCopy);
-    CrashIf(err || dst[currDstCchLen + toCopy] != '\0');
+    ReportIf(err || dst[currDstCchLen + toCopy] != '\0');
 
     return toCopy;
 }
@@ -2402,7 +2322,7 @@ TempStr FormatRomanNumeralTemp(int n) {
    (e.g. ".hg" < "2.pdf" < "100.pdf" < "zzz")
 */
 int CmpNatural(const WCHAR* a, const WCHAR* b) {
-    CrashAlwaysIf(!a || !b);
+    ReportIf(!a || !b);
     const WCHAR *aStart = a, *bStart = b;
     int diff = 0;
 
@@ -2517,7 +2437,7 @@ const WCHAR* Parse(const WCHAR* str, const WCHAR* format, ...) {
         } else if ('s' == *f) {
             *va_arg(args, WCHAR**) = ExtractUntil(str, *(f + 1), &end);
         } else if ('S' == *f) {
-            va_arg(args, AutoFreeWstr*)->Set(ExtractUntil(str, *(f + 1), &end));
+            va_arg(args, AutoFreeWStr*)->Set(ExtractUntil(str, *(f + 1), &end));
         } else if ('$' == *f && !*str) {
             continue; // don't fail, if we're indeed at the end of the string
         } else if ('%' == *f && *f == *str) {
@@ -2588,295 +2508,3 @@ TempStr GetFileNameTemp(const char* url) {
 }
 
 } // namespace url
-
-//--- StrVec
-
-/*
-TODO:
- - StrVecWithData where it associate arbitrary data with each string
- - StrVecWithSubset - has additional index which contains a subset
-   of strings which we create by providing a filter function.
-   Could be used for efficiently managing strings in
-   Command Palette
-*/
-
-// represents null string
-constexpr u32 kNullIdx = (u32)-2;
-
-void StrVec::Reset() {
-    strings.Reset();
-    index.Reset();
-}
-
-// returns index of inserted string
-int StrVec::Append(const char* s, size_t sLen) {
-    bool ok;
-    if (s == nullptr) {
-        ok = index.Append(kNullIdx);
-        if (!ok) {
-            return -1;
-        }
-        return Size() - 1;
-    }
-    if (sLen == 0) {
-        sLen = str::Len(s);
-    }
-    u32 idx = (u32)strings.size();
-    ok = strings.Append(s, sLen);
-    // ensure to always zero-terminate
-    ok &= strings.AppendChar(0);
-    if (!ok) {
-        return -1;
-    }
-    ok = index.Append(idx);
-    if (!ok) {
-        return -1;
-    }
-    return Size() - 1;
-}
-
-int StrVec::AppendIfNotExists(const char* s) {
-    if (Contains(s)) {
-        return -1;
-    }
-    return Append(s);
-}
-
-bool StrVec::InsertAt(int idx, const char* s) {
-    size_t n = str::Len(s);
-    u32 strIdx = (u32)strings.size();
-    bool ok = strings.Append(s, n + 1); // also append terminating 0
-    if (!ok) {
-        return false;
-    }
-    return index.InsertAt(idx, strIdx);
-}
-
-void StrVec::SetAt(int idx, const char* s) {
-    if (s == nullptr) {
-        index[idx] = kNullIdx;
-        return;
-    }
-    size_t n = str::Len(s);
-    u32 strIdx = (u32)strings.size();
-    bool ok = strings.Append(s, n + 1); // also append terminating 0
-    if (!ok) {
-        return;
-    }
-    index[idx] = strIdx;
-}
-
-size_t StrVec::size() const {
-    return index.size();
-}
-
-int StrVec::Size() const {
-    return index.isize();
-}
-
-char* StrVec::operator[](int idx) const {
-    CrashIf(idx < 0);
-    return at(idx);
-}
-
-char* StrVec::operator[](size_t idx) const {
-    CrashIf((int)idx < 0);
-    return at((int)idx);
-}
-
-char* StrVec::at(int idx) const {
-    int n = Size();
-    CrashIf(idx < 0 || idx >= n);
-    u32 start = index.at(idx);
-    if (start == kNullIdx) {
-        return nullptr;
-    }
-    char* s = strings.LendData() + start;
-    return s;
-}
-
-int StrVec::Find(const char* sv, int startAt) const {
-    int n = Size();
-    for (int i = startAt; i < n; i++) {
-        auto s = at(i);
-        if (str::Eq(sv, s)) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-int StrVec::FindI(const char* sv, int startAt) const {
-    int n = Size();
-    for (int i = startAt; i < n; i++) {
-        auto s = at(i);
-        if (str::EqI(sv, s)) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-bool StrVec::Contains(const char* s) const {
-    int idx = Find(s);
-    return idx != -1;
-}
-
-// TODO: remove, use RemoveAt() instead
-char* StrVec::PopAt(int idx) {
-    u32 strIdx = index[idx];
-    index.RemoveAt(idx);
-    char* res = strings.Get() + strIdx;
-    return res;
-}
-
-// Note: returned string remains valid as long as StrVec is valid
-char* StrVec::RemoveAt(int idx) {
-    u32 strIdx = index[idx];
-    index.RemoveAt(idx);
-    char* res = (strIdx == kNullIdx) ? nullptr : strings.Get() + strIdx;
-    return res;
-}
-
-// Note: returned string remains valid as long as StrVec is valid
-char* StrVec::RemoveAtFast(size_t idx) {
-    u32 strIdx = index[idx];
-    index.RemoveAtFast(idx);
-    char* res = (strIdx == kNullIdx) ? nullptr : strings.Get() + strIdx;
-    return res;
-}
-
-// return true if did remove
-bool StrVec::Remove(const char* s) {
-    int idx = Find(s);
-    if (idx >= 0) {
-        RemoveAt(idx);
-        return true;
-    }
-    return false;
-}
-
-static bool strLess(const char* s1, const char* s2) {
-    if (str::IsEmpty(s1)) {
-        if (str::IsEmpty(s2)) {
-            return false;
-        }
-        return true;
-    }
-    if (str::IsEmpty(s2)) {
-        return false;
-    }
-    int n = strcmp(s1, s2);
-    return n < 0;
-}
-
-static bool strLessNoCase(const char* s1, const char* s2) {
-    if (str::IsEmpty(s1)) {
-        // null / empty string is smallest
-        if (str::IsEmpty(s2)) {
-            return false;
-        }
-        return true;
-    }
-    if (str::IsEmpty(s2)) {
-        return false;
-    }
-    int n = _stricmp(s1, s2);
-    return n < 0;
-}
-
-void StrVec::SortNoCase() {
-    Sort(strLessNoCase);
-}
-
-static bool strLessNatural(const char* s1, const char* s2) {
-    int n = str::CmpNatural(s1, s2);
-    return n < 0; // TODO: verify it's < and not >
-}
-
-void StrVec::SortNatural() {
-    Sort(strLessNatural);
-}
-
-void StrVec::Sort(StrLessFunc lessFn) {
-    if (lessFn == nullptr) {
-        lessFn = strLess;
-    }
-    std::sort(index.begin(), index.end(), [this, lessFn](u32 i1, u32 i2) -> bool {
-        char* is1 = (i1 == kNullIdx) ? nullptr : strings.Get() + i1;
-        char* is2 = (i2 == kNullIdx) ? nullptr : strings.Get() + i2;
-        bool ret = lessFn(is1, is2);
-        return ret;
-    });
-}
-
-/* splits a string into several substrings, separated by the separator
-(optionally collapsing several consecutive separators into one);
-e.g. splitting "a,b,,c," by "," results in the list "a", "b", "", "c", ""
-(resp. "a", "b", "c" if separators are collapsed) */
-size_t Split(StrVec& v, const char* s, const char* separator, bool collapse) {
-    int startSize = v.Size();
-    const char* next;
-    while (true) {
-        next = str::Find(s, separator);
-        if (!next) {
-            break;
-        }
-        if (!collapse || next > s) {
-            v.Append(str::DupTemp(s, next - s));
-        }
-        s = next + str::Len(separator);
-    }
-    if (!collapse || *s) {
-        v.Append(s);
-    }
-
-    return (size_t)(v.Size() - startSize);
-}
-
-static int CalcCapForJoin(const StrVec& v, const char* joint) {
-    // it's ok to over-estimate
-    int len = v.Size();
-    size_t jointLen = str::Len(joint);
-    int cap = len * (int)jointLen;
-    for (int i = 0; i < len; i++) {
-        char* s = v.at(i);
-        cap += (int)str::Len(s);
-    }
-    return cap + 32; // arbitrary buffer
-}
-
-static char* JoinInner(const StrVec& v, const char* joint, str::Str& res) {
-    int len = v.Size();
-    size_t jointLen = str::Len(joint);
-    int firstForJoint = 0;
-    for (int i = 0; i < len; i++) {
-        char* s = v.at(i);
-        if (!s) {
-            firstForJoint++;
-            continue;
-        }
-        if (i > firstForJoint && jointLen > 0) {
-            res.Append(joint, jointLen);
-        }
-        res.Append(s);
-    }
-    return res.StealData();
-}
-
-char* Join(const StrVec& v, const char* joint) {
-    int capHint = CalcCapForJoin(v, joint);
-    str::Str tmp(capHint);
-    return JoinInner(v, joint, tmp);
-}
-
-TempStr JoinTemp(const StrVec& v, const char* joint) {
-    int capHint = CalcCapForJoin(v, joint);
-    str::Str tmp(capHint, GetTempAllocator());
-    return JoinInner(v, joint, tmp);
-}
-
-ByteSlice ToByteSlice(const char* s) {
-    size_t n = str::Len(s);
-    return {(u8*)s, n};
-}

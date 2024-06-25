@@ -1,4 +1,4 @@
-// Copyright (C) 2004-2023 Artifex Software, Inc.
+// Copyright (C) 2004-2024 Artifex Software, Inc.
 //
 // This file is part of MuPDF.
 //
@@ -856,168 +856,197 @@ pdf_out_BI(fz_context *ctx, pdf_processor *proc_, fz_image *img, const char *col
 	fz_output *out = proc->out;
 	int ahx = proc->ahxencode;
 	fz_compressed_buffer *cbuf;
-	fz_buffer *buf;
-	int i;
+	fz_buffer *buf = NULL;
+	int i, w, h, bpc;
 	unsigned char *data;
 	size_t len;
+	fz_pixmap *pix = NULL;
+	fz_colorspace *cs;
+	int type;
 
 	if (img == NULL)
 		return;
 	cbuf = fz_compressed_image_buffer(ctx, img);
 	if (cbuf == NULL)
-		return;
-	buf = cbuf->buffer;
-	if (buf == NULL)
-		return;
-
-	if (proc->sep)
-		fz_write_byte(ctx, out, ' ');
-	fz_write_string(ctx, out, "BI ");
-	fz_write_printf(ctx, out, "/W %d", img->w);
-	fz_write_printf(ctx, out, "/H %d", img->h);
-	fz_write_printf(ctx, out, "/BPC %d", img->bpc);
-	if (img->imagemask)
-		fz_write_string(ctx, out, "/IM true");
-	else if (img->colorspace == fz_device_gray(ctx))
-		fz_write_string(ctx, out, "/CS/G");
-	else if (img->colorspace == fz_device_rgb(ctx))
-		fz_write_string(ctx, out, "/CS/RGB");
-	else if (img->colorspace == fz_device_cmyk(ctx))
-		fz_write_string(ctx, out, "/CS/CMYK");
-	else if (colorspace)
-		fz_write_printf(ctx, out, "/CS%n", colorspace);
-	else
-		fz_throw(ctx, FZ_ERROR_ARGUMENT, "BI operator can only show ImageMask, Gray, RGB, or CMYK images");
-	if (img->interpolate)
-		fz_write_string(ctx, out, "/I true");
-	fz_write_string(ctx, out, "/D[");
-	for (i = 0; i < img->n * 2; ++i)
 	{
-		if (i > 0)
-			fz_write_byte(ctx, out, ' ');
-		fz_write_printf(ctx, out, "%g", img->decode[i]);
+		pix = fz_get_pixmap_from_image(ctx, img, NULL, NULL, &w, &h);
+		bpc = 8;
+		cs = pix->colorspace;
+		type = FZ_IMAGE_RAW;
 	}
-	fz_write_string(ctx, out, "]");
-	proc->sep = 0;
-
-	switch (cbuf->params.type)
+	else
 	{
-	default:
-		fz_throw(ctx, FZ_ERROR_ARGUMENT, "unknown compressed buffer type");
-		break;
+		buf = cbuf->buffer;
+		if (buf == NULL)
+			return;
+		w = img->w;
+		h = img->h;
+		bpc = img->bpc;
+		cs = img->colorspace;
+		type = cbuf->params.type;
+	}
 
-	case FZ_IMAGE_JPEG:
-		fz_write_string(ctx, out, ahx ? "/F[/AHx/DCT]" : "/F/DCT");
-		proc->sep = !ahx;
-		if (cbuf->params.u.jpeg.color_transform >= 0)
+	fz_try(ctx)
+	{
+		if (proc->sep)
+			fz_write_byte(ctx, out, ' ');
+		fz_write_string(ctx, out, "BI ");
+		fz_write_printf(ctx, out, "/W %d", w);
+		fz_write_printf(ctx, out, "/H %d", h);
+		fz_write_printf(ctx, out, "/BPC %d", bpc);
+		if (img->imagemask)
+			fz_write_string(ctx, out, "/IM true");
+		else if (cs == fz_device_gray(ctx))
+			fz_write_string(ctx, out, "/CS/G");
+		else if (cs == fz_device_rgb(ctx))
+			fz_write_string(ctx, out, "/CS/RGB");
+		else if (cs == fz_device_cmyk(ctx))
+			fz_write_string(ctx, out, "/CS/CMYK");
+		else if (cs)
+			fz_write_printf(ctx, out, "/CS%n", colorspace);
+		else
+			fz_throw(ctx, FZ_ERROR_ARGUMENT, "BI operator can only show ImageMask, Gray, RGB, or CMYK images");
+		if (img->interpolate)
+			fz_write_string(ctx, out, "/I true");
+		fz_write_string(ctx, out, "/D[");
+		for (i = 0; i < img->n * 2; ++i)
 		{
-			fz_write_printf(ctx, out, "/DP<</ColorTransform %d>>", cbuf->params.u.jpeg.color_transform);
-			proc->sep = 0;
+			if (i > 0)
+				fz_write_byte(ctx, out, ' ');
+			fz_write_printf(ctx, out, "%g", img->decode[i]);
 		}
-		if (cbuf->params.u.jpeg.invert_cmyk && img->n == 4)
-		{
-			fz_write_string(ctx, out, "/D[1 0 1 0 1 0 1 0]");
-			proc->sep = 0;
-		}
-		break;
-
-	case FZ_IMAGE_FAX:
-		fz_write_string(ctx, out, ahx ? "/F[/AHx/CCF]/DP[null<<" : "/F/CCF/DP<<");
-		fz_write_printf(ctx, out, "/K %d", cbuf->params.u.fax.k);
-		if (cbuf->params.u.fax.columns != 1728)
-			fz_write_printf(ctx, out, "/Columns %d", cbuf->params.u.fax.columns);
-		if (cbuf->params.u.fax.rows > 0)
-			fz_write_printf(ctx, out, "/Rows %d", cbuf->params.u.fax.rows);
-		if (cbuf->params.u.fax.end_of_line)
-			fz_write_string(ctx, out, "/EndOfLine true");
-		if (cbuf->params.u.fax.encoded_byte_align)
-			fz_write_string(ctx, out, "/EncodedByteAlign true");
-		if (!cbuf->params.u.fax.end_of_block)
-			fz_write_string(ctx, out, "/EndOfBlock false");
-		if (cbuf->params.u.fax.black_is_1)
-			fz_write_string(ctx, out, "/BlackIs1 true");
-		if (cbuf->params.u.fax.damaged_rows_before_error > 0)
-			fz_write_printf(ctx, out, "/DamagedRowsBeforeError %d",
-				cbuf->params.u.fax.damaged_rows_before_error);
-		fz_write_string(ctx, out, ahx ? ">>]" : ">>");
+		fz_write_string(ctx, out, "]");
 		proc->sep = 0;
-		break;
 
-	case FZ_IMAGE_RAW:
+		switch (type)
+		{
+		default:
+			fz_throw(ctx, FZ_ERROR_ARGUMENT, "unknown compressed buffer type");
+			break;
+
+		case FZ_IMAGE_JPEG:
+			fz_write_string(ctx, out, ahx ? "/F[/AHx/DCT]" : "/F/DCT");
+			proc->sep = !ahx;
+			if (cbuf->params.u.jpeg.color_transform >= 0)
+			{
+				fz_write_printf(ctx, out, "/DP<</ColorTransform %d>>", cbuf->params.u.jpeg.color_transform);
+				proc->sep = 0;
+			}
+			if (cbuf->params.u.jpeg.invert_cmyk && img->n == 4)
+			{
+				fz_write_string(ctx, out, "/D[1 0 1 0 1 0 1 0]");
+				proc->sep = 0;
+			}
+			break;
+
+		case FZ_IMAGE_FAX:
+			fz_write_string(ctx, out, ahx ? "/F[/AHx/CCF]/DP[null<<" : "/F/CCF/DP<<");
+			fz_write_printf(ctx, out, "/K %d", cbuf->params.u.fax.k);
+			if (cbuf->params.u.fax.columns != 1728)
+				fz_write_printf(ctx, out, "/Columns %d", cbuf->params.u.fax.columns);
+			if (cbuf->params.u.fax.rows > 0)
+				fz_write_printf(ctx, out, "/Rows %d", cbuf->params.u.fax.rows);
+			if (cbuf->params.u.fax.end_of_line)
+				fz_write_string(ctx, out, "/EndOfLine true");
+			if (cbuf->params.u.fax.encoded_byte_align)
+				fz_write_string(ctx, out, "/EncodedByteAlign true");
+			if (!cbuf->params.u.fax.end_of_block)
+				fz_write_string(ctx, out, "/EndOfBlock false");
+			if (cbuf->params.u.fax.black_is_1)
+				fz_write_string(ctx, out, "/BlackIs1 true");
+			if (cbuf->params.u.fax.damaged_rows_before_error > 0)
+				fz_write_printf(ctx, out, "/DamagedRowsBeforeError %d",
+					cbuf->params.u.fax.damaged_rows_before_error);
+			fz_write_string(ctx, out, ahx ? ">>]" : ">>");
+			proc->sep = 0;
+			break;
+
+		case FZ_IMAGE_RAW:
+			if (ahx)
+			{
+				fz_write_string(ctx, out, "/F/AHx");
+				proc->sep = 1;
+			}
+			break;
+
+		case FZ_IMAGE_RLD:
+			fz_write_string(ctx, out, ahx ? "/F[/AHx/RL]" : "/F/RL");
+			proc->sep = !ahx;
+			break;
+
+		case FZ_IMAGE_FLATE:
+			fz_write_string(ctx, out, ahx ? "/F[/AHx/Fl]" : "/F/Fl");
+			proc->sep = !ahx;
+			if (cbuf->params.u.flate.predictor > 1)
+			{
+				fz_write_string(ctx, out, ahx ? "/DP[null<<" : "/DP<<");
+				fz_write_printf(ctx, out, "/Predictor %d", cbuf->params.u.flate.predictor);
+				if (cbuf->params.u.flate.columns != 1)
+					fz_write_printf(ctx, out, "/Columns %d", cbuf->params.u.flate.columns);
+				if (cbuf->params.u.flate.colors != 1)
+					fz_write_printf(ctx, out, "/Colors %d", cbuf->params.u.flate.colors);
+				if (cbuf->params.u.flate.bpc != 8)
+					fz_write_printf(ctx, out, "/BitsPerComponent %d", cbuf->params.u.flate.bpc);
+				fz_write_string(ctx, out, ahx ? ">>]" : ">>");
+				proc->sep = 0;
+			}
+			break;
+
+		case FZ_IMAGE_LZW:
+			fz_write_string(ctx, out, ahx ? "/F[/AHx/LZW]" : "/F/LZW");
+			proc->sep = !ahx;
+			if (cbuf->params.u.lzw.predictor > 1)
+			{
+				fz_write_string(ctx, out, ahx ? "/DP[<<null" : "/DP<<");
+				fz_write_printf(ctx, out, "/Predictor %d", cbuf->params.u.lzw.predictor);
+				if (cbuf->params.u.lzw.columns != 1)
+					fz_write_printf(ctx, out, "/Columns %d", cbuf->params.u.lzw.columns);
+				if (cbuf->params.u.lzw.colors != 1)
+					fz_write_printf(ctx, out, "/Colors %d", cbuf->params.u.lzw.colors);
+				if (cbuf->params.u.lzw.bpc != 8)
+					fz_write_printf(ctx, out, "/BitsPerComponent %d", cbuf->params.u.lzw.bpc);
+				if (cbuf->params.u.lzw.early_change != 1)
+					fz_write_printf(ctx, out, "/EarlyChange %d", cbuf->params.u.lzw.early_change);
+				fz_write_string(ctx, out, ahx ? ">>]" : ">>");
+				proc->sep = 0;
+			}
+			break;
+		}
+
+		if (proc->sep)
+			fz_write_byte(ctx, out, ' ');
+		fz_write_string(ctx, out, "ID ");
+		if (buf)
+			len = fz_buffer_storage(ctx, buf, &data);
+		else
+		{
+			data = pix->samples;
+			len = ((size_t)w) * h * pix->n;
+		}
 		if (ahx)
 		{
-			fz_write_string(ctx, out, "/F/AHx");
-			proc->sep = 1;
+			size_t z;
+			for (z = 0; z < len; ++z)
+			{
+				int c = data[z];
+				fz_write_byte(ctx, out, "0123456789abcdef"[(c >> 4) & 0xf]);
+				fz_write_byte(ctx, out, "0123456789abcdef"[c & 0xf]);
+				if ((z & 31) == 31)
+					fz_write_byte(ctx, out, '\n');
+			}
+			fz_write_byte(ctx, out, '>');
 		}
-		break;
-
-	case FZ_IMAGE_RLD:
-		fz_write_string(ctx, out, ahx ? "/F[/AHx/RL]" : "/F/RL");
-		proc->sep = !ahx;
-		break;
-
-	case FZ_IMAGE_FLATE:
-		fz_write_string(ctx, out, ahx ? "/F[/AHx/Fl]" : "/F/Fl");
-		proc->sep = !ahx;
-		if (cbuf->params.u.flate.predictor > 1)
+		else
 		{
-			fz_write_string(ctx, out, ahx ? "/DP[null<<" : "/DP<<");
-			fz_write_printf(ctx, out, "/Predictor %d", cbuf->params.u.flate.predictor);
-			if (cbuf->params.u.flate.columns != 1)
-				fz_write_printf(ctx, out, "/Columns %d", cbuf->params.u.flate.columns);
-			if (cbuf->params.u.flate.colors != 1)
-				fz_write_printf(ctx, out, "/Colors %d", cbuf->params.u.flate.colors);
-			if (cbuf->params.u.flate.bpc != 8)
-				fz_write_printf(ctx, out, "/BitsPerComponent %d", cbuf->params.u.flate.bpc);
-			fz_write_string(ctx, out, ahx ? ">>]" : ">>");
-			proc->sep = 0;
+			fz_write_data(ctx, out, data, len);
 		}
-		break;
-
-	case FZ_IMAGE_LZW:
-		fz_write_string(ctx, out, ahx ? "/F[/AHx/LZW]" : "/F/LZW");
-		proc->sep = !ahx;
-		if (cbuf->params.u.lzw.predictor > 1)
-		{
-			fz_write_string(ctx, out, ahx ? "/DP[<<null" : "/DP<<");
-			fz_write_printf(ctx, out, "/Predictor %d", cbuf->params.u.lzw.predictor);
-			if (cbuf->params.u.lzw.columns != 1)
-				fz_write_printf(ctx, out, "/Columns %d", cbuf->params.u.lzw.columns);
-			if (cbuf->params.u.lzw.colors != 1)
-				fz_write_printf(ctx, out, "/Colors %d", cbuf->params.u.lzw.colors);
-			if (cbuf->params.u.lzw.bpc != 8)
-				fz_write_printf(ctx, out, "/BitsPerComponent %d", cbuf->params.u.lzw.bpc);
-			if (cbuf->params.u.lzw.early_change != 1)
-				fz_write_printf(ctx, out, "/EarlyChange %d", cbuf->params.u.lzw.early_change);
-			fz_write_string(ctx, out, ahx ? ">>]" : ">>");
-			proc->sep = 0;
-		}
-		break;
+		fz_write_string(ctx, out, " EI");
+		proc->sep = 1;
 	}
-
-	if (proc->sep)
-		fz_write_byte(ctx, out, ' ');
-	fz_write_string(ctx, out, "ID ");
-	len = fz_buffer_storage(ctx, buf, &data);
-	if (ahx)
-	{
-		size_t z;
-		for (z = 0; z < len; ++z)
-		{
-			int c = data[z];
-			fz_write_byte(ctx, out, "0123456789abcdef"[(c >> 4) & 0xf]);
-			fz_write_byte(ctx, out, "0123456789abcdef"[c & 0xf]);
-			if ((z & 31) == 31)
-				fz_write_byte(ctx, out, '\n');
-		}
-		fz_write_byte(ctx, out, '>');
-	}
-	else
-	{
-		fz_write_data(ctx, out, data, len);
-	}
-	fz_write_string(ctx, out, " EI");
-	proc->sep = 1;
+	fz_always(ctx)
+		fz_drop_pixmap(ctx, pix);
+	fz_catch(ctx)
+		fz_rethrow(ctx);
 }
 
 static void
@@ -1161,6 +1190,14 @@ pdf_drop_output_processor(fz_context *ctx, pdf_processor *proc)
 }
 
 static void
+pdf_reset_output_processor(fz_context *ctx, pdf_processor *proc)
+{
+	pdf_output_processor *p = (pdf_output_processor *)proc;
+
+	fz_reset_output(ctx, p->out);
+}
+
+static void
 pdf_out_push_resources(fz_context *ctx, pdf_processor *proc, pdf_obj *res)
 {
 	pdf_output_processor *p = (pdf_output_processor *)proc;
@@ -1191,6 +1228,7 @@ pdf_new_output_processor(fz_context *ctx, fz_output *out, int ahxencode, int new
 
 	proc->super.close_processor = pdf_close_output_processor;
 	proc->super.drop_processor = pdf_drop_output_processor;
+	proc->super.reset_processor = pdf_reset_output_processor;
 
 	proc->super.push_resources = pdf_out_push_resources;
 	proc->super.pop_resources = pdf_out_pop_resources;
@@ -1345,7 +1383,9 @@ typedef struct
 {
 	pdf_processor super;
 	int *balance;
-	int *minimum;
+	int *min_q;
+	int *min_op_q;
+	int first;
 } pdf_balance_processor;
 
 static void
@@ -1360,33 +1400,171 @@ pdf_balance_Q(fz_context *ctx, pdf_processor *proc_)
 {
 	pdf_balance_processor *proc = (pdf_balance_processor*)proc_;
 	(*proc->balance)--;
-	if (*proc->balance < *proc->minimum)
-		*proc->minimum = *proc->balance;
+	if (*proc->balance < *proc->min_q)
+		*proc->min_q = *proc->balance;
 }
 
+static void
+pdf_balance_void(fz_context *ctx, pdf_processor *proc_)
+{
+	pdf_balance_processor *proc = (pdf_balance_processor*)proc_;
+	if (*proc->balance < *proc->min_op_q)
+		*proc->min_op_q = *proc->balance;
+}
+
+#define BALANCE { pdf_balance_void(ctx, p); }
+
+static void pdf_balance_string(fz_context *ctx, pdf_processor *p, const char *x) BALANCE
+static void pdf_balance_int(fz_context *ctx, pdf_processor *p, int x) BALANCE
+static void pdf_balance_float(fz_context *ctx, pdf_processor *p, float x) BALANCE
+static void pdf_balance_float2(fz_context *ctx, pdf_processor *p, float x, float y) BALANCE
+static void pdf_balance_float3(fz_context *ctx, pdf_processor *p, float x, float y, float z) BALANCE
+static void pdf_balance_float4(fz_context *ctx, pdf_processor *p, float x, float y, float z, float w) BALANCE
+static void pdf_balance_float6(fz_context *ctx, pdf_processor *p, float a, float b, float c, float d, float e, float f) BALANCE
+
+static void pdf_balance_d(fz_context *ctx, pdf_processor *p, pdf_obj *array, float phase) BALANCE
+static void pdf_balance_gs_begin(fz_context *ctx, pdf_processor *p, const char *name, pdf_obj *extgstate) BALANCE
+static void pdf_balance_Tf(fz_context *ctx, pdf_processor *p, const char *name, pdf_font_desc *font, float size) BALANCE
+static void pdf_balance_TJ(fz_context *ctx, pdf_processor *p, pdf_obj *array) BALANCE
+static void pdf_balance_Tj(fz_context *ctx, pdf_processor *p, char *str, size_t len) BALANCE
+static void pdf_balance_squote(fz_context *ctx, pdf_processor *p, char *str, size_t len) BALANCE
+static void pdf_balance_dquote(fz_context *ctx, pdf_processor *p, float aw, float ac, char *str, size_t len) BALANCE
+static void pdf_balance_cs(fz_context *ctx, pdf_processor *p, const char *name, fz_colorspace *cs) BALANCE
+static void pdf_balance_sc_pattern(fz_context *ctx, pdf_processor *p, const char *name, pdf_pattern *pat, int n, float *color) BALANCE
+static void pdf_balance_sc_shade(fz_context *ctx, pdf_processor *p, const char *name, fz_shade *shade) BALANCE
+static void pdf_balance_sc_color(fz_context *ctx, pdf_processor *p, int n, float *color) BALANCE
+static void pdf_balance_BDC(fz_context *ctx, pdf_processor *p, const char *tag, pdf_obj *raw, pdf_obj *cooked) BALANCE
+static void pdf_balance_BI(fz_context *ctx, pdf_processor *p, fz_image *img, const char *colorspace) BALANCE
+static void pdf_balance_sh(fz_context *ctx, pdf_processor *p, const char *name, fz_shade *shade) BALANCE
+static void pdf_balance_Do_image(fz_context *ctx, pdf_processor *p, const char *name, fz_image *image) BALANCE
+static void pdf_balance_Do_form(fz_context *ctx, pdf_processor *p, const char *name, pdf_obj *xobj) BALANCE
+
 static pdf_processor *
-pdf_new_balance_processor(fz_context *ctx, int *balance, int *minimum)
+pdf_new_balance_processor(fz_context *ctx, int *balance, int *min_q, int *min_op_q)
 {
 	pdf_balance_processor *proc = pdf_new_processor(ctx, sizeof *proc);
 
 	proc->super.op_q = pdf_balance_q;
 	proc->super.op_Q = pdf_balance_Q;
 
+	/* general graphics state */
+	proc->super.op_w = pdf_balance_float;
+	proc->super.op_j = pdf_balance_int;
+	proc->super.op_J = pdf_balance_int;
+	proc->super.op_M = pdf_balance_float;
+	proc->super.op_d = pdf_balance_d;
+	proc->super.op_ri = pdf_balance_string;
+	proc->super.op_i = pdf_balance_float;
+	proc->super.op_gs_begin = pdf_balance_gs_begin;
+
+	/* special graphics state */
+	proc->super.op_cm = pdf_balance_float6;
+
+	/* path construction */
+	proc->super.op_m = pdf_balance_float2;
+	proc->super.op_l = pdf_balance_float2;
+	proc->super.op_c = pdf_balance_float6;
+	proc->super.op_v = pdf_balance_float4;
+	proc->super.op_y = pdf_balance_float4;
+	proc->super.op_h = pdf_balance_void;
+	proc->super.op_re = pdf_balance_float4;
+
+	/* path painting */
+	proc->super.op_S = pdf_balance_void;
+	proc->super.op_s = pdf_balance_void;
+	proc->super.op_F = pdf_balance_void;
+	proc->super.op_f = pdf_balance_void;
+	proc->super.op_fstar = pdf_balance_void;
+	proc->super.op_B = pdf_balance_void;
+	proc->super.op_Bstar = pdf_balance_void;
+	proc->super.op_b = pdf_balance_void;
+	proc->super.op_bstar = pdf_balance_void;
+	proc->super.op_n = pdf_balance_void;
+
+	/* clipping paths */
+	proc->super.op_W = pdf_balance_void;
+	proc->super.op_Wstar = pdf_balance_void;
+
+	/* text objects */
+	proc->super.op_BT = pdf_balance_void;
+	proc->super.op_ET = pdf_balance_void;
+
+	/* text state */
+	proc->super.op_Tc = pdf_balance_float;
+	proc->super.op_Tw = pdf_balance_float;
+	proc->super.op_Tz = pdf_balance_float;
+	proc->super.op_TL = pdf_balance_float;
+	proc->super.op_Tf = pdf_balance_Tf;
+	proc->super.op_Tr = pdf_balance_int;
+	proc->super.op_Ts = pdf_balance_float;
+
+	/* text positioning */
+	proc->super.op_Td = pdf_balance_float2;
+	proc->super.op_TD = pdf_balance_float2;
+	proc->super.op_Tm = pdf_balance_float6;
+	proc->super.op_Tstar = pdf_balance_void;
+
+	/* text showing */
+	proc->super.op_TJ = pdf_balance_TJ;
+	proc->super.op_Tj = pdf_balance_Tj;
+	proc->super.op_squote = pdf_balance_squote;
+	proc->super.op_dquote = pdf_balance_dquote;
+
+	/* type 3 fonts */
+	proc->super.op_d0 = pdf_balance_float2;
+	proc->super.op_d1 = pdf_balance_float6;
+
+	/* color */
+	proc->super.op_CS = pdf_balance_cs;
+	proc->super.op_cs = pdf_balance_cs;
+	proc->super.op_SC_color = pdf_balance_sc_color;
+	proc->super.op_sc_color = pdf_balance_sc_color;
+	proc->super.op_SC_pattern = pdf_balance_sc_pattern;
+	proc->super.op_sc_pattern = pdf_balance_sc_pattern;
+	proc->super.op_SC_shade = pdf_balance_sc_shade;
+	proc->super.op_sc_shade = pdf_balance_sc_shade;
+
+	proc->super.op_G = pdf_balance_float;
+	proc->super.op_g = pdf_balance_float;
+	proc->super.op_RG = pdf_balance_float3;
+	proc->super.op_rg = pdf_balance_float3;
+	proc->super.op_K = pdf_balance_float4;
+	proc->super.op_k = pdf_balance_float4;
+
+	/* shadings, images, xobjects */
+	proc->super.op_BI = pdf_balance_BI;
+	proc->super.op_sh = pdf_balance_sh;
+	proc->super.op_Do_image = pdf_balance_Do_image;
+	proc->super.op_Do_form = pdf_balance_Do_form;
+
+	/* marked content */
+	proc->super.op_MP = pdf_balance_string;
+	proc->super.op_DP = pdf_balance_BDC;
+	proc->super.op_BMC = pdf_balance_string;
+	proc->super.op_BDC = pdf_balance_BDC;
+	proc->super.op_EMC = pdf_balance_void;
+
+	/* compatibility */
+	proc->super.op_BX = pdf_balance_void;
+	proc->super.op_EX = pdf_balance_void;
+
 	proc->balance = balance;
-	proc->minimum = minimum;
+	proc->min_q = min_q;
+	proc->min_op_q = min_op_q;
 
 	return (pdf_processor*)proc;
 }
 
 void
-pdf_count_q_balance(fz_context *ctx, pdf_document *doc, pdf_obj *res, pdf_obj *stm, int *underflow, int *overflow)
+pdf_count_q_balance(fz_context *ctx, pdf_document *doc, pdf_obj *res, pdf_obj *stm, int *prepend, int *append)
 {
 	pdf_processor *proc;
 
-	int balance = 0;
-	int minimum = 0;
+	int end_q = 0;
+	int min_q = 0;
+	int min_op_q = 1;
 
-	proc = pdf_new_balance_processor(ctx, &balance, &minimum);
+	proc = pdf_new_balance_processor(ctx, &end_q, &min_q, &min_op_q);
 	fz_try(ctx)
 	{
 		pdf_process_raw_contents(ctx, proc, doc, res, stm, NULL);
@@ -1397,6 +1575,16 @@ pdf_count_q_balance(fz_context *ctx, pdf_document *doc, pdf_obj *res, pdf_obj *s
 	fz_catch(ctx)
 		fz_rethrow(ctx);
 
-	*underflow = -minimum;
-	*overflow = balance - minimum;
+	/* normally zero, but in bad files there could be more Q than q */
+	*prepend = -min_q;
+
+	/* how many Q are missing at the end */
+	*append = end_q - min_q;
+
+	/* if there are unguarded operators we must add one level of q/Q around everything */
+	if (min_op_q == min_q)
+	{
+		*prepend += 1;
+		*append += 1;
+	}
 }

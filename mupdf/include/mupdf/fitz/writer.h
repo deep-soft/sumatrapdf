@@ -1,4 +1,4 @@
-// Copyright (C) 2004-2023 Artifex Software, Inc.
+// Copyright (C) 2004-2024 Artifex Software, Inc.
 //
 // This file is part of MuPDF.
 //
@@ -132,6 +132,7 @@ fz_new_document_writer_with_buffer(fz_context *ctx, fz_buffer *buf, const char *
 fz_document_writer *fz_new_pdf_writer(fz_context *ctx, const char *path, const char *options);
 fz_document_writer *fz_new_pdf_writer_with_output(fz_context *ctx, fz_output *out, const char *options);
 fz_document_writer *fz_new_svg_writer(fz_context *ctx, const char *path, const char *options);
+fz_document_writer *fz_new_svg_writer_with_output(fz_context *ctx, fz_output *out, const char *options);
 
 fz_document_writer *fz_new_text_writer(fz_context *ctx, const char *format, const char *path, const char *options);
 fz_document_writer *fz_new_text_writer_with_output(fz_context *ctx, const char *format, fz_output *out, const char *options);

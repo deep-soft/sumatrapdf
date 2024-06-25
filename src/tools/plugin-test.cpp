@@ -20,10 +20,6 @@ struct PluginStartData {
     const char* fileOriginUrl;
 };
 
-void _uploadDebugReportIfFunc(bool, const char*) {
-    // no-op implementation to satisfy SubmitBugReport()
-}
-
 // in order to host SumatraPDF as a plugin, create a (child) window and
 // handle the following messages for it:
 LRESULT CALLBACK PluginParentWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -84,27 +80,28 @@ LRESULT CALLBACK PluginParentWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) 
 
 WCHAR* GetSumatraExePath() {
     // run SumatraPDF.exe either from plugin-test.exe's or the current directory
-    TempStr path = path::GetPathOfFileInAppDirTemp("SumatraPDF.exe");
+    TempStr path = GetPathInExeDirTemp("SumatraPDF.exe");
     if (!file::Exists(path)) {
         return str::Dup(L"SumatraPDF.exe");
     }
-    return ToWstr(path);
+    return ToWStr(path);
 }
 
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
     StrVec argList;
     ParseCmdLine(GetCommandLine(), argList);
 
-    if (argList.size() == 1) {
-        AutoFreeStr msg =
-            str::Format("Syntax: %s [<SumatraPDF.exe>] [<URL>] <filename.ext>", path::GetBaseNameTemp(argList.at(0)));
-        MessageBoxA(nullptr, msg.Get(), PLUGIN_TEST_NAMEA, MB_OK | MB_ICONINFORMATION);
+    if (argList.Size() == 1) {
+        char* exe = argList.At(0);
+        TempStr name = path::GetBaseNameTemp(exe);
+        TempStr msg = str::FormatTemp("Syntax: %s [<SumatraPDF.exe>] [<URL>] <filename.ext>", name);
+        MsgBox(nullptr, msg, PLUGIN_TEST_NAMEA, MB_OK | MB_ICONINFORMATION);
         return 1;
     }
-    if (argList.size() == 2 || !str::EndsWithI(argList.at(1), ".exe")) {
+    if (argList.Size() == 2 || !str::EndsWithI(argList.At(1), ".exe")) {
         argList.InsertAt(1, ToUtf8Temp(GetSumatraExePath()));
     }
-    if (argList.size() == 3) {
+    if (argList.Size() == 3) {
         argList.InsertAt(2, nullptr);
     }
 
@@ -115,7 +112,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     RegisterClass(&wc);
 
-    PluginStartData data = {argList.at(1), argList.at(3), argList.at(2)};
+    PluginStartData data = {argList.At(1), argList.At(3), argList.At(2)};
     HWND hwnd = CreateWindowExW(0, PLUGIN_TEST_NAME, PLUGIN_TEST_NAME, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, 0,
                                 CW_USEDEFAULT, 0, nullptr, nullptr, hInstance, &data);
     ShowWindow(hwnd, nCmdShow);

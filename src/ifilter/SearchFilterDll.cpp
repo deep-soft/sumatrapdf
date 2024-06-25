@@ -96,7 +96,7 @@ class FilterClassFactory : public IClassFactory {
 
 STDAPI_(BOOL) DllMain(__unused HINSTANCE hInstance, DWORD dwReason, __unused LPVOID lpReserved) {
     if (dwReason == DLL_PROCESS_ATTACH) {
-        CrashIf(hInstance != GetInstance());
+        ReportIf(hInstance != GetInstance());
     }
     gLogAppName = "PdfFilter";
     gLogToConsole = false;
@@ -119,7 +119,7 @@ STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID* ppv) {
 
 STDAPI DllRegisterServer() {
     log("DllRegisterServer\n");
-    TempStr dllPath = path::GetPathOfFileInAppDirTemp((const char*)nullptr);
+    TempStr dllPath = GetPathInExeDirTemp((const char*)nullptr);
     if (!dllPath) {
         return HRESULT_FROM_WIN32(GetLastError());
     }

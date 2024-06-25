@@ -102,6 +102,9 @@
     <ClInclude Include="..\mupdf\include\mupdf\fitz\crypt.h">
       <Filter>mupdf\include\mupdf\fitz</Filter>
     </ClInclude>
+    <ClInclude Include="..\mupdf\include\mupdf\fitz\deskew.h">
+      <Filter>mupdf\include\mupdf\fitz</Filter>
+    </ClInclude>
     <ClInclude Include="..\mupdf\include\mupdf\fitz\device.h">
       <Filter>mupdf\include\mupdf\fitz</Filter>
     </ClInclude>
@@ -294,6 +297,9 @@
     <ClInclude Include="..\mupdf\include\mupdf\pdf\xref.h">
       <Filter>mupdf\include\mupdf\pdf</Filter>
     </ClInclude>
+    <ClInclude Include="..\mupdf\include\mupdf\pdf\zugferd.h">
+      <Filter>mupdf\include\mupdf\pdf</Filter>
+    </ClInclude>
     <ClInclude Include="..\mupdf\include\mupdf\ucdn.h">
       <Filter>mupdf\include\mupdf</Filter>
     </ClInclude>
@@ -304,6 +310,15 @@
       <Filter>mupdf\source\fitz</Filter>
     </ClInclude>
     <ClInclude Include="..\mupdf\source\fitz\context-imp.h">
+      <Filter>mupdf\source\fitz</Filter>
+    </ClInclude>
+    <ClInclude Include="..\mupdf\source\fitz\deskew_c.h">
+      <Filter>mupdf\source\fitz</Filter>
+    </ClInclude>
+    <ClInclude Include="..\mupdf\source\fitz\deskew_neon.h">
+      <Filter>mupdf\source\fitz</Filter>
+    </ClInclude>
+    <ClInclude Include="..\mupdf\source\fitz\deskew_sse.h">
       <Filter>mupdf\source\fitz</Filter>
     </ClInclude>
     <ClInclude Include="..\mupdf\source\fitz\draw-imp.h">
@@ -432,6 +447,9 @@
       <Filter>mupdf\source\fitz</Filter>
     </ClCompile>
     <ClCompile Include="..\mupdf\source\fitz\crypt-sha2.c">
+      <Filter>mupdf\source\fitz</Filter>
+    </ClCompile>
+    <ClCompile Include="..\mupdf\source\fitz\deskew.c">
       <Filter>mupdf\source\fitz</Filter>
     </ClCompile>
     <ClCompile Include="..\mupdf\source\fitz\device.c">
@@ -677,6 +695,9 @@
     <ClCompile Include="..\mupdf\source\fitz\shade.c">
       <Filter>mupdf\source\fitz</Filter>
     </ClCompile>
+    <ClCompile Include="..\mupdf\source\fitz\skew.c">
+      <Filter>mupdf\source\fitz</Filter>
+    </ClCompile>
     <ClCompile Include="..\mupdf\source\fitz\stext-device.c">
       <Filter>mupdf\source\fitz</Filter>
     </ClCompile>
@@ -755,6 +776,9 @@
     <ClCompile Include="..\mupdf\source\fitz\writer.c">
       <Filter>mupdf\source\fitz</Filter>
     </ClCompile>
+    <ClCompile Include="..\mupdf\source\fitz\xml-write.c">
+      <Filter>mupdf\source\fitz</Filter>
+    </ClCompile>
     <ClCompile Include="..\mupdf\source\fitz\xml.c">
       <Filter>mupdf\source\fitz</Filter>
     </ClCompile>
@@ -799,6 +823,9 @@
     </ClCompile>
     <ClCompile Include="..\mupdf\source\html\xml-dom.c">
       <Filter>mupdf\source\html</Filter>
+    </ClCompile>
+    <ClCompile Include="..\mupdf\source\pdf\pdf-af.c">
+      <Filter>mupdf\source\pdf</Filter>
     </ClCompile>
     <ClCompile Include="..\mupdf\source\pdf\pdf-annot.c">
       <Filter>mupdf\source\pdf</Filter>
@@ -944,6 +971,9 @@
     <ClCompile Include="..\mupdf\source\pdf\pdf-xref.c">
       <Filter>mupdf\source\pdf</Filter>
     </ClCompile>
+    <ClCompile Include="..\mupdf\source\pdf\pdf-zugferd.c">
+      <Filter>mupdf\source\pdf</Filter>
+    </ClCompile>
     <ClCompile Include="..\mupdf\source\reflow\reflow-doc.c">
       <Filter>mupdf\source\reflow</Filter>
     </ClCompile>
@@ -1000,7 +1030,22 @@
     <CustomBuild Include="..\mupdf\resources\fonts\droid\DroidSansFallbackFull.ttf">
       <Filter>mupdf\resources\fonts\droid</Filter>
     </CustomBuild>
+    <CustomBuild Include="..\mupdf\resources\fonts\noto\NotoEmoji-Regular.ttf">
+      <Filter>mupdf\resources\fonts\noto</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\mupdf\resources\fonts\noto\NotoMusic-Regular.otf">
+      <Filter>mupdf\resources\fonts\noto</Filter>
+    </CustomBuild>
     <CustomBuild Include="..\mupdf\resources\fonts\noto\NotoSans-Regular.otf">
+      <Filter>mupdf\resources\fonts\noto</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\mupdf\resources\fonts\noto\NotoSansMath-Regular.otf">
+      <Filter>mupdf\resources\fonts\noto</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\mupdf\resources\fonts\noto\NotoSansSymbols-Regular.otf">
+      <Filter>mupdf\resources\fonts\noto</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\mupdf\resources\fonts\noto\NotoSansSymbols2-Regular.otf">
       <Filter>mupdf\resources\fonts\noto</Filter>
     </CustomBuild>
     <CustomBuild Include="..\mupdf\resources\fonts\noto\NotoSerif-Regular.otf">

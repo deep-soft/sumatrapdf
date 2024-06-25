@@ -37,7 +37,6 @@ struct ExternalViewerInfo {
 
 static int gExternalViewersCount = 0;
 
-//
 // clang-format off
 static ExternalViewerInfo gExternalViewers[] = {
     {
@@ -81,6 +80,21 @@ static ExternalViewerInfo gExternalViewers[] = {
         CmdOpenWithAcrobat,
         ".pdf",
         R"(Adobe\Acrobat Reader DC\Reader\AcroRd32.exe)",
+        // Command line format for version 6 and later:
+        //   /A "page=%d&zoom=%.1f,%d,%d&..." <filename>
+        // see http://www.adobe.com/devnet/acrobat/pdfs/pdf_open_parameters.pdf#page=5
+        //   /P <filename>
+        // see http://www.adobe.com/devnet/acrobat/pdfs/Acrobat_SDK_developer_faq.pdf#page=24
+        // TODO: Also set zoom factor and scroll to current position?
+        R"(/A page=%p "%1")",
+        kindEngineMupdf,
+        nullptr
+    },
+    {
+        "Acrobat Reader",
+        CmdOpenWithAcrobat,
+        ".pdf",
+        R"(Adobe\Acrobat DC\Acrobat\Acrobat.exe)",
         // Command line format for version 6 and later:
         //   /A "page=%d&zoom=%.1f,%d,%d&..." <filename>
         // see http://www.adobe.com/devnet/acrobat/pdfs/pdf_open_parameters.pdf#page=5
@@ -245,6 +259,16 @@ static char* GetFoxitPathTemp() {
     if (path && file::Exists(path)) {
         return path;
     }
+    // Registry value for Foxit PDF Reader 12.1.3.15356 (The last version with Add Bookmark function without bugs in
+    // single-key accelerator)
+    keyName = R"(SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\FoxitPDFReader.exe)";
+    path = ReadRegStrTemp(HKEY_LOCAL_MACHINE, keyName, "Path");
+    if (path) {
+        path = path::JoinTemp(path, "FoxitPDFReader.exe");
+    }
+    if (path && file::Exists(path)) {
+        return path;
+    }
     return nullptr;
 }
 
@@ -266,7 +290,7 @@ static char* GetPDFXChangePathTemp() {
 }
 
 void DetectExternalViewers() {
-    CrashIf(gExternalViewersCount > 0); // only call once
+    ReportIf(gExternalViewersCount > 0); // only call once
 
     ExternalViewerInfo* info = nullptr;
     for (ExternalViewerInfo& i : gExternalViewers) {
@@ -384,7 +408,7 @@ bool ViewWithKnownExternalViewer(WindowTab* tab, int cmd) {
     } else {
         args = GetDocumentPathQuoted(tab);
     }
-    return LaunchFile(ev->exeFullPath, args);
+    return LaunchFileShell(ev->exeFullPath, args);
 }
 
 bool PathMatchFilter(const char* path, char* filter) {
@@ -425,27 +449,26 @@ bool ViewWithExternalViewer(WindowTab* tab, size_t idx) {
     if (nArgs == 0) {
         return false;
     }
-    const char* exePath = args.at(0);
+    const char* exePath = args.At(0);
     if (!file::Exists(exePath)) {
-        TempStr msg =
-            str::Format("External viewer executable not found: %s. Fix ExternalViewers in advanced settings.", exePath);
-        TempWStr msgw = ToWStrTemp(msg);
-        auto caption = _TR("Error");
-        MessageBoxExW(nullptr, msgw, caption, MB_OK | MB_ICONERROR, 0);
+        TempStr msg = str::FormatTemp(
+            "External viewer executable not found: %s. Fix ExternalViewers in advanced settings.", exePath);
+        auto caption = _TRA("Error");
+        MsgBox(nullptr, msg, caption, MB_OK | MB_ICONERROR);
         return false;
     }
     StrVec argsQuoted;
     if (nArgs == 1) {
-        return LaunchFile(exePath, tab->filePath);
+        return LaunchFileShell(exePath, tab->filePath);
     }
     for (int i = 1; i < nArgs; i++) {
-        char* s = args.at(i);
+        char* s = args.At(i);
         TempStr param = FormatParamTemp(s, tab);
         TempStr paramQuoted = QuoteCmdLineArgTemp(param);
         argsQuoted.Append(paramQuoted);
     }
     TempStr params = JoinTemp(argsQuoted, " ");
-    return LaunchFile(exePath, params);
+    return LaunchFileShell(exePath, params);
 }
 
 #define DEFINE_GUID_STATIC(name, l, w1, w2, b1, b2, b3, b4, b5, b6, b7, b8) \

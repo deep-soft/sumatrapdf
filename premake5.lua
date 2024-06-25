@@ -77,10 +77,16 @@ end
 -- to make debug builds faster, we compile stable libraries (freetype, libjpeg etc.)
 -- in release mode even in debug builds
 function regconf()
-  defines { "_HAS_ITERATOR_DEBUGGING=0" }
   editandcontinue "Off"
 
+  -- same as in optconf()
+  runtime "Release"
+  defines { "_HAS_ITERATOR_DEBUGGING=0" }
+
   filter "configurations:Debug"
+    defines { "DEBUG" }
+
+  filter "configurations:DebugFull"
     defines { "DEBUG" }
 
   filter "configurations:Release*"
@@ -95,63 +101,42 @@ function regconf()
       "LinkTimeOptimization",
     }
   filter {}
-  runtime "Release"
 end
 
 -- config for stable libraries where debug build is done with optimization
 function optconf()
-  optimize "Size"
-  undefines { "DEBUG" }
-  defines { "NDEBUG" }
   editandcontinue "Off"
+  optimize "Size"
 
   -- we mix Deubg / Release compilation between projects
   -- but all linked modules have to use the same type
   -- of c libraries, so we use release C libs
   -- and we disable C++ iterator debugging because it also
   -- must be consistent across modules
-  defines { "_HAS_ITERATOR_DEBUGGING=0" }
   runtime "Release"
+  defines { "_HAS_ITERATOR_DEBUGGING=0" }
 
-  -- asan builds:
-  -- * no ltcg
-  -- TODO: or arm64 ?
-  filter { "configurations:Release*", "platforms:x32 or x64" }
+  filter "configurations:DebugFull"
+    defines { "DEBUG" }
+
+  filter "configurations:Debug or Release or ReleaseAnalyze"
+    undefines { "DEBUG" }
+    defines { "NDEBUG" }
+  filter {}
+
+  filter { "configurations:Release*", "platforms:x32 or x64 or arm64" }
     flags {
       "LinkTimeOptimization",
     }
   filter {}
 end
 
-function zlib_ng_defines()
-  defines {
-    "_CRT_SECURE_NO_DEPRECATE",
-    "_CRT_NONSTDC_NO_DEPRECATE",
-    "X86_FEATURES",
-    "X86_PCLMULQDQ_CRC",
-    "X86_SSE2",
-    "X86_SSE42_CRC_INTRIN",
-    "X86_SSE42_CRC_HASH",
-    "X86_AVX2",
-    "X86_AVX_CHUNKSET",
-    "X86_SSE2_CHUNKSET",
-    "UNALIGNED_OK",
-    "UNALIGNED64_OK",
-    "WITH_GZFILEOP",
-    "ZLIB_COMPAT"
-  }
-  includedirs {
-    "ext/zlib-ng",
-  }
-end
 
 function zlib_defines()
   includedirs {
     "ext/zlib",
   }
 end
-
--- links_zlib and uses_zlib allows easy switching between zlib and zlib-ng
 
 -- add to a project that links zlib
 function links_zlib()
@@ -166,7 +151,7 @@ function uses_zlib()
 end
 
 workspace "SumatraPDF"
-  configurations { "Debug", "Release", "ReleaseAnalyze", }
+  configurations { "Debug", "DebugFull", "Release", "ReleaseAnalyze", }
   platforms { "x32", "x64", "arm64", "x64_asan" }
   startproject "SumatraPDF"
 
@@ -187,7 +172,7 @@ workspace "SumatraPDF"
   filter {}
 
   filter "platforms:arm64"
-     architecture "arm64"
+     architecture "ARM64"
   filter {}
 
   disablewarnings { "4127", "4189", "4324", "4458", "4522", "4611", "4702", "4800", "6319" }
@@ -205,7 +190,8 @@ workspace "SumatraPDF"
     targetdir "out/rel32_prefast"
   filter {"platforms:x32", "configurations:Debug"}
     targetdir "out/dbg32"
-  filter {}
+  filter {"platforms:x32", "configurations:DebugFull"}
+    targetdir "out/dbgfull32"
 
   filter {"platforms:x64", "configurations:Release"}
     targetdir "out/rel64"
@@ -213,6 +199,8 @@ workspace "SumatraPDF"
     targetdir "out/rel64_prefast"
   filter {"platforms:x64", "configurations:Debug"}
     targetdir "out/dbg64"
+  filter {"platforms:x64", "configurations:DebugFull"}
+    targetdir "out/dbgfull64"
   filter {}
 
   filter {"platforms:x64_asan", "configurations:Release"}
@@ -221,6 +209,8 @@ workspace "SumatraPDF"
     targetdir "out/rel64_prefast_asan"
   filter {"platforms:x64_asan", "configurations:Debug"}
     targetdir "out/dbg64_asan"
+  filter {"platforms:x64_asan", "configurations:DebugFull"}
+    targetdir "out/dbgfull64_asan"
   filter {}
 
   filter {"platforms:arm64", "configurations:Release"}
@@ -229,6 +219,8 @@ workspace "SumatraPDF"
     targetdir "out/arm64_prefast"
   filter {"platforms:arm64", "configurations:Debug"}
     targetdir "out/dbgarm64"
+  filter {"platforms:arm64", "configurations:DebugFull"}
+    targetdir "out/dbgfullarm64"
   filter {}
 
   objdir "%{cfg.targetdir}/obj"
@@ -406,17 +398,10 @@ workspace "SumatraPDF"
     disablewarnings { "4131", "4244", "4245", "4267", "4996" }
     zlib_files()
 
-  project "zlib-ng"
-    kind "StaticLib"
-    language "C"
-    optconf()
-    zlib_ng_defines()
-    disablewarnings { "4244", "4267" }
-    zlib_ng_files()
-
   -- to make Visual Studio solution smaller
   -- combine 9 libs only used by mupdf into a single project
   -- instead of having 9 projects
+
   project "mupdf-libs"
     kind "StaticLib"
     language "C"
@@ -510,7 +495,7 @@ workspace "SumatraPDF"
     gumbo_files()
 
     -- extract
-    disablewarnings { "4005", "4201" }
+    disablewarnings { "4005", "4201", "4130" }
     includedirs { "ext/extract/include" }
     uses_zlib()
     extract_files()
@@ -518,121 +503,9 @@ workspace "SumatraPDF"
     -- iibheif
     defines { "LIBHEIF_STATIC_BUILD" }
 
-
---[[
-
-  project "libjpeg-turbo"
-    kind "StaticLib"
-    language "C"
-    optconf()
-    defines { "_CRT_SECURE_NO_WARNINGS" }
-    disablewarnings { "4018", "4100", "4244", "4245" }
-    includedirs { "ext/libjpeg-turbo", "ext/libjpeg-turbo/simd" }
-
-    -- nasm.exe -I .\ext\libjpeg-turbo\simd\
-    -- -I .\ext\libjpeg-turbo\win\ -f win32
-    -- -o .\obj-rel\jpegturbo\jsimdcpu.obj
-    -- .\ext\libjpeg-turbo\simd\jsimdcpu.asm
-    filter {'files:**.asm', 'platforms:x32'}
-       buildmessage '%{file.relpath}'
-       buildoutputs { '%{cfg.objdir}/%{file.basename}.obj' }
-       buildcommands {
-          '..\\bin\\nasm.exe -f win32 -I ../ext/libjpeg-turbo/simd/ -I ../ext/libjpeg-turbo/win/ -o "%{cfg.objdir}/%{file.basename}.obj" "%{file.relpath}"'
-       }
-    filter {}
-
-    filter {'files:**.asm', 'platforms:x64 or x64_asan'}
-      buildmessage '%{file.relpath}'
-      buildoutputs { '%{cfg.objdir}/%{file.basename}.obj' }
-      buildcommands {
-        '..\\bin\\nasm.exe -f win64 -D__x86_64__ -DWIN64 -DMSVC -I ../ext/libjpeg-turbo/simd/ -I ../ext/libjpeg-turbo/win/ -o "%{cfg.objdir}/%{file.basename}.obj" "%{file.relpath}"'
-      }
-    filter {}
-    libjpeg_turbo_files()
-
-  project "jbig2dec"
-    kind "StaticLib"
-    language "C"
-    optconf()
-    defines { "_CRT_SECURE_NO_WARNINGS", "HAVE_STRING_H=1", "JBIG_NO_MEMENTO" }
-    disablewarnings { "4018", "4100", "4146", "4244", "4267", "4456", "4701" }
-    includedirs { "ext/jbig2dec" }
-    jbig2dec_files()
-
-  project "openjpeg"
-    kind "StaticLib"
-    language "C"
-    optconf()
-    disablewarnings { "4100", "4244", "4310", "4389", "4456" }
-    -- openjpeg has opj_config_private.h for such over-rides
-    -- but we can't change it because we bring openjpeg as submodule
-    -- and we can't provide our own in a different directory because
-    -- msvc will include the one in ext/openjpeg/src/lib/openjp2 first
-    -- because #include "opj_config_private.h" searches current directory first
-    defines { "_CRT_SECURE_NO_WARNINGS", "USE_JPIP", "OPJ_STATIC", "OPJ_EXPORTS" }
-    openjpeg_files()
-
-    project "freetype"
-    kind "StaticLib"
-    language "C"
-    optconf()
-    defines {
-      "FT2_BUILD_LIBRARY",
-      "FT_CONFIG_MODULES_H=\"slimftmodules.h\"",
-      "FT_CONFIG_OPTIONS_H=\"slimftoptions.h\"",
-    }
-    disablewarnings { "4018", "4100", "4244", "4267", "4312", "4701", "4706", "4996" }
-    includedirs { "mupdf/scripts/freetype", "ext/freetype/include" }
-    freetype_files()
-
-  project "lcms2"
-    kind "StaticLib"
-    language "C"
-    optconf()
-    disablewarnings { "4100" }
-    includedirs { "ext/lcms2/include" }
-    lcms2_files()
-
-  project "harfbuzz"
-    kind "StaticLib"
-    language "C"
-    optconf()
-    includedirs { "ext/harfbuzz/src/hb-ucdn", "mupdf/scripts/freetype", "ext/freetype/include" }
-    defines {
-      "_CRT_SECURE_NO_WARNINGS",
-      "HAVE_FALLBACK=1",
-      "HAVE_OT",
-      "HAVE_UCDN",
-      "HAVE_FREETYPE",
-      "HB_NO_MT",
-      "hb_malloc_impl=fz_hb_malloc",
-      "hb_calloc_impl=fz_hb_calloc",
-      "hb_realloc_impl=fz_hb_realloc",
-      "hb_free_impl=fz_hb_free"
-    }
-    disablewarnings { "4100", "4146", "4244", "4245", "4267", "4456", "4457", "4459", "4701", "4702", "4706" }
-    harfbuzz_files()
-
-  project "mujs"
-    kind "StaticLib"
-    language "C"
-    optconf()
-    includedirs { "ext/mujs" }
-    disablewarnings { "4090", "4100", "4310", "4702", "4706" }
-    files { "ext/mujs/one.c", "ext/mujs/mujs.h" }
-
-  project "gumbo"
-    kind "StaticLib"
-    language "C"
-    optconf()
-    disablewarnings { "4018", "4100", "4132", "4204", "4244", "4245", "4267",
-    "4305", "4306", "4389", "4456", "4701" }
-    includedirs { "ext/gumbo-parser/include", "ext/gumbo-parser/visualc/include" }
-    gumbo_files()
---]]
-
   function fonts()
     files {
+
       "mupdf/resources/fonts/urw/Dingbats.cff",
       "mupdf/resources/fonts/urw/NimbusMonoPS-Regular.cff",
       "mupdf/resources/fonts/urw/NimbusMonoPS-Italic.cff",
@@ -653,6 +526,11 @@ workspace "SumatraPDF"
       "mupdf/resources/fonts/sil/CharisSIL-Italic.cff",
       "mupdf/resources/fonts/sil/CharisSIL-BoldItalic.cff",
       "mupdf/resources/fonts/noto/NotoSans-Regular.otf",
+      "mupdf/resources/fonts/noto/NotoSansMath-Regular.otf",
+      "mupdf/resources/fonts/noto/NotoSansSymbols-Regular.otf",
+      "mupdf/resources/fonts/noto/NotoSansSymbols2-Regular.otf",
+      "mupdf/resources/fonts/noto/NotoEmoji-Regular.ttf",
+      "mupdf/resources/fonts/noto/NotoMusic-Regular.otf",
       "mupdf/resources/fonts/noto/NotoSerif-Regular.otf",
       "mupdf/resources/fonts/noto/NotoSerifDevanagari-Regular.otf",
       "mupdf/resources/fonts/noto/NotoSerifGeorgian-Regular.otf",
@@ -695,6 +573,10 @@ workspace "SumatraPDF"
     -- we exclude the very big cjk fonts
     defines { "TOFU_NOTO", "TOFU_CJK_LANG", "TOFU_NOTO_SUMATRA" }
 
+    filter { "platforms:arm64" }
+        defines { "ARCH_HAS_NEON=1" }
+    filter {}
+
     disablewarnings {
       "4005", "4018", "4057", "4100", "4115", "4130", "4132", "4204", "4206", "4210", "4245", "4267",
       "4295", "4305", "4389", "4456", "4457", "4703", "4706", "4819"
@@ -729,6 +611,11 @@ workspace "SumatraPDF"
     optconf()
     disablewarnings { "4206", "4702" }
     defines { "FZ_ENABLE_SVG" }
+
+    filter { "platforms:arm64" }
+        defines { "ARCH_HAS_NEON=1" }
+    filter {}
+
     -- premake has logic in vs2010_vcxproj.lua that only sets PlatformToolset
     -- if there is a c/c++ file, so we add a no-op cpp file to force This logic
     files { "src/libmupdf.rc", "src/libmupdf.def", "src/no_op_for_premake.cpp" }
@@ -766,46 +653,6 @@ workspace "SumatraPDF"
     utils_files()
 
   ---- executables
-  --[[
-  project "efi"
-    kind "ConsoleApp"
-    language "C++"
-    cppdialect "C++latest"
-    disablewarnings { "4091", "4577" }
-    includedirs { "src" }
-    efi_files()
-
-
-  project "mutool"
-    kind "ConsoleApp"
-    language "C"
-    disablewarnings { "4100", "4267" }
-    includedirs { "ext/zlib", "ext/lzma/C", "ext/unarr", "mupdf/include" }
-    mutool_files()
-    links { "mupdf" }
-    links { "windowscodecs" }
-    entrypoint "wmainCRTStartup"
-
-
-  project "mudraw"
-    kind "ConsoleApp"
-    language "C"
-    disablewarnings { "4100", "4267" }
-    includedirs { "ext/zlib", "ext/lzma/C", "ext/unarr", "mupdf/include" }
-    mudraw_files()
-    links { "mupdf" }
-    links { "windowscodecs" }
-    linkoptions { "/ENTRY:\"wmainCRTStartup\"" }
-    entrypoint "wmainCRTStartup"
-
-
-  project "unarr"
-    kind "ConsoleApp"
-    language "C"
-    disablewarnings { "4100" }
-    files { "ext/unarr/main.c" }
-    links { "unarrlib", "zlib" }
-  --]]
 
   project "signfile"
     kind "ConsoleApp"
@@ -813,7 +660,7 @@ workspace "SumatraPDF"
     cppdialect "C++latest"
     regconf()
     includedirs { "src", "mupdf/include"}
-    files { "src/tools/signfile.cpp" }
+    files { "src/tools/signfile.cpp", "src/CrashHandlerNoOp.cpp" }
     links { "utils", "mupdf" }
     links { "crypt32", "shlwapi", "version", "Comctl32", "wininet" }
 
@@ -825,7 +672,7 @@ workspace "SumatraPDF"
     regconf()
     entrypoint "WinMainCRTStartup"
     includedirs { "src" }
-    files { "src/tools/plugin-test.cpp" }
+    plugin_test_files()
     links { "utils", "mupdf" }
     links { "shlwapi", "version", "comctl32", "wininet" }
 
@@ -838,7 +685,7 @@ workspace "SumatraPDF"
     disablewarnings { "4100", "4267", "4457" }
     engine_dump_files()
     links_zlib()
-    links { "engines", "utils", "unrar", "mupdf", "unarrlib", "libwebp", "libdjvu" }
+    links { "engines", "utils", "unrar", "mupdf", "unarrlib", "libwebp", "libdjvu", "dav1d", "libheif" }
     links {
       "comctl32", "gdiplus", "msimg32", "shlwapi",
       "version", "windowscodecs", "wininet"
@@ -1035,7 +882,7 @@ workspace "SumatraPDF"
 
 workspace "MakeLZSA"
   configurations { "Debug", "Release" }
-  platforms { "x32", "x64" }
+  platforms { "x32", "x64", "arm64", "x64_asan" }
   startproject "MakeLZSA"
 
   filter "platforms:x32"
@@ -1052,10 +899,6 @@ workspace "MakeLZSA"
   warnings "Extra"
 
   location "this_is_invalid_location"
-
-  filter "action:vs2019"
-    location "vs2019"
-  filter {}
 
   filter "action:vs2022"
     location "vs2022"
@@ -1104,12 +947,13 @@ workspace "MakeLZSA"
     regconf()
 
     makelzsa_files()
-    uses_zlib()
+    disablewarnings { "4131", "4244", "4245", "4267", "4996" }
     includedirs { "src", "ext/lzma/C", "ext/unarr" }
 
     -- for zlib
-    -- disablewarnings { "4131", "4244", "4245", "4267", "4996" }
-    -- zlib_files()
+    disablewarnings { "4131", "4244", "4245", "4267", "4996" }
+    zlib_files()
+    uses_zlib()
 
     -- unarrlib
     -- TODO: for bzip2, need BZ_NO_STDIO and BZ_DEBUG=0
@@ -1119,5 +963,4 @@ workspace "MakeLZSA"
     disablewarnings { "4100", "4244", "4267", "4456", "4457", "4996" }
     includedirs { "ext/bzip2", "ext/lzma/C" }
     unarr_files()
-    links_zlib()
-    links { "shlwapi", "version", "comctl32" }
+    links { "shlwapi", "version", "comctl32", "wininet" }

@@ -1,4 +1,4 @@
-// Copyright (C) 2004-2023 Artifex Software, Inc.
+// Copyright (C) 2004-2024 Artifex Software, Inc.
 //
 // This file is part of MuPDF.
 //
@@ -27,10 +27,6 @@
 #include <stdio.h>
 #include <time.h>
 #include <limits.h>
-
-#ifndef PATH_MAX
-#define PATH_MAX 4096
-#endif
 
 static int is_draw_mode = 0;
 static int new_contents = 0;
@@ -796,6 +792,8 @@ static const char *quadding_names[] = { "Left", "Center", "Right" };
 static const char *font_names[] = { "Cour", "Helv", "TiRo" };
 static const char *lang_names[] = { "", "ja", "ko", "zh-Hans", "zh-Hant" };
 static const char *im_redact_names[] = { "Keep images", "Remove images", "Erase pixels" };
+static const char *la_redact_names[] = { "Keep line art", "Remove covered line art", "Remove touched line art" };
+static const char *tx_redact_names[] = { "Remove text", "Keep text" };
 static const char *border_styles[] = { "Solid", "Dashed", "Dotted" };
 static const char *border_intensities[] = { "None", "Small clouds", "Large clouds", "Enormous clouds" };
 
@@ -1436,6 +1434,8 @@ void do_redact_panel(void)
 	pdf_annot *annot;
 	int idx;
 	int im_choice;
+	int la_choice;
+	int tx_choice;
 	int i;
 
 	int num_redact = 0;
@@ -1480,6 +1480,14 @@ void do_redact_panel(void)
 	im_choice = ui_select("Redact/IM", im_redact_names[redact_opts.image_method], im_redact_names, nelem(im_redact_names));
 	if (im_choice != -1)
 		redact_opts.image_method = im_choice;
+
+	la_choice = ui_select("Redact/LA", la_redact_names[redact_opts.line_art], la_redact_names, nelem(la_redact_names));
+	if (la_choice != -1)
+		redact_opts.line_art = la_choice;
+
+	tx_choice = ui_select("Redact/TX", tx_redact_names[redact_opts.text], tx_redact_names, nelem(tx_redact_names));
+	if (tx_choice != -1)
+		redact_opts.text = tx_choice;
 
 	ui_spacer();
 
@@ -1752,7 +1760,7 @@ static void do_edit_line(fz_irect canvas_area, fz_irect area, fz_rect *rect)
 		rect->y0 = fz_min(a.y, b.y);
 		rect->x1 = fz_max(a.x, b.x);
 		rect->y1 = fz_max(a.y, b.y);
-		lw = pdf_annot_border(ctx, ui.selected_annot);
+		lw = pdf_annot_border_width(ctx, ui.selected_annot);
 		*rect = fz_expand_rect(*rect, fz_matrix_expansion(view_page_ctm) * lw);
 
 		/* cancel on right click */

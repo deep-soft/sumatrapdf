@@ -13,14 +13,11 @@
 #include "wingui/UIModels.h"
 
 #include "Settings.h"
+#include "DocProperties.h"
 #include "DocController.h"
 #include "EngineBase.h"
 #include "EngineAll.h"
 #include "PdfCreator.h"
-
-void _uploadDebugReportIfFunc(bool, const char*) {
-    // no-op implementation to satisfy SubmitBugReport()
-}
 
 #define Out(msg, ...) printf(msg, __VA_ARGS__)
 
@@ -132,47 +129,47 @@ void DumpProperties(EngineBase* engine, bool fullDump) {
     Out1("\t<Properties\n");
     TempStr str = EscapeTemp(engine->FilePath());
     Out("\t\tFilePath=\"%s\"\n", str);
-    str = EscapeTemp(engine->GetPropertyTemp(DocumentProperty::Title));
+    str = EscapeTemp(engine->GetPropertyTemp(kPropTitle));
     if (str) {
         Out("\t\tTitle=\"%s\"\n", str);
     }
-    str = EscapeTemp(engine->GetPropertyTemp(DocumentProperty::Subject));
+    str = EscapeTemp(engine->GetPropertyTemp(kPropSubject));
     if (str) {
         Out("\t\tSubject=\"%s\"\n", str);
     }
-    str = EscapeTemp(engine->GetPropertyTemp(DocumentProperty::Author));
+    str = EscapeTemp(engine->GetPropertyTemp(kPropAuthor));
     if (str) {
         Out("\t\tAuthor=\"%s\"\n", str);
     }
-    str = EscapeTemp(engine->GetPropertyTemp(DocumentProperty::Copyright));
+    str = EscapeTemp(engine->GetPropertyTemp(kPropCopyright));
     if (str) {
         Out("\t\tCopyright=\"%s\"\n", str);
     }
-    str = EscapeTemp(engine->GetPropertyTemp(DocumentProperty::CreationDate));
+    str = EscapeTemp(engine->GetPropertyTemp(kPropCreationDate));
     if (str) {
         Out("\t\tCreationDate=\"%s\"\n", str);
     }
-    str = EscapeTemp(engine->GetPropertyTemp(DocumentProperty::ModificationDate));
+    str = EscapeTemp(engine->GetPropertyTemp(kPropModificationDate));
     if (str) {
         Out("\t\tModDate=\"%s\"\n", str);
     }
-    str = EscapeTemp(engine->GetPropertyTemp(DocumentProperty::CreatorApp));
+    str = EscapeTemp(engine->GetPropertyTemp(kPropCreatorApp));
     if (str) {
         Out("\t\tCreator=\"%s\"\n", str);
     }
-    str = EscapeTemp(engine->GetPropertyTemp(DocumentProperty::PdfProducer));
+    str = EscapeTemp(engine->GetPropertyTemp(kPropPdfProducer));
     if (str) {
         Out("\t\tPdfProducer=\"%s\"\n", str);
     }
-    str = EscapeTemp(engine->GetPropertyTemp(DocumentProperty::PdfVersion));
+    str = EscapeTemp(engine->GetPropertyTemp(kPropPdfVersion));
     if (str) {
         Out("\t\tPdfVersion=\"%s\"\n", str);
     }
-    str = EscapeTemp(engine->GetPropertyTemp(DocumentProperty::PdfFileStructure));
+    str = EscapeTemp(engine->GetPropertyTemp(kPropPdfFileStructure));
     if (str) {
         Out("\t\tPdfFileStructure=\"%s\"\n", str);
     }
-    str = EscapeTemp(engine->GetPropertyTemp(DocumentProperty::UnsupportedFeatures));
+    str = EscapeTemp(engine->GetPropertyTemp(kPropUnsupportedFeatures));
     if (str) {
         Out("\t\tUnsupportedFeatures=\"%s\"\n", str);
     }
@@ -195,7 +192,7 @@ void DumpProperties(EngineBase* engine, bool fullDump) {
     if (!fullDump) {
         return;
     }
-    TempStr fontlist = engine->GetPropertyTemp(DocumentProperty::FontList);
+    TempStr fontlist = engine->GetPropertyTemp(kPropFontList);
     if (fontlist) {
         StrVec fonts;
         Split(fonts, fontlist, "\n");
@@ -206,17 +203,17 @@ void DumpProperties(EngineBase* engine, bool fullDump) {
 
 // caller must free() the result
 static char* DestRectToStr(EngineBase* engine, IPageDestination* dest) {
-    char* destName = dest->GetName();
+    char* destName = PageDestGetName(dest);
     if (destName) {
         TempStr name = EscapeTemp(destName);
         return str::Format("Name=\"%s\"", name);
     }
     // as handled by LinkHandler::ScrollTo in MainWindow.cpp
-    int pageNo = dest->GetPageNo();
+    int pageNo = PageDestGetPageNo(dest);
     if (pageNo <= 0 || pageNo > engine->PageCount()) {
         return nullptr;
     }
-    RectF rect = dest->GetRect();
+    RectF rect = PageDestGetRect(dest);
     if (rect.IsEmpty()) {
         PointF pt = engine->Transform(rect.TL(), pageNo, 1.0, 0);
         return str::Format("Point=\"%.0f %.0f\"", pt.x, pt.y);
@@ -247,12 +244,12 @@ void DumpTocItem(EngineBase* engine, TocItem* item, int level, int& idCounter) {
         }
         if (item->GetPageDestination()) {
             IPageDestination* dest = item->GetPageDestination();
-            TempStr target = EscapeTemp(dest->GetValue());
+            TempStr target = EscapeTemp(PageDestGetValue(dest));
             if (target) {
                 Out(" Target=\"%s\"", target);
             }
-            if (item->pageNo != dest->GetPageNo()) {
-                Out(" TargetPage=\"%d\"", dest->GetPageNo());
+            if (item->pageNo != PageDestGetPageNo(dest)) {
+                Out(" TargetPage=\"%d\"", PageDestGetPageNo(dest));
             }
             AutoFreeStr rectStr = DestRectToStr(engine, dest);
             if (rectStr) {
@@ -346,12 +343,12 @@ void DumpPageContent(EngineBase* engine, int pageNo, bool fullDump) {
                 if (dest->GetKind() != nullptr) {
                     Out("\t\t\t\tLinkType=\"%s\"\n", dest->GetKind());
                 }
-                TempStr value = EscapeTemp(dest->GetValue());
+                TempStr value = EscapeTemp(PageDestGetValue(dest));
                 if (value) {
                     Out("\t\t\t\tLinkTarget=\"%s\"\n", value);
                 }
-                if (dest->GetPageNo()) {
-                    Out("\t\t\t\tLinkedPage=\"%d\"\n", dest->GetPageNo());
+                if (PageDestGetPageNo(dest)) {
+                    Out("\t\t\t\tLinkedPage=\"%d\"\n", PageDestGetPageNo(dest));
                 }
                 AutoFreeStr rectStr = DestRectToStr(engine, dest);
                 if (rectStr) {
@@ -419,7 +416,7 @@ void DumpData(EngineBase* engine, bool fullDump) {
 #define ErrOut1(msg) fprintf(stderr, "%s", msg "\n")
 
 static bool CheckRenderPath(const char* path) {
-    CrashIf(!path);
+    ReportIf(!path);
     bool hasArg = false;
     const char* p = path - 1;
     while ((p = str::FindChar(p + 1, '%')) != nullptr) {
@@ -596,7 +593,7 @@ int main(int, char**) {
     if (renderPath) {
         RenderDocument(engine, renderPath, renderZoom, silent);
     }
-    delete engine;
+    engine->Release();
 
     return 0;
 }

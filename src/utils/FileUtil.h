@@ -20,10 +20,9 @@ TempWStr JoinTemp(const WCHAR* path, const WCHAR* fileName, const WCHAR* fileNam
 
 bool IsDirectory(const char*);
 
-WCHAR* Normalize(const WCHAR* path);
 char* NormalizeTemp(const char* path);
 
-char* ShortPath(const char* pathA);
+TempStr ShortPathTemp(const char* pathA);
 bool IsSame(const char* path1, const char* path2);
 bool HasVariableDriveLetter(const char* path);
 bool IsOnFixedDrive(const char* path);
@@ -31,9 +30,17 @@ bool IsAbsolute(const char* path);
 
 bool Match(const char* path, const char* filter);
 
-char* GetTempFilePath(const char* filePrefix = nullptr);
-TempStr GetPathOfFileInAppDirTemp(const char* fileName = nullptr);
+enum Type {
+    None, // path doesn't exist
+    File,
+    Dir,
+};
+Type GetType(const char* path);
+
 } // namespace path
+
+TempStr GetTempFilePathTemp(const char* filePrefix = nullptr);
+TempStr GetPathInExeDirTemp(const char* fileName = nullptr);
 
 namespace file {
 
@@ -48,6 +55,7 @@ bool WriteFile(const char* path, const ByteSlice&);
 
 i64 GetSize(const char*);
 bool Delete(const char* path);
+bool DeleteFileToTrash(const char* path);
 
 FILETIME GetModificationTime(const char* path);
 

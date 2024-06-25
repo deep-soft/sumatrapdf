@@ -1,4 +1,4 @@
-/* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2024 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 #include "utils/BaseUtil.h"
@@ -33,14 +33,45 @@ bool HasBeenInstalled() {
     }
 
     TempStr exePath = GetExePathTemp();
-    if (exePath) {
-        return false;
-    }
-
     if (!str::EndsWithI(installedPath, ".exe")) {
         installedPath = path::JoinTemp(installedPath, path::GetBaseNameTemp(exePath));
     }
     return path::IsSame(installedPath, exePath);
+}
+
+static char* PathStripBaseName(char* path) {
+    // base will either return path or a pointer inside path right after last "/"
+    char* base = (char*)path::GetBaseNameTemp(path);
+    if (base > path) {
+        base[-1] = 0;
+        return path;
+    }
+    return nullptr;
+}
+
+// return true if path is in a given dir, even if dir is a junction etc.
+static bool IsPathInDirSmart(const char* path, const char* dir) {
+    char* dir2 = str::DupTemp(path);
+    while (dir2) {
+        if (path::IsSame(dir, dir2)) {
+            return true;
+        }
+        dir2 = PathStripBaseName(dir2);
+    }
+    return false;
+}
+
+static bool IsExeInProgramFiles() {
+    TempStr exePath = GetExePathTemp();
+    TempStr dir = GetSpecialFolderTemp(CSIDL_PROGRAM_FILES);
+    if (IsPathInDirSmart(exePath, dir)) {
+        return true;
+    }
+    dir = GetSpecialFolderTemp(CSIDL_PROGRAM_FILESX86);
+    if (IsPathInDirSmart(exePath, dir)) {
+        return true;
+    }
+    return false;
 }
 
 /* Return false if this program has been started from "Program Files" directory
@@ -52,39 +83,20 @@ bool IsRunningInPortableMode() {
     if (sCacheIsPortable != -1) {
         return sCacheIsPortable != 0;
     }
-    sCacheIsPortable = 1;
 
+    sCacheIsPortable = 0;
     if (gIsStoreBuild) {
-        sCacheIsPortable = 0;
         return false;
     }
 
     if (HasBeenInstalled()) {
-        sCacheIsPortable = 0;
         return false;
     }
 
-    TempStr exePath = GetExePathTemp();
-    TempStr programFilesDir = GetSpecialFolderTemp(CSIDL_PROGRAM_FILES);
-    // if we can't get a path, assume we're not running from "Program Files"
-    if (!exePath || !programFilesDir) {
+    if (!IsExeInProgramFiles()) {
         sCacheIsPortable = 1;
-        return true;
     }
-
-    // check if one of the exePath's parent directories is "Program Files"
-    // (or a junction to it)
-    char* baseName;
-    while ((baseName = (char*)path::GetBaseNameTemp(exePath)) > exePath) {
-        baseName[-1] = '\0';
-        if (path::IsSame(programFilesDir, exePath)) {
-            sCacheIsPortable = 0;
-            return false;
-        }
-    }
-
-    sCacheIsPortable = 1;
-    return true;
+    return sCacheIsPortable != 0;
 }
 
 bool IsDllBuild() {
@@ -92,52 +104,53 @@ bool IsDllBuild() {
     return resSrc != nullptr;
 }
 
-static AutoFreeStr gAppDataDir;
+// TODO: leaks
+static char* gAppDataDir = nullptr;
 
-void SetAppDataPath(const char* path) {
-    path = path::NormalizeTemp(path);
-    gAppDataDir.SetCopy(path);
+void SetAppDataDir(const char* dir) {
+    dir = path::NormalizeTemp(dir);
+    bool ok = dir::CreateAll(dir);
+    ReportIf(!ok);
+    str::ReplaceWithCopy(&gAppDataDir, dir);
 }
 
-// Generate the full path for a filename used by the app in the userdata path
-// Caller needs to free() the result
-TempStr AppGenDataFilenameTemp(const char* fileName) {
-    if (!fileName) {
-        return nullptr;
+TempStr GetAppDataDirTemp() {
+    if (gAppDataDir) {
+        return gAppDataDir;
     }
 
-    if (gAppDataDir && dir::Exists(gAppDataDir)) {
-        return path::JoinTemp(gAppDataDir, fileName);
-    }
-
+    TempStr dir;
     if (IsRunningInPortableMode()) {
-        /* Use the same path as the binary */
-        return path::GetPathOfFileInAppDirTemp(fileName);
-    }
-
-    TempStr path = GetSpecialFolderTemp(CSIDL_LOCAL_APPDATA, true);
-    if (!path) {
-        return nullptr;
-    }
-    path = path::JoinTemp(path, kAppName);
-    if (!path) {
-        return nullptr;
-    }
-
-    // use a different path for store builds
-    if (gIsStoreBuild) {
-        // %APPLOCALDATA%/SumatraPDF Store
-        // %APPLOCALDATA%/SumatraPDF Store Preview
-        path = str::JoinTemp(path, " Store");
-        if (gIsPreReleaseBuild) {
-            path = str::JoinTemp(path, " Preview");
+        dir = GetExeDirTemp();
+    } else {
+        dir = GetSpecialFolderTemp(CSIDL_LOCAL_APPDATA, true);
+        if (!dir) {
+            ReportIf(!dir);
+            dir = GetTempDirTemp(); // shouldn't happen, last chance thing
+        }
+        dir = path::JoinTemp(dir, kAppName);
+        // use a different path for store builds
+        if (gIsStoreBuild) {
+            // %APPLOCALDATA%/SumatraPDF Store
+            // %APPLOCALDATA%/SumatraPDF Store Preview
+            dir = str::JoinTemp(dir, " Store");
+            if (gIsPreReleaseBuild) {
+                dir = str::JoinTemp(dir, " Preview");
+            }
         }
     }
-    bool ok = dir::Create(path);
-    if (!ok) {
+    logf("GetAppDataDirTemp(): '%s'\n", dir);
+    SetAppDataDir(dir);
+    return gAppDataDir;
+}
+
+// Generate full path for a file or directory for storing data
+TempStr GetPathInAppDataDirTemp(const char* name) {
+    if (!name) {
         return nullptr;
     }
-    return path::JoinTemp(path, fileName);
+    TempStr dir = GetAppDataDirTemp();
+    return path::JoinTemp(dir, name);
 }
 
 // List of rules used to detect TeX editors.
@@ -506,7 +519,7 @@ void SaveCallstackLogs() {
     if (s.empty()) {
         return;
     }
-    TempStr filePath = AppGenDataFilenameTemp("callstacks.txt");
+    TempStr filePath = GetPathInAppDataDirTemp("callstacks.txt");
     file::WriteFile(filePath, s);
     s.Free();
 }
@@ -515,7 +528,7 @@ void SaveCallstackLogs() {
 #if 0
 // cache because calculating md5 of the whole executable
 // might be relatively expensive
-static AutoFreeWstr gAppMd5;
+static AutoFreeWStr gAppMd5;
 
 // return hex version of md5 of app's executable
 // nullptr if there was an error
@@ -538,7 +551,7 @@ static const WCHAR* Md5OfAppExe() {
     CalcMD5Digest(d.data, d.size(), md5);
 
     AutoFree md5HexA(_MemToHex(&md5));
-    AutoFreeWstr md5Hex = strconv::Utf8ToWchar(md5HexA.AsView());
+    AutoFreeWStr md5Hex = strconv::Utf8ToWchar(md5HexA.AsView());
     d.Free();
     return md5Hex.StealData();
 }
@@ -548,7 +561,7 @@ static const WCHAR* Md5OfAppExe() {
 // locally or using pre-release builds (both cases where
 // exe and its md5 changes frequently)
 void RemoveMd5AppDataDirectories() {
-    AutoFreeWstr extractedDir = PathForFileInAppDataDir(L"extracted");
+    AutoFreeWStr extractedDir = PathForFileInAppDataDir(L"extracted");
     if (extractedDir.empty()) {
         return;
     }
@@ -558,12 +571,12 @@ void RemoveMd5AppDataDirectories() {
         return;
     }
 
-    AutoFreeWstr md5App = Md5OfAppExe();
+    AutoFreeWStr md5App = Md5OfAppExe();
     if (md5App.empty()) {
         return;
     }
 
-    AutoFreeWstr md5Dir = path::Join(extractedDir.data, md5App.data);
+    AutoFreeWStr md5Dir = path::Join(extractedDir.data, md5App.data);
 
     for (auto& dir : dirs) {
         const WCHAR* s = dir.data();
@@ -579,18 +592,18 @@ void RemoveMd5AppDataDirectories() {
 const WCHAR* ExractUnrarDll() {
     RemoveMd5AppDataDirectories();
 
-    AutoFreeWstr extractedDir = PathForFileInAppDataDir(L"extracted");
+    AutoFreeWStr extractedDir = PathForFileInAppDataDir(L"extracted");
     if (extractedDir.empty()) {
         return nullptr;
     }
 
-    AutoFreeWstr md5App = Md5OfAppExe();
+    AutoFreeWStr md5App = Md5OfAppExe();
     if (md5App.empty()) {
         return nullptr;
     }
 
-    AutoFreeWstr md5Dir = path::Join(extractedDir.data, md5App.data);
-    AutoFreeWstr dllPath = path::Join(md5Dir.data, unrarFileName);
+    AutoFreeWStr md5Dir = path::Join(extractedDir.data, md5App.data);
+    AutoFreeWStr dllPath = path::Join(md5Dir.data, unrarFileName);
 
     if (file::Exists(dllPath.data)) {
         const WCHAR* ret = dllPath.data;
@@ -713,7 +726,7 @@ bool LaunchFileIfExists(const char* path) {
     if (!file::Exists(path)) {
         return false;
     }
-    LaunchFile(path, nullptr, "open");
+    LaunchFileShell(path, nullptr, "open");
     return true;
 }
 
@@ -747,7 +760,7 @@ bool IsValidProgramVersion(const char* txt) {
 static unsigned int ExtractNextNumber(const char** txt) {
     unsigned int val = 0;
     const char* next = str::Parse(*txt, "%u%?.", &val);
-    *txt = next ? next : *txt + str::Len(*txt);
+    *txt = next ? next : *txt + str::Leni(*txt);
     return val;
 }
 
@@ -777,7 +790,7 @@ bool AdjustVariableDriveLetter(char* path) {
         return false;
     }
     // only check absolute path on drives i.e. those that start with "d:\"
-    if (str::Len(path) < 4 || path[1] != ':') {
+    if (str::Leni(path) < 4 || path[1] != ':') {
         return false;
     }
 
@@ -803,7 +816,7 @@ bool AdjustVariableDriveLetter(char* path) {
 bool IsUntrustedFile(const char* filePath, const char* fileURL) {
     AutoFreeStr protocol;
     if (fileURL && str::Parse(fileURL, "%S:", &protocol)) {
-        if (str::Len(protocol) > 1 && !str::EqI(protocol, "file")) {
+        if (str::Leni(protocol) > 1 && !str::EqI(protocol, "file")) {
             return true;
         }
     }
@@ -814,7 +827,7 @@ bool IsUntrustedFile(const char* filePath, const char* fileURL) {
 
     // check all parents of embedded files and ADSs as well
     TempStr path = str::DupTemp(filePath);
-    while (str::Len(path) > 2 && str::FindChar(path + 2, ':')) {
+    while (str::Leni(path) > 2 && str::FindChar(path + 2, ':')) {
         *str::FindCharLast(path, ':') = '\0';
         if (file::GetZoneIdentifier(path) >= URLZONE_INTERNET) {
             return true;

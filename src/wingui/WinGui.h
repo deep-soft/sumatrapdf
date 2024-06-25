@@ -1,4 +1,4 @@
-/* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2024 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 //--- Wnd
@@ -53,6 +53,29 @@ struct CreateCustomArgs {
     COLORREF bgColor = ColorUnset;
 };
 
+struct WmEvent {
+    HWND hwnd = nullptr;
+    UINT msg = 0;
+    WPARAM wp = 0;
+    LPARAM lp = 0;
+    uintptr_t userData = 0;
+    Wnd* self = nullptr;
+
+    bool didHandle = true; // common case so set as default
+};
+
+struct WmCloseEvent {
+    WmEvent* e = nullptr;
+};
+
+typedef void (*WmCloseHandler)(WmCloseEvent&);
+
+struct WmDestroyEvent {
+    WmEvent* e = nullptr;
+};
+
+typedef void (*WmDestroyHandler)(WmDestroyEvent&);
+
 struct Wnd : public ILayout {
     Wnd();
     Wnd(HWND hwnd);
@@ -94,9 +117,7 @@ struct Wnd : public ILayout {
     virtual void OnAttach();
     virtual void OnFocus();
     virtual bool OnCommand(WPARAM wparam, LPARAM lparam);
-    virtual void OnClose();
     virtual int OnCreate(CREATESTRUCT*);
-    virtual void OnDestroy();
     virtual void OnContextMenu(Point pt);
     virtual void OnDropFiles(HDROP drop_info);
     virtual void OnGetMinMaxInfo(MINMAXINFO* mmi);
@@ -113,7 +134,6 @@ struct Wnd : public ILayout {
     void SetPos(RECT* r);
     void SetIsVisible(bool isVisible);
     bool IsVisible() const;
-    void SetText(const WCHAR*);
     void SetText(const char*);
     TempStr GetTextTemp();
 
@@ -135,6 +155,7 @@ struct Wnd : public ILayout {
     LRESULT FinalWindowProc(UINT msg, WPARAM wparam, LPARAM lparam);
 
     Kind kind = nullptr;
+    uintptr_t userData = 0;
 
     Insets insets{};
     Size childSize{};
@@ -153,6 +174,9 @@ struct Wnd : public ILayout {
     ILayout* layout = nullptr;
 
     ContextMenuHandler onContextMenu;
+
+    WmCloseHandler onClose = nullptr;
+    WmDestroyHandler onDestroy = nullptr;
 };
 
 bool PreTranslateMessage(MSG& msg);
@@ -202,8 +226,7 @@ struct Button : Wnd {
     bool OnCommand(WPARAM wparam, LPARAM lparam) override;
 };
 
-Button* CreateButton(HWND parent, const WCHAR* s, const ClickedHandler& onClicked);
-Button* CreateDefaultButton(HWND parent, const WCHAR* s);
+Button* CreateButton(HWND parent, const char* s, const ClickedHandler& onClicked);
 Button* CreateDefaultButton(HWND parent, const char* s);
 
 //--- Tooltip
@@ -213,7 +236,7 @@ struct TooltipCreateArgs {
     HFONT font = nullptr;
 };
 
-// a tooltip manages multiple areas withing HWND
+// a tooltip manages multiple areas within HWND
 struct Tooltip : Wnd {
     Tooltip();
     HWND Create(const TooltipCreateArgs&);
@@ -372,6 +395,7 @@ using DropDownSelectionChangedHandler = std::function<void()>;
 
 struct DropDownCreateArgs {
     HWND parent = nullptr;
+    HFONT font = nullptr;
     // TODO: model or items
 };
 
@@ -411,6 +435,7 @@ struct TrackbarCreateArgs {
     bool isHorizontal = true;
     int rangeMin = 1;
     int rangeMax = 5;
+    HFONT font = nullptr;
 };
 
 struct Trackbar : Wnd {
@@ -482,45 +507,6 @@ struct Splitter : public Wnd {
 
     HWND Create(const SplitterCreateArgs&);
     LRESULT WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) override;
-};
-
-//--- Webview2
-
-char* GetWebView2VersionTemp();
-
-// TODO: maybe hide those inside a private struct
-typedef interface ICoreWebView2 ICoreWebView2;
-typedef interface ICoreWebView2Controller ICoreWebView2Controller;
-
-using WebViewMsgCb = std::function<void(const char*)>;
-// using dispatch_fn_t = std::function<void()>;
-
-struct Webview2Wnd : Wnd {
-    Webview2Wnd();
-    ~Webview2Wnd() override;
-
-    HWND Create(const CreateCustomArgs&);
-
-    void Eval(const char* js);
-    void SetHtml(const char* html);
-    void Init(const char* js);
-    void Navigate(const char* url);
-    bool Embed(WebViewMsgCb cb);
-
-    virtual void OnBrowserMessage(const char* msg);
-
-    LRESULT WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) override;
-
-    void UpdateWebviewSize();
-
-    // this is where the webview2 control stores data
-    // must be set before we call create
-    // TODO: make Webview2CreateCustomArgs
-    // with dataDir
-    char* dataDir = nullptr;
-    // DWORD m_main_thread = GetCurrentThreadId();
-    ICoreWebView2* webview = nullptr;
-    ICoreWebView2Controller* controller = nullptr;
 };
 
 //--- TreeView

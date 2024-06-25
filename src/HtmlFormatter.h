@@ -65,7 +65,7 @@ struct DrawInstr {
     explicit DrawInstr(DrawInstrType t, RectF bbox = {}) : type(t), bbox(bbox) {
     }
     ByteSlice GetImage() {
-        CrashIf(type != DrawInstrType::Image);
+        ReportIf(type != DrawInstrType::Image);
         return {(u8*)str.s, str.len};
     }
 
@@ -152,7 +152,7 @@ struct HtmlFormatterArgs {
     // we start parsing from htmlStr + reparseIdx
     int reparseIdx = 0;
 
-    AutoFreeWstr fontName;
+    AutoFreeWStr fontName;
 };
 
 class HtmlPullParser;
@@ -233,7 +233,7 @@ class HtmlFormatter {
     float lineSpacing = 0;
     float spaceDx = 0;
     Graphics* gfx = nullptr; // for measuring text
-    AutoFreeWstr defaultFontName;
+    AutoFreeWStr defaultFontName;
     float defaultFontSize = 0;
     Allocator* textAllocator = nullptr;
     mui::ITextRender* textMeasure = nullptr;

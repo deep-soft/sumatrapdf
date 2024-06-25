@@ -141,8 +141,8 @@ static void VerifyExtsMatch() {
     if (gDidVerifyExtsMatch) {
         return;
     }
-    CrashAlwaysIf(kindFileEpub != GetKindByFileExt("foo.epub"));
-    CrashAlwaysIf(kindFileJp2 != GetKindByFileExt("foo.JP2"));
+    ReportIf(kindFileEpub != GetKindByFileExt("foo.epub"));
+    ReportIf(kindFileJp2 != GetKindByFileExt("foo.JP2"));
     gDidVerifyExtsMatch = true;
 }
 
@@ -381,7 +381,7 @@ static bool IsFb2Archive(MultiFormatArchive* archive) {
 
 // detect file type based on file content
 Kind GuessFileTypeFromContent(const char* path) {
-    CrashIf(!path);
+    ReportIf(!path);
     if (path::IsDirectory(path)) {
         char* mimetypePath = path::JoinTemp(path, "mimetype");
         if (file::StartsWith(mimetypePath, "application/epub+zip")) {

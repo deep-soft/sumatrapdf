@@ -17,6 +17,7 @@
 #include "wingui/LabelWithCloseWnd.h"
 
 #include "Settings.h"
+#include "AppSettings.h"
 #include "DocController.h"
 #include "EngineBase.h"
 #include "EngineAll.h"
@@ -59,7 +60,7 @@ static void TocCustomizeTooltip(TreeItemGetTooltipEvent* ev) {
     if (!link) {
         return;
     }
-    char* path = link->GetValue();
+    char* path = PageDestGetValue(link);
     if (!path) {
         path = tocItem->title;
     }
@@ -79,7 +80,7 @@ static void TocCustomizeTooltip(TreeItemGetTooltipEvent* ev) {
     bool isOk = (k == kindDestinationLaunchURL) || (k == kindDestinationLaunchFile) ||
                 (k == kindDestinationLaunchEmbedded) || (k == kindDestinationMupdf) || (k = kindDestinationDjVu) ||
                 (k == kindDestinationAttachment);
-    CrashIf(!isOk);
+    ReportIf(!isOk);
 
     str::Str infotip;
 
@@ -212,7 +213,7 @@ static void GoToTocTreeItem(MainWindow* win, TreeItem ti, bool allowExternal) {
         // delay changing the page until the tree messages have been handled
         WindowTab* tab = win->CurrentTab();
         DocController* ctrl = win->ctrl;
-        uitask::Post([=] { GoToTocLinkTask(tocItem, tab, ctrl); });
+        uitask::Post(TaskGoToTocTreeItem, [=] { GoToTocLinkTask(tocItem, tab, ctrl); });
     }
 }
 
@@ -378,7 +379,7 @@ next:
         return;
     }
     if (node->title) {
-        WCHAR* ws = ToWStrTemp(node->title);
+        TempWStr ws = ToWStrTemp(node->title);
         for (const WCHAR* c = ws; *c; c++) {
             if (isLeftToRightChar(*c)) {
                 l2r++;
@@ -408,7 +409,7 @@ static void AddFavoriteFromToc(MainWindow* win, TocItem* dti) {
         return;
     }
     if (dti->dest) {
-        pageNo = dti->dest->GetPageNo();
+        pageNo = PageDestGetPageNo(dti->dest);
     }
     char* name = dti->title;
     TempStr pageLabel = win->ctrl->GetPageLabeTemp(pageNo);
@@ -444,7 +445,7 @@ static void OpenAttachment(WindowTab* tab, const char* fileName, int attachmentN
 }
 
 static void OpenEmbeddedFile(WindowTab* tab, IPageDestination* dest) {
-    CrashIf(!tab || !dest);
+    ReportIf(!tab || !dest);
     if (!tab || !dest) {
         return;
     }
@@ -535,7 +536,7 @@ static void TocContextMenu(ContextMenuEvent* ev) {
     TocItem* dti = (TocItem*)ti;
     IPageDestination* dest = dti ? dti->dest : nullptr;
     if (dest) {
-        pageNo = dti->dest->GetPageNo();
+        pageNo = PageDestGetPageNo(dti->dest);
     }
 
     WindowTab* tab = win->CurrentTab();
@@ -552,7 +553,7 @@ static void TocContextMenu(ContextMenuEvent* ev) {
         // with the embedded stream number
         path = embeddedFile->path;
         // this is name of the file as set inside PDF file
-        fileName = dest->GetName();
+        fileName = PageDestGetName(dest);
         bool canOpenEmbedded = str::EndsWithI(fileName, ".pdf");
         if (!canOpenEmbedded) {
             MenuRemove(popup, CmdOpenEmbeddedPDF);
@@ -570,7 +571,7 @@ static void TocContextMenu(ContextMenuEvent* ev) {
         // with the embedded stream number
         path = attachment->path;
         // this is name of the file as set inside PDF file
-        fileName = dest->GetName();
+        fileName = PageDestGetName(dest);
         // hack: attachmentNo is saved in pageNo see
         // PdfLoadAttachments and DestFromAttachment
         attachmentNo = pageNo;
@@ -685,7 +686,7 @@ static void AutoExpandTopLevelItems(TocItem* root) {
 
 void LoadTocTree(MainWindow* win) {
     WindowTab* tab = win->CurrentTab();
-    CrashIf(!tab);
+    ReportIf(!tab);
 
     if (win->tocLoaded) {
         return;
@@ -794,7 +795,7 @@ LRESULT TocTreeClick(TreeClickEvent* ev) {
         return;
     }
     MainWindow* win = FindMainWindowByHwnd(ev->w->hwnd);
-    CrashIf(!win);
+    ReportIf(!win);
     bool allowExternal = false;
     GoToTocTreeItem(win, ev->treeItem, allowExternal);
 #endif
@@ -803,7 +804,7 @@ LRESULT TocTreeClick(TreeClickEvent* ev) {
 
 static void TocTreeSelectionChanged(TreeSelectionChangedEvent* ev) {
     MainWindow* win = FindMainWindowByHwnd(ev->treeView->hwnd);
-    CrashIf(!win);
+    ReportIf(!win);
 
     // When the focus is set to the toc window the first item in the treeview is automatically
     // selected and a TVN_SELCHANGEDW notification message is sent with the special code pnmtv->action ==
@@ -912,7 +913,7 @@ static void SubclassToc(MainWindow* win) {
     if (win->tocBoxSubclassId == 0) {
         win->tocBoxSubclassId = NextSubclassId();
         BOOL ok = SetWindowSubclass(hwndTocBox, WndProcTocBox, win->tocBoxSubclassId, (DWORD_PTR)win);
-        CrashIf(!ok);
+        ReportIf(!ok);
     }
 }
 
@@ -927,7 +928,7 @@ void UnsubclassToc(MainWindow* win) {
 #if 0
 void TocTreeMouseWheelHandler(MouseWheelEvent* ev) {
     MainWindow* win = FindMainWindowByHwnd(ev->hwnd);
-    CrashIf(!win);
+    ReportIf(!win);
     if (!win) {
         return;
     }
@@ -943,7 +944,7 @@ void TocTreeMouseWheelHandler(MouseWheelEvent* ev) {
 #if 0
 void TocTreeCharHandler(CharEvent* ev) {
     MainWindow* win = FindMainWindowByHwnd(ev->hwnd);
-    CrashIf(!win);
+    ReportIf(!win);
     if (!win) {
         return;
     }
@@ -961,8 +962,6 @@ void TocTreeCharHandler(CharEvent* ev) {
     ev->didHandle = true;
 }
 #endif
-
-extern HFONT GetTreeFont();
 
 void CreateToc(MainWindow* win) {
     HMODULE hmod = GetModuleHandle(nullptr);
@@ -987,7 +986,7 @@ void CreateToc(MainWindow* win) {
     auto treeView = new TreeView();
     TreeViewCreateArgs args;
     args.parent = win->hwndTocBox;
-    args.font = GetTreeFont();
+    args.font = GetAppTreeFont();
     args.fullRowSelect = true;
     args.exStyle = WS_EX_STATICEDGE;
 
@@ -1000,7 +999,7 @@ void CreateToc(MainWindow* win) {
     // treeView->onMouseWheel = TocTreeMouseWheelHandler;
 
     treeView->Create(args);
-    CrashIf(!treeView->hwnd);
+    ReportIf(!treeView->hwnd);
     win->tocTreeView = treeView;
 
     SubclassToc(win);

@@ -20,17 +20,17 @@ Note: Colors are in format 0xBBGGRR, recommended to use RgbToCOLORREF
 #include "utils/BaseUtil.h"
 #include "utils/WinUtil.h"
 #include "Settings.h"
+#include "AppSettings.h"
 #include "DisplayMode.h"
 #include "Theme.h"
 #include "GlobalPrefs.h"
 #include "Translations.h"
+#include "Toolbar.h"
 
 constexpr COLORREF kColBlack = 0x000000;
 constexpr COLORREF kColWhite = 0xFFFFFF;
 // #define kColWhiteish 0xEBEBF9
 // #define kColDarkGray 0x424242
-
-constexpr const int kThemeCount = 3;
 
 struct MainWindowStyle {
     // Background color of recently added, about, and properties menus
@@ -176,11 +176,13 @@ static Theme gThemeDarker = {
 };
 // clang-format on
 
-static Theme* gThemes[kThemeCount] = {
+static Theme* gThemes[] = {
     &gThemeLight,
     &gThemeDark,
     &gThemeDarker,
 };
+
+constexpr const int kThemeCount = dimofi(gThemes);
 
 Theme* gCurrentTheme = &gThemeLight;
 static int currentThemeIndex = 0;
@@ -192,7 +194,10 @@ int GetCurrentThemeIndex() {
 extern void UpdateAfterThemeChange();
 
 void SetThemeByIndex(int themeIdx) {
-    CrashIf((themeIdx < 0) || (themeIdx >= kThemeCount));
+    ReportIf((themeIdx < 0) || (themeIdx >= kThemeCount));
+    if (themeIdx >= kThemeCount) {
+        themeIdx = 0;
+    }
     currentThemeIndex = themeIdx;
     gCurrentTheme = gThemes[currentThemeIndex];
     str::ReplaceWithCopy(&gGlobalPrefs->theme, gCurrentTheme->name);
@@ -245,6 +250,16 @@ void SetCurrentThemeFromSettings() {
     }
 }
 
+// if is dark, makes lighter, if light, makes darker
+static COLORREF AdjustLightOrDark(COLORREF col, float n) {
+    if (IsLightColor(col)) {
+        col = AdjustLightness2(col, -n);
+    } else {
+        col = AdjustLightness2(col, n);
+    }
+    return col;
+}
+
 COLORREF ThemeDocumentColors(COLORREF& bg) {
     COLORREF text = kColBlack;
     bg = kColWhite;
@@ -274,11 +289,7 @@ COLORREF ThemeDocumentColors(COLORREF& bg) {
     // should match the colors of the window
     text = ThemeWindowTextColor();
     bg = gCurrentTheme->window.backgroundColor;
-    if (IsLightColor(bg)) {
-        bg = AdjustLightness2(bg, -8);
-    } else {
-        bg = AdjustLightness2(bg, 8);
-    }
+    bg = AdjustLightOrDark(bg, 8);
     return text;
 }
 
@@ -306,6 +317,13 @@ COLORREF ThemeWindowBackgroundColor() {
 
 COLORREF ThemeWindowTextColor() {
     return gCurrentTheme->window.textColor;
+}
+
+COLORREF ThemeWindowTextDisabledColor() {
+    auto col = gCurrentTheme->window.textColor;
+    // TODO: probably add textDisabledColor
+    auto col2 = AdjustLightOrDark(col, 0x7f);
+    return col2;
 }
 
 COLORREF ThemeWindowControlBackgroundColor() {
@@ -337,5 +355,8 @@ COLORREF ThemeNotificationsProgressColor() {
 }
 
 bool ThemeColorizeControls() {
-    return gCurrentTheme->colorizeControls;
+    if (gCurrentTheme->colorizeControls) {
+        return true;
+    }
+    return !IsMenuFontSizeDefault();
 }

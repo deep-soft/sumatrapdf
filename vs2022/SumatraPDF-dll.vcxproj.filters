@@ -1,8 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
+    <Filter Include="do">
+      <UniqueIdentifier>{98775900-8403-880B-EDB1-880BD95C880B}</UniqueIdentifier>
+    </Filter>
     <Filter Include="docs">
       <UniqueIdentifier>{CECA957C-BA01-970D-63EE-7C104F04130F}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="docs\md">
+      <UniqueIdentifier>{6E56AB1F-DA35-2ABB-E34D-B5914FAC901C}</UniqueIdentifier>
     </Filter>
     <Filter Include="ext">
       <UniqueIdentifier>{7670880B-E279-887C-6BF5-9E7CD7FD937C}</UniqueIdentifier>
@@ -78,6 +84,9 @@
     <ClInclude Include="..\src\DocController.h">
       <Filter>src</Filter>
     </ClInclude>
+    <ClInclude Include="..\src\DocProperties.h">
+      <Filter>src</Filter>
+    </ClInclude>
     <ClInclude Include="..\src\EditAnnotations.h">
       <Filter>src</Filter>
     </ClInclude>
@@ -148,6 +157,9 @@
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="..\src\Settings.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\SimpleBrowserWindow.h">
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="..\src\StressTesting.h">
@@ -234,6 +246,9 @@
     <ClInclude Include="..\src\wingui\FrameRateWnd.h">
       <Filter>src\wingui</Filter>
     </ClInclude>
+    <ClInclude Include="..\src\wingui\HtmlWindow.h">
+      <Filter>src\wingui</Filter>
+    </ClInclude>
     <ClInclude Include="..\src\wingui\LabelWithCloseWnd.h">
       <Filter>src\wingui</Filter>
     </ClInclude>
@@ -244,6 +259,9 @@
       <Filter>src\wingui</Filter>
     </ClInclude>
     <ClInclude Include="..\src\wingui\VirtWnd.h">
+      <Filter>src\wingui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\wingui\WebView.h">
       <Filter>src\wingui</Filter>
     </ClInclude>
     <ClInclude Include="..\src\wingui\WinGui.h">
@@ -294,6 +312,9 @@
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="..\src\DisplayModel.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\DocProperties.cpp">
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="..\src\EditAnnotations.cpp">
@@ -369,6 +390,9 @@
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="..\src\Selection.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\SimpleBrowserWindow.cpp">
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="..\src\StressTesting.cpp">
@@ -512,6 +536,9 @@
     <ClCompile Include="..\src\utils\tests\StrUtil_ut.cpp">
       <Filter>src\utils\tests</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\utils\tests\StrVec_ut.cpp">
+      <Filter>src\utils\tests</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\utils\tests\TrivialHtmlParser_ut.cpp">
       <Filter>src\utils\tests</Filter>
     </ClCompile>
@@ -527,6 +554,9 @@
     <ClCompile Include="..\src\wingui\FrameRateWnd.cpp">
       <Filter>src\wingui</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\wingui\HtmlWindow.cpp">
+      <Filter>src\wingui</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\wingui\LabelWithCloseWnd.cpp">
       <Filter>src\wingui</Filter>
     </ClCompile>
@@ -539,11 +569,207 @@
     <ClCompile Include="..\src\wingui\VirtWnd.cpp">
       <Filter>src\wingui</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\wingui\WebView.cpp">
+      <Filter>src\wingui</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\wingui\WinGui.cpp">
       <Filter>src\wingui</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <None Include="..\.gitignore" />
+    <None Include="..\do\build.go">
+      <Filter>do</Filter>
+    </None>
+    <None Include="..\do\check_accesskyes.go">
+      <Filter>do</Filter>
+    </None>
+    <None Include="..\do\clang_format.go">
+      <Filter>do</Filter>
+    </None>
+    <None Include="..\do\clang_tidy.go">
+      <Filter>do</Filter>
+    </None>
+    <None Include="..\do\extract_utils.go">
+      <Filter>do</Filter>
+    </None>
+    <None Include="..\do\file_upload.go">
+      <Filter>do</Filter>
+    </None>
+    <None Include="..\do\gen_docs.go">
+      <Filter>do</Filter>
+    </None>
+    <None Include="..\do\git.go">
+      <Filter>do</Filter>
+    </None>
+    <None Include="..\do\github_ci.go">
+      <Filter>do</Filter>
+    </None>
+    <None Include="..\do\main.go">
+      <Filter>do</Filter>
+    </None>
+    <None Include="..\do\settings_def.go">
+      <Filter>do</Filter>
+    </None>
+    <None Include="..\do\settings_gen_code.go">
+      <Filter>do</Filter>
+    </None>
+    <None Include="..\do\settings_gen_html.go">
+      <Filter>do</Filter>
+    </None>
+    <None Include="..\do\sign.go">
+      <Filter>do</Filter>
+    </None>
+    <None Include="..\do\trans_download.go">
+      <Filter>do</Filter>
+    </None>
+    <None Include="..\do\trans_gen.go">
+      <Filter>do</Filter>
+    </None>
+    <None Include="..\do\trans_langs.go">
+      <Filter>do</Filter>
+    </None>
+    <None Include="..\do\translations.go">
+      <Filter>do</Filter>
+    </None>
+    <None Include="..\do\update_auto_update_ver.go">
+      <Filter>do</Filter>
+    </None>
+    <None Include="..\do\upload_storage.go">
+      <Filter>do</Filter>
+    </None>
+    <None Include="..\do\util.go">
+      <Filter>do</Filter>
+    </None>
+    <None Include="..\do\vs.go">
+      <Filter>do</Filter>
+    </None>
+    <None Include="..\do\wc.go">
+      <Filter>do</Filter>
+    </None>
+    <None Include="..\docs\manual.tmpl.html">
+      <Filter>docs</Filter>
+    </None>
+    <None Include="..\docs\manual.website.tmpl.html">
+      <Filter>docs</Filter>
+    </None>
+    <None Include="..\docs\md\Accessibility-and-Text-to-Speech.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Add-Favorite.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Advanced-options-settings.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Build-system.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Command-Palette.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Command-line-arguments.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Commands.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Configure-for-restricted-use.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Contribute-to-SumatraPDF.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Contribute-translation.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Corrupted-installation.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Customize-external-viewers.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Customize-search-translation-services.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Customizing-eBook-UI.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Customizing-keyboard-shortcuts.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\DDE-Commands.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Debugging-Sumatra.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Editing-annotations.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Go-to-Page.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\How-to-submit-bug-reports.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\How-we-store-settings.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Installer-cmd-line-arguments.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Is-there-a-virus-in-Sumatra-sources.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Keyboard-shortcuts.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\LaTeX-integration.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Logview.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Reporting-printing-bugs.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Scrolling-and-zooming.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Set-as-default-PDF-viewer.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Source-code-downloads.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Submit-crash-report.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\SumatraPDF-documentation.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Supported-document-formats.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Uninstalling-SumatraPDF.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Update-check-doesnt-work.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Using-DrMemory.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Using-OpenCppCoverage.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Version-history.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Why-only-Windows.md">
+      <Filter>docs\md</Filter>
+    </None>
     <None Include="..\docs\notes.txt">
       <Filter>docs</Filter>
     </None>
@@ -553,8 +779,14 @@
     <None Include="..\docs\wishlist.txt">
       <Filter>docs</Filter>
     </None>
+    <None Include="..\premake5.files.lua" />
+    <None Include="..\premake5.lua" />
+    <None Include="..\premake5.obsolete.lua" />
     <None Include="..\src\ext\versions.txt">
       <Filter>src\ext</Filter>
+    </None>
+    <None Include="..\src\scratch.txt">
+      <Filter>src</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>

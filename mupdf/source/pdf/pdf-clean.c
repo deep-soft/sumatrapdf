@@ -1,4 +1,4 @@
-// Copyright (C) 2004-2021 Artifex Software, Inc.
+// Copyright (C) 2004-2024 Artifex Software, Inc.
 //
 // This file is part of MuPDF.
 //
@@ -253,10 +253,14 @@ pdf_filter_type3(fz_context *ctx, pdf_document *doc, pdf_obj *obj, pdf_obj *page
 		{
 			pdf_obj *val = pdf_dict_get_val(ctx, charprocs, i);
 
-			fz_clear_buffer(ctx, buffer);
+			if (i > 0)
+			{
+				pdf_reset_processor(ctx, top);
+				fz_clear_buffer(ctx, buffer);
+			}
 			pdf_process_raw_contents(ctx, top, doc, in_res, val, NULL);
 
-			pdf_close_processor(ctx, proc_buffer);
+			pdf_close_processor(ctx, top);
 
 			if (!options->no_update)
 			{
@@ -449,6 +453,7 @@ struct redact_filter_state {
 	pdf_page *page;
 	pdf_annot *target; // NULL if all
 	int line_art;
+	int text;
 };
 
 static void
@@ -989,6 +994,7 @@ void init_redact_filter(fz_context *ctx, pdf_redact_options *redact_opts, struct
 	int black_boxes = redact_opts ? redact_opts->black_boxes : 0;
 	int image_method = redact_opts ? redact_opts->image_method : PDF_REDACT_IMAGE_PIXELS;
 	int line_art = redact_opts ? redact_opts->line_art : PDF_REDACT_LINE_ART_NONE;
+	int text = redact_opts ? redact_opts->text : PDF_REDACT_TEXT_REMOVE;
 
 	memset(&red->filter_opts, 0, sizeof red->filter_opts);
 	memset(&red->sanitize_opts, 0, sizeof red->sanitize_opts);
@@ -1001,9 +1007,11 @@ void init_redact_filter(fz_context *ctx, pdf_redact_options *redact_opts, struct
 	if (black_boxes)
 		red->filter_opts.complete = pdf_redact_end_page;
 	red->line_art = line_art;
+	red->text = text;
 
 	red->sanitize_opts.opaque = red;
-	red->sanitize_opts.text_filter = pdf_redact_text_filter;
+	if (text == PDF_REDACT_TEXT_REMOVE)
+		red->sanitize_opts.text_filter = pdf_redact_text_filter;
 	if (image_method == PDF_REDACT_IMAGE_PIXELS)
 		red->sanitize_opts.image_filter = pdf_redact_image_filter_pixels;
 	if (image_method == PDF_REDACT_IMAGE_REMOVE)

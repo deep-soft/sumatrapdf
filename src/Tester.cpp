@@ -23,6 +23,7 @@
 #include "wingui/UIModels.h"
 
 #include "Settings.h"
+#include "DocProperties.h"
 #include "DocController.h"
 #include "EngineBase.h"
 #include "EbookBase.h"
@@ -57,7 +58,7 @@ static int Usage() {
 }
 
 static void MobiSaveHtml(const char* filePathBase, MobiDoc* mb) {
-    CrashAlwaysIf(!gSaveHtml);
+    ReportIf(!gSaveHtml);
 
     char* outFile = str::JoinTemp(filePathBase, "_pp.html");
 
@@ -76,7 +77,7 @@ static void MobiSaveImage(const char* filePathBase, size_t imgNo, ByteSlice img)
         return;
     }
     const char* ext = GfxFileExtFromData(img);
-    CrashAlwaysIf(!ext);
+    ReportIf(!ext);
     TempStr path = str::FormatTemp("%s_img_%d%s", filePathBase, (int)imgNo, ext);
     file::WriteFile(path, img);
 }
@@ -148,7 +149,7 @@ static void MobiTestFile(const char* filePath) {
 
 static void MobiTestDir(char* dir) {
     printf("Testing mobi files in '%s'\n", dir);
-    DirTraverse(dir, true, [](const char* path) -> bool {
+    DirTraverse(dir, true, [](WIN32_FIND_DATAW*, const char* path) -> bool {
         Kind kind = GuessFileTypeFromName(path);
         if (kind == kindFileMobi) {
             MobiTestFile(path);

@@ -1,4 +1,4 @@
-// Copyright (C) 2004-2021 Artifex Software, Inc.
+// Copyright (C) 2004-2024 Artifex Software, Inc.
 //
 // This file is part of MuPDF.
 //
@@ -172,7 +172,7 @@ img_lookup_metadata(fz_context *ctx, fz_document *doc_, const char *key, char *b
 }
 
 static fz_document *
-img_open_document(fz_context *ctx, fz_stream *file, fz_stream *accel, fz_archive *dir)
+img_open_document(fz_context *ctx, const fz_document_handler *handler, fz_stream *file, fz_stream *accel, fz_archive *dir)
 {
 	img_document *doc = fz_new_derived_document(ctx, img_document);
 
@@ -234,7 +234,7 @@ img_open_document(fz_context *ctx, fz_stream *file, fz_stream *accel, fz_archive
 }
 
 static int
-img_recognize_content(fz_context *ctx, fz_stream *stream, fz_archive *dir)
+img_recognize_content(fz_context *ctx, const fz_document_handler *handler, fz_stream *stream, fz_archive *dir)
 {
 	unsigned char data[8];
 	size_t n;
