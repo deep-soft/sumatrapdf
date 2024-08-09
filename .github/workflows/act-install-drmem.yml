@@ -1,0 +1,41 @@
+#2023-12-01 23:50
+#act-install-drmem.yml
+name: act - install - drmem
+
+on:
+  workflow_dispatch:
+
+env:
+  PRG_NAME:    "sumatrapdf"
+  TAG_VERSION: "sumatrapdf-v3.5.0"
+  TAG_NAME:    "sumatrapdf"
+  VERSION:     "3.5.0"
+  TAG_BUILD:   "-b"
+  TAG_REF:     "0000000"
+  TAG_DATE:    "20230617T215000"
+  GO_VER:      1.21
+  #build_target: '64'
+
+jobs:
+  install-drmem:
+    name: install drmem
+    runs-on: windows-2022
+    steps:
+      - name: Check out source code
+        uses: deep-soft/checkout@v4
+        with:
+          # needed to calc build number via git log --oneline
+          fetch-depth: 0
+
+      - name: grant Full Access to c:\windows\temp directory
+        run: |
+          icacls "C:\Windows\Temp" /q /c /t /grant Users:F /T
+
+      - name: install drmem
+        shell: bash
+        run: |
+          ls -la bins/ || true;
+          if [[ -f bins/bin-install-drmem.sh ]]; then
+            echo "bash bins/bin-install-drmem.sh"
+            bash bins/bin-install-drmem.sh
+          fi
