@@ -9,6 +9,8 @@
 #include "utils/ScopedWin.h"
 #include "utils/WinUtil.h"
 
+#include <wintrust.h>
+#include <softpub.h>
 #include <bitset>
 #include <intrin.h>
 #include <mlang.h>
@@ -2979,6 +2981,8 @@ static Size HwndMeasureText(HWND hwnd, const WCHAR* txt, HFONT font) {
     ScopedSelectFont prev(dc, font);
 
     RECT r{};
+    // TODO: DT_EDITCONTROL is probably not correct here
+    // TODO: what about DT_NOPREFIX?
     uint fmt = DT_CALCRECT | DT_LEFT | DT_NOCLIP | DT_EDITCONTROL;
     size_t txtLen = str::Len(txt);
     DrawTextExW(dc, (WCHAR*)txt, (int)txtLen, &r, fmt, nullptr);
@@ -2997,6 +3001,7 @@ Size HwndMeasureText(HWND hwnd, const char* txt, HFONT font) {
     return HwndMeasureText(hwnd, sw, font);
 }
 
+// return approximate height of font in pixels
 int FontDyPx(HWND hwnd, HFONT hfont) {
     Size s = HwndMeasureText(hwnd, "A", hfont);
     return s.dy;
@@ -3146,4 +3151,37 @@ double TimeDiffMs(const LARGE_INTEGER& start, const LARGE_INTEGER& end) {
     auto diff = end.QuadPart - start.QuadPart;
     double res = (double)(diff) / (double)(freq.QuadPart);
     return res * 1000;
+}
+
+bool IsPEFileSigned(const char* filePath) {
+    TempWStr ws = ToWStrTemp(filePath);
+    WINTRUST_FILE_INFO fileInfo = {0};
+    fileInfo.cbStruct = sizeof(WINTRUST_FILE_INFO);
+    fileInfo.pcwszFilePath = ws;
+    fileInfo.hFile = NULL;
+    fileInfo.pgKnownSubject = NULL;
+
+    GUID actionGUID = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+    WINTRUST_DATA trustData = {0};
+
+    trustData.cbStruct = sizeof(WINTRUST_DATA);
+    trustData.pPolicyCallbackData = NULL;
+    trustData.pSIPClientData = NULL;
+    trustData.dwUIChoice = WTD_UI_NONE;
+    trustData.fdwRevocationChecks = WTD_REVOKE_NONE;
+    trustData.dwUnionChoice = WTD_CHOICE_FILE;
+    trustData.dwStateAction = WTD_STATEACTION_IGNORE;
+    trustData.hWVTStateData = NULL;
+    trustData.pwszURLReference = NULL;
+    trustData.dwProvFlags = WTD_SAFER_FLAG;
+    trustData.dwUIContext = 0;
+    trustData.pFile = &fileInfo;
+
+    LONG status = WinVerifyTrust(NULL, &actionGUID, &trustData);
+
+    if (status == ERROR_SUCCESS) {
+        return true; // File is signed and signature is valid
+    } else {
+        return false; // File is not signed or signature is not valid
+    }
 }
