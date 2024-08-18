@@ -951,7 +951,7 @@ void EditAnnotationsWindow::ListBoxSelectionChanged() {
     if (!annotations.isValidIndex(itemNo)) {
         logfa("EditAnnotationsWindow::ListBoxSelectionChanged: invalid itemNo=%d, annotations.size()=%d\n", itemNo,
               annotations.Size());
-        ReportIf(true);
+        ReportDebugIf(true);
         return;
     }
     Annotation* annot = annotations.at(itemNo);
@@ -1428,7 +1428,13 @@ static void CreateMainLayout(EditAnnotationsWindow* ew) {
 }
 
 void ShowEditAnnotationsWindow(WindowTab* tab) {
-    ReportIf(!tab->AsFixed()->GetEngine());
+    auto dm = tab ? tab->AsFixed() : nullptr;
+    auto engine = dm ? dm->GetEngine() : nullptr;
+    auto canAnnotate = EngineSupportsAnnotations(engine);
+    if (!canAnnotate) {
+        ReportDebugIf(true);
+        return;
+    }
     EditAnnotationsWindow* ew = tab->editAnnotsWindow;
     if (ew) {
         HwndMakeVisible(ew->hwnd);

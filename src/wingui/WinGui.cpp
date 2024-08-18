@@ -3356,7 +3356,7 @@ static void UpdateAfterDrag(TabsCtrl* tabsCtrl, int tab1, int tab2) {
     bool badState = (tab1 == tab2) || (tab1 < 0) || (tab2 < 0) || (tab1 >= nTabs) || (tab2 >= nTabs);
     if (badState) {
         logfa("tab1: %d, tab2: %d, nTabs: %d\n", tab1, tab2, nTabs);
-        ReportIf(true);
+        ReportDebugIf(true);
         return;
     }
 
@@ -3462,6 +3462,7 @@ LRESULT TabsCtrl::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             }
             if (tabHighlighted != tabUnderMouse) {
                 tabHighlighted = tabUnderMouse;
+                logf("tab: WM_MOUSELEAVE: tabHighlighted = tabUnderMouse: %d\n", tabHighlighted);
                 HwndScheduleRepaint(hwnd);
             }
             nWmMouseMoveCount = 0;
@@ -3493,9 +3494,13 @@ LRESULT TabsCtrl::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 ImageList_DragEnter(NULL, p.x, p.y);
                 return 0;
             }
+
             if (hl != tabUnderMouse) {
                 tabHighlighted = tabUnderMouse;
-                if (isDragging) {
+                // logf("tab: WM_MOUSEMOVE: tabHighlighted = tabUnderMouse: %d\n", tabHighlighted);
+                // note: hl == -1 possible repro: we start drag, a file gets loaded via DDE etc.
+                // which re-layouts tabs and mouse is no longer over a tab
+                if (isDragging && hl != -1) {
                     // send notification if the highlighted tab is dragged over another
                     if (!GetTab(tabUnderMouse)->isPinned) {
                         if (gLogTabs) {
@@ -3532,6 +3537,7 @@ LRESULT TabsCtrl::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_LBUTTONDOWN: {
             nWmMouseMoveCount = 0;
             tabHighlighted = tabUnderMouse;
+            logf("tab: WM_LBUTTONDOWN: tabHighlighted = tabUnderMouse: %d\n", tabHighlighted);
             if (overClose) {
                 HwndScheduleRepaint(hwnd);
                 tabBeingClosed = tabUnderMouse;
@@ -3582,6 +3588,8 @@ LRESULT TabsCtrl::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             // we don't always get WM_MOUSEMOVE before WM_LBUTTONUP so
             // update tabHighlighted
             tabHighlighted = tabUnderMouse;
+            logf("tab: WM_LBUTTONUP: tabHighlighted = tabUnderMouse: %d\n", tabHighlighted);
+
             if (draggingTab) {
                 draggingTab = false;
                 ImageList_EndDrag();
@@ -3731,8 +3739,23 @@ int TabsCtrl::InsertTab(int idx, TabInfo* tab) {
 #else
     SetSelected(idx);
 #endif
+#if 0
     tabBeingClosed = -1;
+    // TODO: this is probabably incorrect
     tabHighlighted = -1;
+#else
+    if (tabBeingClosed != -1) {
+        if (idx <= tabBeingClosed) {
+            tabBeingClosed++;
+        }
+    }
+    if (tabHighlighted != -1) {
+        if (idx <= tabHighlighted) {
+            logf("tab: TabsCtrl::InsertTab %d: tabHighlighted: %d (was %d)\n", idx, tabHighlighted + 1, tabHighlighted);
+            tabHighlighted++;
+        }
+    }
+#endif
     tabHighlightedClose = -1;
     LayoutTabs();
     return idx;
@@ -3782,6 +3805,7 @@ void TabsCtrl::RemoveAllTabs() {
     DeleteVecMembers(tabs);
     tabs.Reset();
     LayoutTabs();
+    logf("tab: TabsCtrl::RemoveAllTabs: tabHighlighted: %d\n", -1);
 }
 
 TabInfo* TabsCtrl::GetTab(int idx) {

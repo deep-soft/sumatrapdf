@@ -6,6 +6,7 @@
 #include "utils/Dpi.h"
 #include "utils/FileUtil.h"
 #include "utils/WinUtil.h"
+#include "utils/SquareTreeParser.h"
 
 #include "wingui/UIModels.h"
 #include "wingui/Layout.h"
@@ -36,6 +37,19 @@
 #define ABOUT_LINE_OUTER_SIZE 1
 #endif
 #define ABOUT_LINE_SEP_SIZE 1
+
+constexpr const char* promoteBuiltIn = R"(
+[
+    Name = Edna
+    URL = https://edna.arslexis.io
+    Info = note taking app for develelopers
+]
+[
+    Name = "ArsLexis"
+    URL = https://arslexis.io
+    Info = Various web tools
+]
+)";
 
 constexpr COLORREF kAboutBorderCol = RGB(0, 0, 0);
 
@@ -176,7 +190,7 @@ static Rect DrawHideFrequentlyReadLink(HWND hwnd, HDC hdc, const char* txt) {
     PositionRB(rc, r);
     MoveXY(r, -innerPadding, -innerPadding);
     w.SetBounds(r);
-    w.Draw(hdc);
+    w.Paint(hdc);
 
     // make the click target larger
     r.Inflate(innerPadding, innerPadding);
@@ -590,7 +604,7 @@ constexpr int kThumbsSeparatorDy = 2;
 constexpr int kThumbsBorderDx = 1;
 #define kThumbsMarginLeft DpiScale(hdc, 40)
 #define kThumbsMarginRight DpiScale(hdc, 40)
-#define kThumbsMarginTop DpiScale(hdc, 60)
+#define kThumbsMarginTop DpiScale(hdc, 50)
 #define kThumbsMarginBottom DpiScale(hdc, 40)
 #define kThumbsSpaceBetweenX DpiScale(hdc, 30)
 #define kThumbsSpaceBetweenY DpiScale(hdc, 50)
@@ -604,20 +618,38 @@ struct ThumbnailLayout {
     StaticLinkInfo* sl = nullptr;
 };
 
+struct Promote {
+    struct Promote* next = nullptr;
+    const char* name = nullptr;
+    const char* url = nullptr;
+    const char* info = nullptr;
+    Promote() = default;
+    ~Promote();
+};
+
+Promote::~Promote() {
+    str::Free(name);
+    str::Free(url);
+    str::Free(info);
+}
+
 struct HomePageLayout {
     // args in
-    HWND hwnd;
-    HDC hdc;
+    HWND hwnd = nullptr;
+    HDC hdc = nullptr;
     Rect rc;
-    MainWindow* win;
+    MainWindow* win = nullptr;
+
+    Promote* promote = nullptr;
 
     Rect rcAppWithVer; // SumatraPDF colorful text + version
     Rect rcLine;       // line under bApp
     Rect rcIconOpen;
 
-    HIMAGELIST himlOpen;
-    VirtWndText* freqRead;
-    VirtWndText* openDoc;
+    HIMAGELIST himlOpen = nullptr;
+    VirtWndText* freqRead = nullptr;
+    VirtWndText* openDoc = nullptr;
+    VirtWndText* hideShowFreqRead = nullptr;
     Vec<ThumbnailLayout> thumbnails; // info for each thumbnail
     ~HomePageLayout();
 };
@@ -625,10 +657,44 @@ struct HomePageLayout {
 HomePageLayout::~HomePageLayout() {
     delete freqRead;
     delete openDoc;
+    ListDelete(promote);
+}
+
+static Promote* ParsePromote(const char* s) {
+    if (str::IsEmptyOrWhiteSpace(s)) {
+        return nullptr;
+    }
+    SquareTreeNode* root = ParseSquareTree(s);
+    if (!root) {
+        return nullptr;
+    }
+    SquareTreeNode* node;
+    Promote* first = nullptr;
+    for (auto& i : root->data) {
+        node = i.child;
+        if (!node || node->data.Size() != 3) {
+            continue;
+        }
+        Promote* p = new Promote();
+        p->name = str::Dup(node->GetValue("Name"));
+        p->url = str::Dup(node->GetValue("URL"));
+        p->info = str::Dup(node->GetValue("Info"));
+        bool ok = !str::IsEmptyOrWhiteSpace(p->name) && !str::IsEmptyOrWhiteSpace(p->url) &&
+                  !str::IsEmptyOrWhiteSpace(p->info);
+        if (!ok) {
+            delete p;
+            continue;
+        }
+        ListInsertEnd(&first, p);
+    }
+    delete root;
+    return first;
 }
 
 // layout homepage in r
 void LayoutHomePage(HomePageLayout& l) {
+    l.promote = ParsePromote(promoteBuiltIn);
+
     Vec<FileState*> fileStates;
     gFileHistory.GetFrequencyOrder(fileStates);
     auto hwnd = l.hwnd;
@@ -636,6 +702,7 @@ void LayoutHomePage(HomePageLayout& l) {
     auto rc = l.rc;
     auto win = l.win;
 
+    bool isRtl = IsUIRtl();
     HFONT fontText = CreateSimpleFont(hdc, "MS Shell Dlg", 14);
     HFONT fontFrequentlyRead = CreateSimpleFont(hdc, "MS Shell Dlg", 24);
 
@@ -648,10 +715,6 @@ void LayoutHomePage(HomePageLayout& l) {
     }
 
     l.rcLine = {0, sz.dy, rc.dx, 0};
-
-    bool isRtl = IsUIRtl();
-
-    /* render recent files list */
 
     Rect& titleBox = l.rcAppWithVer;
     rc.SubTB(titleBox.dy, kThumbsBottomBoxDy);
@@ -666,6 +729,7 @@ void LayoutHomePage(HomePageLayout& l) {
             (rc.dx - thumbsCols * kThumbnailDx - (thumbsCols - 1) * kThumbsSpaceBetweenX - kThumbsMarginLeft -
              kThumbsMarginRight) /
                 2;
+    rc.y = 0;
     Point ptOff(x, rc.y + kThumbsMarginTop);
     if (ptOff.x < DpiScale(hdc, kInnerPadding)) {
         ptOff.x = DpiScale(hdc, kInnerPadding);
@@ -757,7 +821,20 @@ void LayoutHomePage(HomePageLayout& l) {
     win->staticLinks.Append(sl);
 }
 
+static void GetFileStateIcon(FileState* fs) {
+    if (fs->himl) {
+        return;
+    }
+    SHFILEINFO sfi{};
+    sfi.iIcon = -1;
+    uint flags = SHGFI_SYSICONINDEX | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES;
+    WCHAR* filePathW = ToWStrTemp(fs->filePath);
+    fs->himl = (HIMAGELIST)SHGetFileInfoW(filePathW, 0, &sfi, sizeof(sfi), flags);
+    fs->iconIdx = sfi.iIcon;
+}
+
 static void DrawHomePageLayout(const HomePageLayout& l) {
+    bool isRtl = IsUIRtl();
     auto hdc = l.hdc;
     auto win = l.win;
     auto textColor = ThemeWindowTextColor();
@@ -769,13 +846,16 @@ static void DrawHomePageLayout(const HomePageLayout& l) {
         FillRect(hdc, rc, color);
     }
 
-    const Rect& r = l.rcAppWithVer;
-    DrawSumatraVersion(hdc, r);
+    if (false) {
+        const Rect& r = l.rcAppWithVer;
+        DrawSumatraVersion(hdc, r);
+    }
 
     auto color = ThemeWindowTextColor();
-    ScopedSelectObject pen(hdc, CreatePen(PS_SOLID, 1, color), true);
-    DrawLine(hdc, l.rcLine);
-    bool isRtl = IsUIRtl();
+    if (false) {
+        ScopedSelectObject pen(hdc, CreatePen(PS_SOLID, 1, color), true);
+        DrawLine(hdc, l.rcLine);
+    }
     HFONT fontText = CreateSimpleFont(hdc, "MS Shell Dlg", 14);
 
     AutoDeletePen penThumbBorder(CreatePen(PS_SOLID, kThumbsBorderDx, color));
@@ -787,7 +867,7 @@ static void DrawHomePageLayout(const HomePageLayout& l) {
     color = ThemeWindowTextColor();
     SetTextColor(hdc, color);
 
-    l.freqRead->Draw(hdc);
+    l.freqRead->Paint(hdc);
     SelectObject(hdc, GetStockBrush(NULL_BRUSH));
 
     for (const ThumbnailLayout& thumb : l.thumbnails) {
@@ -819,13 +899,9 @@ static void DrawHomePageLayout(const HomePageLayout& l) {
         UINT fmt = DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX | (isRtl ? DT_RIGHT : DT_LEFT);
         HdcDrawText(hdc, fileName, rect, fmt, fontText);
 
-        // TODO: cache this on FileState
-        SHFILEINFO sfi{};
-        uint flags = SHGFI_SYSICONINDEX | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES;
-        WCHAR* filePathW = ToWStrTemp(path);
-        HIMAGELIST himl = (HIMAGELIST)SHGetFileInfoW(filePathW, 0, &sfi, sizeof(sfi), flags);
+        GetFileStateIcon(fs);
         int x = isRtl ? page.x + page.dx - DpiScale(hdc, 16) : page.x;
-        ImageList_Draw(himl, sfi.iIcon, hdc, x, rect.y, ILD_TRANSPARENT);
+        ImageList_Draw(fs->himl, fs->iconIdx, hdc, x, rect.y, ILD_TRANSPARENT);
     }
 
     color = ThemeWindowLinkColor();
@@ -837,12 +913,13 @@ static void DrawHomePageLayout(const HomePageLayout& l) {
     int openIconIdx = 0;
     ImageList_Draw(l.himlOpen, openIconIdx, hdc, x, y, ILD_NORMAL);
 
-    l.openDoc->Draw(hdc);
+    l.openDoc->Paint(hdc);
 
-    Rect rcFreqRead = DrawHideFrequentlyReadLink(win->hwndCanvas, hdc, _TRA("Hide frequently read"));
-
-    auto sl = new StaticLinkInfo(rcFreqRead, kLinkHideList);
-    win->staticLinks.Append(sl);
+    if (false) {
+        Rect rcFreqRead = DrawHideFrequentlyReadLink(win->hwndCanvas, hdc, _TRA("Hide frequently read"));
+        auto sl = new StaticLinkInfo(rcFreqRead, kLinkHideList);
+        win->staticLinks.Append(sl);
+    }
 }
 
 void DrawHomePage(MainWindow* win, HDC hdc) {
