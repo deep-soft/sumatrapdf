@@ -1,10 +1,10 @@
 name: Build
 on:
   workflow_dispatch:
-#  push:
-#  pull_request:
-#  repository_dispatch:
-#    types: [build-pre-rel]
+  push:
+  pull_request:
+  repository_dispatch:
+    types: [build-pre-rel]
 jobs:
   build:
     name: Build
