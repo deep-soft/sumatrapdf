@@ -38,17 +38,16 @@ static char* GetInstallDate() {
     return str::Format("%04d%02d%02d", st.wYear, st.wMonth, st.wDay);
 }
 
-static void GetDirSizeCb(i64* totalSize, VisitDirData* data) {
-    i64 fileSize = GetFileSize(data->fd);
-    *totalSize += fileSize;
-}
-
 // Note: doesn't handle (total) sizes above 4GB
 static DWORD GetDirSize(const char* dir, bool recur) {
     logf("GetDirSize(%s)\n", dir);
     i64 totalSize = 0;
-    auto fn = MkFunc1(GetDirSizeCb, &totalSize);
-    DirTraverse(dir, recur, fn);
+    DirIter di{dir};
+    di.recurse = recur;
+    for (DirIterEntry* de : di) {
+        i64 fileSize = GetFileSize(de->fd);
+        totalSize += fileSize;
+    }
     return (DWORD)totalSize;
 }
 
@@ -287,7 +286,7 @@ UnregisterFromBeingDefaultViewer() and RemoveInstallRegistryKeys() in Installer.
 // TODO: this method no longer valid
 #if 0
 void DoAssociateExeWithPdfExtension(HKEY hkey) {
-    auto exePath = GetExePathTemp();
+    auto exePath = GetSelfExePathTemp();
     if (exePath.empty()) {
         return;
     }
@@ -404,7 +403,7 @@ bool IsExeAssociatedWithPdfExtension() {
         return false;
     }
 
-    auto exePath = GetExePathTemp().Get();
+    auto exePath = GetSelfExePathTemp().Get();
     if (!exePath || !str::Find(tmp, LR"("%1")")) {
         return false;
     }

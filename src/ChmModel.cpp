@@ -564,41 +564,45 @@ TocTree* ChmModel::GetToc() {
 // adapted from DisplayModel::NextZoomStep
 float ChmModel::GetNextZoomStep(float towardsLevel) const {
     float currZoom = GetZoomVirtual(true);
-
-    if (gGlobalPrefs->zoomIncrement > 0) {
-        float z1 = currZoom * (gGlobalPrefs->zoomIncrement / 100 + 1);
-        if (currZoom < towardsLevel) {
-            return std::min(z1, towardsLevel);
-        }
-        if (currZoom > towardsLevel) {
-            return std::max(z1, towardsLevel);
+    if (MaybeGetNextZoomByIncrement(&currZoom, towardsLevel)) {
+        // chm uses browser control which only supports integer zoom levels
+        // this ensures we're not stuck on a given zoom level i.e. advance by at least 1%
+        int iCurrZoom2 = (int)GetZoomVirtual(true);
+        int iCurrZoom = (int)currZoom;
+        if (iCurrZoom == iCurrZoom2) {
+            currZoom += 1.f;
         }
         return currZoom;
     }
 
-    Vec<float>* zoomLevels = gGlobalPrefs->zoomLevels;
-    ReportIf(zoomLevels->size() != 0 && (zoomLevels->at(0) < kZoomMin || zoomLevels->Last() > kZoomMax));
-    ReportIf(zoomLevels->size() != 0 && zoomLevels->at(0) > zoomLevels->Last());
+    int nZoomLevels;
+    float* zoomLevels = GetDefaultZoomLevels(&nZoomLevels);
 
-    const float FUZZ = 0.01f;
-    float newZoom = towardsLevel;
-    if (currZoom < towardsLevel) {
-        for (size_t i = 0; i < zoomLevels->size(); i++) {
-            if (zoomLevels->at(i) - FUZZ > currZoom) {
-                newZoom = zoomLevels->at(i);
+    // chm uses browser control which only supports integer zoom levels
+    // this ensures we're not stuck on a given zoom level
+    // due to float => int truncation
+    int iCurrZoom = (int)currZoom;
+    int iTowardsLevel = (int)towardsLevel;
+    int iNewZoom = iTowardsLevel;
+    if (iCurrZoom < towardsLevel) {
+        for (int i = 0; i < nZoomLevels; i++) {
+            int iZoom = (int)zoomLevels[i];
+            if (iZoom > iCurrZoom) {
+                iNewZoom = iZoom;
                 break;
             }
         }
-    } else if (currZoom > towardsLevel) {
-        for (size_t i = zoomLevels->size(); i > 0; i--) {
-            if (zoomLevels->at(i - 1) + FUZZ < currZoom) {
-                newZoom = zoomLevels->at(i - 1);
+    } else if (iCurrZoom > towardsLevel) {
+        for (int i = nZoomLevels - 1; i >= 0; i--) {
+            int iZoom = (int)zoomLevels[i];
+            if (iZoom < iCurrZoom) {
+                iNewZoom = iZoom;
                 break;
             }
         }
     }
 
-    return newZoom;
+    return (float)iNewZoom;
 }
 
 void ChmModel::GetDisplayState(FileState* fs) {

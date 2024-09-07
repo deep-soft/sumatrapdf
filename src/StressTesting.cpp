@@ -174,16 +174,15 @@ static bool IsFileToBench(const char* path) {
     return false;
 }
 
-static void CollectFilesToBenchCb(StrVec* files, VisitDirData* d) {
-    auto path = d->filePath;
-    if (IsFileToBench(path)) {
-        files->Append(path);
-    }
-}
-
 static void CollectFilesToBench(char* dir, StrVec& files) {
-    auto fn = MkFunc1<StrVec, VisitDirData*>(CollectFilesToBenchCb, &files);
-    DirTraverse(dir, true, fn);
+    DirIter di{dir};
+    di.recurse = true;
+    for (DirIterEntry* de : di) {
+        auto path = de->filePath;
+        if (IsFileToBench(path)) {
+            files.Append(path);
+        }
+    }
 }
 
 static void BenchDir(char* dir) {
@@ -374,10 +373,10 @@ struct DirFileProviderAsync : TestFileProvider {
     }
 };
 
-static void GetNextFileCb(char* path, StrQueue* q) {
+static void GetNextFileCb(char** path, StrQueue* q) {
     int n = q->strings.Size();
     int idx = rand() % n;
-    path = q->strings.RemoveAtFast(idx);
+    *path = q->strings.RemoveAtFast(idx);
 }
 
 TempStr DirFileProviderAsync::NextFile() {
@@ -387,9 +386,9 @@ TempStr DirFileProviderAsync::NextFile() {
 again:
     char* path = nullptr;
     if (random) {
-        auto fn = MkFunc1(GetNextFileCb, path);
-        bool isFinished = queue.Access(fn);
-        if (isFinished) {
+        auto fn = MkFunc1(GetNextFileCb, &path);
+        bool ok = queue.Access(fn);
+        if (!ok) {
             ReportIf(path);
             return nullptr;
         }

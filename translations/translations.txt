@@ -1,5 +1,5 @@
 AppTranslator: SumatraPDF
-aa05be2d7a065dda53d0760cc2cae7ca40ae072e
+d869f667c325977b638815fe73183fc7372e0686
 :%s annotation. Ctrl+click to edit.
 am:%s մեկնաբանություն: Ctrl+քլիք՝ խմբագրելու համար:
 ar:ملاحظة %s. اضغط Ctrl للتحرير.
@@ -1516,6 +1516,7 @@ fr:&Surligner
 ga:&Aibhsigh
 gl:&Resaltado
 he:בולט
+hi:&उजागर करें
 hr:&Istakni
 hu:&Kiemelés
 id:Menyorot
@@ -2727,6 +2728,7 @@ fr:Supprimer de l'historique
 ga:&Bain ón stair
 gl:Elimina&r do historial
 he:מחק מההסטוריה
+hi:&इतिहास से हटाएँ
 hr:&Ukloni iz povijesti
 hu:&Eltávolítás a listából
 id:&Hapus dari Riwayat
@@ -3177,6 +3179,7 @@ fr:&Rayer
 ga:&Leag Amach
 gl:Ri&scado
 he:קו חוצה
+hi:&काटें
 hr:Za&crtati
 hu:Kihúzás
 id:Coret
@@ -3343,6 +3346,7 @@ fr:&Traduire avec Google
 ga:&Aistrigh le Google é
 gl:&Traducido con Google
 he:תרגם באמצעות google
+hi:&Google के साथ अनुवाद करें
 hr:&Prevedi sa Google-om
 hu:Fordítsd le a Google-el
 id:&Terjemahkan dengan Google
@@ -13835,6 +13839,7 @@ es:Manual en la Web
 fo:Vegleiðing á Vevsíðu
 fr:Manuel sur le site web
 ga:Lámhleabhar ar an Láithreán Gréasáin
+he:מדריך למשתמש באתר
 hu:Kézikönyv a weboldalon
 id:Manual di Situs Web
 it:Manuale (sito web)
@@ -18255,6 +18260,7 @@ fr:Sauvegarder les annotations dans le PDF existant
 ga:Cuir na nótaí mínithe i dtaisce sa PDF atá ann
 gl:Gardar anotacións ó PDF existente
 he:שמור הערות במסמך PDF קיים
+hi:मौजूदा PDF में नोट करें
 hr:Spremi bilješke u postojeći PDF
 hu:Megjegyzések elmentése a meglévő PDF-be
 id:Simpan catatan ke PDF terkini
@@ -18552,6 +18558,7 @@ fr:Enregistrer les modifications dans le PDF existant
 ga:Cuir na hathruithe i dtaisce in PDF atá ann
 gl:Gardar cambios nun PDF existente
 he:קיים PDF שמור שינויים במסמך
+hi:मौजूदा PDF में परिवर्तन करें
 hr:Spremi promjene u postojeći PDF
 hu:Változások mentése a meglévő PDF-be
 id:Simpan perubahan ke PDF terkini
@@ -18841,6 +18848,7 @@ dk:Søg med &Google Scholar
 es:Buscar con &Google Scholar
 fo:Leita við &Google Scholar
 fr:Rechercher avec &Google Scholar
+he:חפש עם Google Scholar
 hu:Keresés &Google Scholar-ral
 id:Cari dengan &Google Scholar
 it:Cerca con &Google Scholar
@@ -18863,6 +18871,7 @@ dk:Søg med &Wikipedia
 es:Buscar con &Wikipedia
 fo:Leita við &Wikipedia
 fr:Rechercher avec &Wikipedia
+he:חפש בוויקיפדיה
 hu:Keresés a &Wikipédián
 id:Cari dengan &Wikipedia
 it:Cerca con &Wikipedia
@@ -21447,6 +21456,7 @@ fr:Merci ! SumatraPDF a été installé.
 ga:Go raibh maith agat! Suiteáladh SumatraPDF.
 gl:Parabéns! Xa tes SumatraPDF instalado.
 he:התקנת SumatraPDF הושלמה.
+hi:धन्यवाद! SumatraPDF डल गया है
 hr:Hvala Vam! SumatraPDF je instaliran.
 hu:Köszönjük! A SumatraPDF telepítése befejeződött.
 id:Terima kasih. SumatraPDF telah berhasil terinstal.

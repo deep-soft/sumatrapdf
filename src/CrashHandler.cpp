@@ -279,7 +279,7 @@ bool AreSymbolsDownloaded(const char* symDir) {
         logf("AreSymbolsDownloaded(): exist in '%s', symDir: '%s'\n", path, symDir);
         return true;
     }
-    TempStr exePath = GetExePathTemp();
+    TempStr exePath = GetSelfExePathTemp();
     exePath = str::ReplaceTemp(exePath, ".exe", ".pdb");
     if (file::Exists(exePath)) {
         logf("AreSymbolsDownloaded(): exist in '%s', symDir: '%s'\n", exePath, symDir);
@@ -328,9 +328,10 @@ void _uploadDebugReport(const char* condStr, bool isCrash, bool captureCallstack
     // so only allow once submission in a given session
     static bool didSubmitDebugReport = false;
 
-    loga("_uploadDebugReport");
     if (condStr) {
-        loga(condStr);
+        logfa("_uploadDebugReport: %s\n", condStr);
+    } else {
+        loga("_uploadDebugReport\n");
     }
 
     // don't send report if this is me debugging
@@ -668,7 +669,7 @@ static void BuildSymbolPath(const char* symDir) {
 
     // in debug builds the symbols are in the same directory as .exe
     if (gIsDebugBuild || gAddExeDir) {
-        TempStr dir = GetExeDirTemp();
+        TempStr dir = GetSelfExeDirTemp();
         path.Append(dir);
         path.Append(";");
     }

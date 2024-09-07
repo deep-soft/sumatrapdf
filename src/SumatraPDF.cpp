@@ -135,6 +135,10 @@ static void CloseDocumentInCurrentTab(MainWindow*, bool keepUIEnabled, bool dele
 static void OnSidebarSplitterMove(Splitter::MoveEvent*);
 static void OnFavSplitterMove(Splitter::MoveEvent*);
 
+EBookUI* GetEBookUI() {
+    return &gGlobalPrefs->eBookUI;
+}
+
 LoadArgs::LoadArgs(const char* origPath, MainWindow* win) {
     this->fileArgs = ParseFileArgs(origPath);
     const char* cleanPath = origPath;
@@ -870,6 +874,9 @@ static void UpdatePageInfoHelper(DocController* ctrl, NotificationWnd* wnd, int 
 }
 
 static void TogglePageInfoHelper(MainWindow* win) {
+    if (!win || !win->IsDocLoaded()) {
+        return;
+    }
     NotificationWnd* wnd = GetNotificationForGroup(win->hwndCanvas, kNotifPageInfo);
     if (wnd) {
         RemoveNotificationsForGroup(win->hwndCanvas, kNotifPageInfo);
@@ -929,7 +936,6 @@ void ControllerCallbackHandler::PageNoChanged(DocController* ctrl, int pageNo) {
     if (!wnd) {
         return;
     }
-    ReportIf(!win->AsFixed());
     UpdatePageInfoHelper(win->ctrl, wnd, pageNo);
 }
 
@@ -1582,9 +1588,10 @@ MainWindow* CreateAndShowMainWindow(SessionData* data) {
 void DeleteMainWindow(MainWindow* win) {
     int winIdx = gWindows.Remove(win);
 
-    logf("DeleteMainWindow: win: 0x%p, hwndFrame: 0x%p, hwndCanvas: 0x%p, winIdx : %d\n", win, win->hwndFrame,
-         win->hwndCanvas, winIdx);
-    if (winIdx) {
+    int nWindowsLeft = gWindows.Size();
+    logf("DeleteMainWindow: win: 0x%p, hwndFrame: 0x%p, hwndCanvas: 0x%p, winIdx : %d, nWindowsLeft: %d\n", win, win->hwndFrame,
+         win->hwndCanvas, winIdx, nWindowsLeft);
+    if (winIdx < 0) {
         logf("  not deleting because not in gWindows, probably already deleted\n");
         return;
     }
@@ -2772,7 +2779,11 @@ void CloseWindow(MainWindow* win, bool quitIfLast, bool forceClose) {
 
     if (lastWindow && quitIfLast) {
         logf("Calling PostQuitMessage() in CloseWindow() because closing lastWindow\n");
-        ReportIf(gWindows.size() != 0);
+        int nWindows = gWindows.size();
+        if (nWindows != 0) {
+            logf("nWindows: %d\n", nWindows);
+            ReportDebugIf(nWindows != 0);
+        }
         PostQuitMessage(0);
     }
 }
@@ -3143,7 +3154,7 @@ static void CreateLnkShortcut(MainWindow* win) {
                                    zoomVirtual, (int)ss.x, (int)ss.y);
     TempStr label = ctrl->GetPageLabeTemp(ss.page);
     TempStr desc = str::FormatTemp(_TRA("Bookmark shortcut to page %s of %s"), label, path);
-    auto exePath = GetExePathTemp();
+    auto exePath = GetSelfExePathTemp();
     CreateShortcut(fileName, exePath, args, desc, 1);
 }
 
@@ -3329,7 +3340,7 @@ static void OpenFile(MainWindow* win) {
 }
 
 static StrVec gLastNextPrevFiles;
-const char* lastNextPrevFilesPattern = nullptr;
+const char* lastNextPrevFilesDir = nullptr;
 
 static void RemoveFailedFiles(StrVec& files) {
     for (char* path : gFilesFailedToOpen) {
@@ -3343,17 +3354,16 @@ static void RemoveFailedFiles(StrVec& files) {
 static StrVec& CollectNextPrevFilesIfChanged(const char* path) {
     StrVec& files = gLastNextPrevFiles;
 
-    char* pattern = path::GetDirTemp(path);
-    // TODO: make pattern configurable (for users who e.g. want to skip single images)?
-    pattern = path::JoinTemp(pattern, "*");
-    if (str::Eq(pattern, lastNextPrevFilesPattern)) {
+    char* dir = path::GetDirTemp(path);
+    if (str::Eq(dir, lastNextPrevFilesDir)) {
         // failed files could have changed
         RemoveFailedFiles(files);
         return files;
     }
-    str::ReplaceWithCopy(&lastNextPrevFilesPattern, pattern);
-    if (!CollectPathsFromDirectory(pattern, files)) {
-        return files;
+    str::ReplaceWithCopy(&lastNextPrevFilesDir, dir);
+    DirIter di{dir};
+    for (DirIterEntry* de : di) {
+        files.Append(de->filePath);
     }
     RemoveFailedFiles(files);
 
@@ -3613,7 +3623,7 @@ static void OpenFileWithTextEditor(const char* path) {
 
     char* cmdLine = BuildOpenFileCmd(cmd, path, 1, 1);
     logf("OpenFileWithTextEditor: '%s'\n", cmdLine);
-    char* appDir = GetExeDirTemp();
+    char* appDir = GetSelfExeDirTemp();
     AutoCloseHandle process(LaunchProcess(cmdLine, appDir));
     str::Free(cmdLine);
 }
@@ -4930,6 +4940,7 @@ void DebugCorruptMemory() {
     free(s);
     free(d);
     // this triggers ntdll.dll!RtlReportCriticalFailure()
+    // cppcheck-suppress doubleFree
     free(s);
 }
 
@@ -5811,13 +5822,11 @@ static LRESULT FrameOnCommand(MainWindow* win, HWND hwnd, UINT msg, WPARAM wp, L
             ToggleFavorites(win);
             break;
 
-        case CmdTogglePageInfo:
-            if (dm) {
-                // "page info" tip: make figuring out current page and
-                // total pages count a one-key action (unless they're already visible)
-                TogglePageInfoHelper(win);
-            }
-            break;
+        case CmdTogglePageInfo: {
+            // "page info" tip: make figuring out current page and
+            // total pages count a one-key action (unless they're already visible)
+            TogglePageInfoHelper(win);
+        } break;
 
         case CmdInvertColors: {
             gGlobalPrefs->fixedPageUI.invertColors ^= true;
@@ -6251,7 +6260,7 @@ static TempStr GetFileSizeAsStrTemp(const char* path) {
 void GetProgramInfo(str::Str& s) {
     s.AppendFmt("Crash file: %s\r\n", gCrashFilePath);
 
-    TempStr exePath = GetExePathTemp();
+    TempStr exePath = GetSelfExePathTemp();
     auto fileSizeExe = GetFileSizeAsStrTemp(exePath);
     s.AppendFmt("Exe: %s %s\r\n", exePath, fileSizeExe);
     if (IsDllBuild()) {

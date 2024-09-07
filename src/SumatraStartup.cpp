@@ -403,7 +403,7 @@ static void SetupCrashHandler() {
 static HWND FindPrevInstWindow(HANDLE* hMutex) {
     // create a unique identifier for this executable
     // (allows independent side-by-side installations)
-    TempStr exePath = GetExePathTemp();
+    TempStr exePath = GetSelfExePathTemp();
     str::ToLowerInPlace(exePath);
     u32 hash = MurmurHash2(exePath, str::Len(exePath));
     TempStr mapId = str::FormatTemp("SumatraPDF-%08x", hash);
@@ -603,7 +603,7 @@ static void UpdateGlobalPrefs(const Flags& i) {
 // we're in installer mode if the name of the executable
 // has "install" string in it e.g. SumatraPDF-installer.exe
 static bool ExeHasNameOfInstaller() {
-    TempStr exePath = GetExePathTemp();
+    TempStr exePath = GetSelfExePathTemp();
     TempStr exeName = path::GetBaseNameTemp(exePath);
     if (str::FindI(exeName, "uninstall")) {
         return false;
@@ -634,7 +634,7 @@ static bool IsOurExeInstalled() {
     if (!installedDir.Get()) {
         return false;
     }
-    TempStr exeDir = GetExeDirTemp();
+    TempStr exeDir = GetSelfExeDirTemp();
     return str::EqI(installedDir.Get(), exeDir);
 }
 
@@ -646,7 +646,7 @@ static bool IsInstallerButNotInstalled() {
 }
 
 static void CheckIsStoreBuild() {
-    TempStr exePath = GetExePathTemp();
+    TempStr exePath = GetSelfExePathTemp();
     TempStr exeName = path::GetBaseNameTemp(exePath);
     if (str::FindI(exeName, "store")) {
         gIsStoreBuild = true;
@@ -691,8 +691,7 @@ static bool ForceRunningAsInstaller() {
         return false;
     }
 
-    TempStr exePath = GetExePathTemp();
-    TempStr dir = path::GetDirTemp(exePath);
+    TempStr dir = GetSelfExeDirTemp();
     TempStr path = path::JoinTemp(dir, "libmupdf.dll");
     auto realSize = file::GetSize(path);
     if (realSize < 0) {
@@ -839,10 +838,8 @@ static void ShowNoAdminErrorMessage() {
     TaskDialogIndirect(&dialogConfig, nullptr, nullptr, nullptr);
 }
 
-static void MaybeDeleteStaleDirectory(char* dir, VisitDirData* d) {
-    auto fd = d->fd;
-    ReportIf(!IsDirectory(fd->dwFileAttributes));
-    TempStr name = ToUtf8Temp(fd->cFileName);
+static void MaybeDeleteStaleDirectory(char* dir, DirIterEntry* d) {
+    const char* name = d->name;
     bool maybeDelete = str::StartsWith(name, "manual-") || str::StartsWith(name, "crashinfo-");
     if (!maybeDelete) {
         logf("MaybeDeleteStaleDirectory: skipping '%s' because not manual-* or crsahinfo-*\n", name);
@@ -861,8 +858,12 @@ static void MaybeDeleteStaleDirectory(char* dir, VisitDirData* d) {
 // delete symbols and manual from possibly previous versions
 static void DeleteStaleFilesAsync() {
     TempStr dir = GetNotImportantDataDirTemp();
-    auto fn = MkFunc1(MaybeDeleteStaleDirectory, dir);
-    VisitDir(dir, kVisitDirIncludeDirs, fn);
+    DirIter di{dir};
+    di.includeFiles = false;
+    di.includeDirs = true;
+    for (DirIterEntry* de : di) {
+        MaybeDeleteStaleDirectory(dir, de);
+    }
 }
 
 void StartDeleteStaleFiles() {
@@ -981,9 +982,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     CheckIsStoreBuild();
 
     if (false) {
-        const char* dir = "C:\\Users\\kjk\\Downloads\\test";
+        const char* dir = "C:\\Users\\kjk\\Downloads";
         auto di = DirIter{dir};
-        for (VisitDirData* d : di) {
+        di.recurse = true;
+        for (DirIterEntry* d : di) {
             logf("d->filePath: '%s'\n", d->filePath);
         }
     }
@@ -994,7 +996,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 #if defined(DEBUG)
     if (false) {
-        TempStr exePath = GetExePathTemp();
+        TempStr exePath = GetSelfExePathTemp();
         RunNonElevated(exePath);
         return 0;
     }

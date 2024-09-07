@@ -1595,32 +1595,36 @@ float DisplayModel::GetZoomVirtual(bool absolute) const {
     return zoomVirtual;
 }
 
-float DisplayModel::GetNextZoomStep(float towardsLevel) const {
-    if (gGlobalPrefs->zoomIncrement > 0) {
-        float zoom = GetZoomVirtual(true);
-        float factor = (gGlobalPrefs->zoomIncrement / 100 + 1);
-        if (zoom < towardsLevel) {
-            return std::min(zoom * factor, towardsLevel);
-        }
-        if (zoom > towardsLevel) {
-            return std::max(zoom / factor, towardsLevel);
-        }
-        return zoom;
+bool MaybeGetNextZoomByIncrement(float* currZoomInOut, float towardsLevel) {
+    auto zoomIncrPerc = gGlobalPrefs->zoomIncrement;
+    if (zoomIncrPerc <= 1) {
+        return false;
     }
+    float factor = (zoomIncrPerc / 100) + 1;
+    float currZoom = *currZoomInOut;
+    float newZoom = currZoom;
+    if (currZoom < towardsLevel) {
+        newZoom = std::min(currZoom * factor, towardsLevel);
+    } else if (currZoom > towardsLevel) {
+        newZoom = std::max(currZoom / factor, towardsLevel);
+    }
+    *currZoomInOut = newZoom;
+    return true;
+}
 
-    // differences to Adobe Reader: starts at 8.33 (instead of 1 and 6.25)
-    // and has four additional intermediary zoom levels ("added")
-    // clang-format off
-    static float defaultZooms2[] = {
-        8.33f, 12.5f, 18 /* added */, 25, 33.33f, 50, 66.67f, 75,
-        100, 125, 150, 200, 300, 400, 600, 800, 1000 /* added */,
-        1200, 1600, 2000 /* added */, 2400, 3200, 4800 /* added */, 6400
-    };
-    // clang-format on
-    // ReportIf(defaultZooms[0] != kZoomMin || defaultZooms[dimof(defaultZooms)-1] != kZoomMax);
+// differences to Adobe Reader: starts at 8.33 (instead of 1 and 6.25)
+// and has four additional intermediary zoom levels ("added")
+// clang-format off
+static float defaultZoomLevels[] = {
+    8.33f, 12.5f, 18 /* added */, 25, 33.33f, 50, 66.67f, 75,
+    100, 125, 150, 200, 300, 400, 600, 800, 1000 /* added */,
+    1200, 1600, 2000 /* added */, 2400, 3200, 4800 /* added */, 6400
+};
+// clang-format on
 
-    float* zoomLevels = defaultZooms2;
-    int nZoomLevels = dimofi(defaultZooms2);
+float* GetDefaultZoomLevels(int* nZoomLevelsOut) {
+    float* zoomLevels = defaultZoomLevels;
+    int nZoomLevels = dimofi(defaultZoomLevels);
 
     int nCustomZooms = gGlobalPrefs->zoomLevels->Size();
     if (nCustomZooms > 0) {
@@ -1629,11 +1633,24 @@ float DisplayModel::GetNextZoomStep(float towardsLevel) const {
         zoomLevels = gGlobalPrefs->zoomLevels->LendData();
         nZoomLevels = nCustomZooms;
     }
+    *nZoomLevelsOut = nZoomLevels;
+    return zoomLevels;
+}
 
+float DisplayModel::GetNextZoomStep(float towardsLevel) const {
     float currZoom = GetZoomVirtual(true);
     if (currZoom == towardsLevel) {
         return towardsLevel;
     }
+
+    if (MaybeGetNextZoomByIncrement(&currZoom, towardsLevel)) {
+        return currZoom;
+    }
+
+    // ReportIf(defaultZooms[0] != kZoomMin || defaultZooms[dimof(defaultZooms)-1] != kZoomMax);
+
+    int nZoomLevels;
+    float* zoomLevels = GetDefaultZoomLevels(&nZoomLevels);
 
     float pageZoom = (float)HUGE_VAL, widthZoom = (float)HUGE_VAL;
     for (int pageNo = 1; pageNo <= PageCount(); pageNo++) {
