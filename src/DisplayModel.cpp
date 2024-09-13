@@ -319,7 +319,7 @@ DisplayModel::~DisplayModel() {
     delete textSearch;
     delete textSelection;
     delete textCache;
-    engine->Release();
+    SafeEngineRelease(&engine);
     free(pagesInfo);
 }
 
@@ -972,7 +972,7 @@ static float getZoomSafe(DisplayModel* dm, int pageNo, const PageInfo* pageInfo)
         "getZoomSafe: invalid zoom in doc: %s\npageNo: %d\npageInfo->zoomReal\n%.2f\ndm->zoomReal: %.2f\n"
         "dm->zoomVirtual: %.2f\n",
         name, pageNo, zoom, pageInfo->zoomReal, dm->zoomReal, dm->zoomVirtual);
-    ReportIf(true);
+    ReportDebugIf(true);
 
     if (dm->zoomReal > 0) {
         return dm->zoomReal;

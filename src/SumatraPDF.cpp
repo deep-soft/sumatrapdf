@@ -738,7 +738,7 @@ static void CreateThumbnailFinish(CreateThumbnailData* d) {
 static void CreateThumbnailOnBitmapRendered(CreateThumbnailData* d, RenderedBitmap* bmp) {
     d->bmp = bmp;
     auto fn = MkFunc0<CreateThumbnailData>(CreateThumbnailFinish, d);
-    uitask::Post(fn, "TaskSetThumbnail");
+    uitask::PostOptimized(fn, "TaskSetThumbnail");
 }
 
 static void CreateThumbnailForFile(MainWindow* win, FileState* ds) {
@@ -1022,7 +1022,7 @@ DocController* CreateControllerForEngineOrFile(EngineBase* engine, const char* p
     logf("CreateControllerForEngineOrFile: '%s', %d pages\n", path, nPages);
     if (nPages <= 0) {
         // seen nPages < 0 in a crash in epub file
-        engine->Release();
+        SafeEngineRelease(&engine);
         return nullptr;
     }
     DocController* ctrl = new DisplayModel(engine, win->cbHandler);
@@ -1589,8 +1589,8 @@ void DeleteMainWindow(MainWindow* win) {
     int winIdx = gWindows.Remove(win);
 
     int nWindowsLeft = gWindows.Size();
-    logf("DeleteMainWindow: win: 0x%p, hwndFrame: 0x%p, hwndCanvas: 0x%p, winIdx : %d, nWindowsLeft: %d\n", win, win->hwndFrame,
-         win->hwndCanvas, winIdx, nWindowsLeft);
+    logf("DeleteMainWindow: win: 0x%p, hwndFrame: 0x%p, hwndCanvas: 0x%p, winIdx : %d, nWindowsLeft: %d\n", win,
+         win->hwndFrame, win->hwndCanvas, winIdx, nWindowsLeft);
     if (winIdx < 0) {
         logf("  not deleting because not in gWindows, probably already deleted\n");
         return;
@@ -5097,6 +5097,16 @@ static void SetAnnotCreateArgs(AnnotCreateArgs& args, CustomCommand* cmd) {
     }
 }
 
+static void CloseWindowDelayedAsync(MainWindow* win) {
+    if (IsGUIThread(FALSE)) {
+        CloseWindow(win, false, false);
+        return;
+    }
+    Sleep(4 * 1000);
+    auto fn = MkFunc0(CloseWindowDelayedAsync, win);
+    uitask::Post(fn, nullptr);
+}
+
 static LRESULT FrameOnCommand(MainWindow* win, HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     int cmdId = LOWORD(wp);
 
@@ -5316,6 +5326,11 @@ static LRESULT FrameOnCommand(MainWindow* win, HWND hwnd, UINT msg, WPARAM wp, L
             for (WindowTab* t : toClose) {
                 CloseTab(t, false);
             }
+        } break;
+
+        case CmdDebugDelayCloseWindow: {
+            auto fn = MkFunc0(CloseWindowDelayedAsync, win);
+            RunAsync(fn, "DelayedCloseWindow");
         } break;
 
         case CmdExit:

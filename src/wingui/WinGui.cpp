@@ -19,8 +19,6 @@
 
 Kind kindWnd = "wnd";
 
-constexpr bool gLogTabs = false;
-
 #define WIN_MESSAGES(V)          \
     V(WM_CREATE)                 \
     V(WM_DESTROY)                \
@@ -166,7 +164,6 @@ TempStr WinMsgNameTemp(UINT msg) {
 // TODO:
 // - if layout is set, do layout on WM_SIZE using LayoutToSize
 
-// window_map.h / window_map.cpp
 struct WindowToHwnd {
     Wnd* window = nullptr;
     HWND hwnd = nullptr;
@@ -184,7 +181,13 @@ static Wnd* WindowMapGetWindow(HWND hwnd) {
 }
 
 static void WindowMapAdd(HWND hwnd, Wnd* w) {
-    if (!hwnd || (WindowMapGetWindow(hwnd) != nullptr)) {
+    if (!hwnd) {
+        ReportIf(!hwnd);
+        return;
+    }
+    Wnd* existing = WindowMapGetWindow(hwnd);
+    if (existing) {
+        ReportIf(existing);
         return;
     }
     WindowToHwnd el = {w, hwnd};
@@ -227,33 +230,33 @@ const DWORD WM_TASKBARBUTTONCREATED = ::RegisterWindowMessage(L"TaskbarButtonCre
 
 const WCHAR* kDefaultClassName = L"SumatraWgDefaultWinClass";
 
-static LRESULT CALLBACK StaticWindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+static LRESULT CALLBACK WndWindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     // seen crashes in TabCtrl::WndProc() which might be caused by handling drag&drop messages
     // after parent window was destroyed. maybe this will fix it
     if (!IsWindow(hwnd)) {
         return 0;
     }
 
-    Wnd* window = WindowMapGetWindow(hwnd);
+    Wnd* wnd = WindowMapGetWindow(hwnd);
 
     if (msg == WM_NCCREATE) {
         CREATESTRUCT* cs = (CREATESTRUCT*)(lparam);
-        ReportIf(window);
-        window = (Wnd*)(cs->lpCreateParams);
-        window->hwnd = hwnd;
-        WindowMapAdd(hwnd, window);
+        ReportIf(wnd);
+        wnd = (Wnd*)(cs->lpCreateParams);
+        wnd->hwnd = hwnd;
+        WindowMapAdd(hwnd, wnd);
     }
 
-    if (window) {
-        return window->WndProc(hwnd, msg, wparam, lparam);
+    if (wnd) {
+        return wnd->WndProc(hwnd, msg, wparam, lparam);
     } else {
         return ::DefWindowProc(hwnd, msg, wparam, lparam);
     }
 }
 
-static LRESULT CALLBACK StaticWindowProcSubclassed(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR subclassId,
-                                                   DWORD_PTR data) {
-    return StaticWindowProc(hwnd, msg, wp, lp);
+static LRESULT CALLBACK WndSubclassedWindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR subclassId,
+                                                DWORD_PTR data) {
+    return WndWindowProc(hwnd, msg, wp, lp);
 }
 
 Wnd::Wnd() {
@@ -931,7 +934,7 @@ static void WndRegisterClass(const WCHAR* className) {
     wc.style = CS_DBLCLKS;
     wc.hInstance = inst;
     wc.lpszClassName = className;
-    wc.lpfnWndProc = StaticWindowProc;
+    wc.lpfnWndProc = WndWindowProc;
     wc.hCursor = ::LoadCursor(nullptr, IDC_ARROW);
     wc.hbrBackground = reinterpret_cast<HBRUSH>(::GetStockObject(WHITE_BRUSH));
     ATOM atom = ::RegisterClassExW(&wc);
@@ -1073,7 +1076,7 @@ void Wnd::Subclass() {
     WindowMapAdd(hwnd, this);
 
     subclassId = NextSubclassId();
-    BOOL ok = SetWindowSubclass(hwnd, StaticWindowProcSubclassed, subclassId, (DWORD_PTR)this);
+    BOOL ok = SetWindowSubclass(hwnd, WndSubclassedWindowProc, subclassId, (DWORD_PTR)this);
     ReportIf(!ok);
 }
 
@@ -1081,7 +1084,7 @@ void Wnd::UnSubclass() {
     if (!subclassId) {
         return;
     }
-    RemoveWindowSubclass(hwnd, StaticWindowProcSubclassed, subclassId);
+    RemoveWindowSubclass(hwnd, WndSubclassedWindowProc, subclassId);
     subclassId = 0;
 }
 
@@ -1142,10 +1145,9 @@ bool PreTranslateMessage(MSG& msg) {
         return false;
     }
     for (HWND hwnd = msg.hwnd; hwnd != nullptr; hwnd = ::GetParent(hwnd)) {
-        if (auto window = WindowMapGetWindow(hwnd)) {
-            if (window->PreTranslateMessage(msg)) {
-                return true;
-            }
+        auto wnd = WindowMapGetWindow(hwnd);
+        if (wnd && wnd->PreTranslateMessage(msg)) {
+            return true;
         }
     }
     return false;
@@ -2486,7 +2488,6 @@ HWND TreeView::Create(const CreateArgs& argsIn) {
     // must be done at the end. Doing  SetWindowStyle() sends bogus (?)
     // TVN_ITEMCHANGED notification. As an alternative we could ignore TVN_ITEMCHANGED
     // if hItem doesn't point to an TreeItem
-    // Subclass();
 
     return hwnd;
 }
@@ -3296,6 +3297,26 @@ TabsCtrl::TabsCtrl() {
     kind = kindTabs;
 }
 
+// must be called after LayoutTabs()
+static void TabsCtrlUpdateAfterChangingTabsCount(TabsCtrl* tabs) {
+    HWND hwnd = tabs->hwnd;
+    if (GetCapture() == hwnd) {
+        ReleaseCapture();
+    }
+    tabs->tabBeingClosed = -1;
+    Point mousePos = HwndGetCursorPos(hwnd);
+    auto tabState = tabs->TabStateFromMousePosition(mousePos);
+    bool canClose = tabState.tabInfo && tabState.tabInfo->canClose;
+    bool overClose = tabState.overClose && canClose;
+    int tabUnderMouse = tabState.tabIdx;
+    tabs->tabHighlighted = tabUnderMouse;
+    tabs->tabHighlightedClose = overClose ? tabUnderMouse : -1;
+    if (tabs->draggingTab) {
+        tabs->draggingTab = false;
+        ImageList_EndDrag();
+    }
+}
+
 TabsCtrl::~TabsCtrl() {
 }
 
@@ -3371,6 +3392,7 @@ static void UpdateAfterDrag(TabsCtrl* tabsCtrl, int tab1, int tab2) {
     }
     tabsCtrl->SetSelected(newSelected);
     tabsCtrl->LayoutTabs();
+    TabsCtrlUpdateAfterChangingTabsCount(tabsCtrl);
 }
 
 LRESULT TabsCtrl::OnNotifyReflect(WPARAM wp, LPARAM lp) {
@@ -3385,27 +3407,17 @@ LRESULT TabsCtrl::OnNotifyReflect(WPARAM wp, LPARAM lp) {
 
         case TTN_GETDISPINFOA:
         case TTN_GETDISPINFOW:
-            if (gLogTabs) {
-                logfa("TabsCtrl::OnNotifyReflect: TTN_GETDISPINFO\n");
-            }
             break;
     }
     return 0;
 }
-
-// used to do less logging of WM_MOUSEMOVE
-static int nWmMouseMoveCount = 0;
 
 LRESULT TabsCtrl::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     // TCITEMW* tcs = nullptr;
 
     Point mousePos = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
     if (WM_MOUSELEAVE == msg) {
-        POINT p;
-        GetCursorPos(&p);
-        ScreenToClient(hwnd, &p);
-        mousePos.x = p.x;
-        mousePos.y = p.y;
+        mousePos = HwndGetCursorPos(hwnd);
     }
 
     TabsCtrl::MouseState tabState;
@@ -3456,28 +3468,15 @@ LRESULT TabsCtrl::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             break;
 
         case WM_MOUSELEAVE:
-            if (gLogTabs) {
-                logfa("TabsCtrl::WndProc: WM_MOUSELEAVE, tabUnderMouse: %d, tabHighlited: %d\n", tabUnderMouse,
-                      tabHighlighted);
-            }
             if (tabHighlighted != tabUnderMouse) {
                 tabHighlighted = tabUnderMouse;
-                logf("tab: WM_MOUSELEAVE: tabHighlighted = tabUnderMouse: %d\n", tabHighlighted);
                 HwndScheduleRepaint(hwnd);
             }
-            nWmMouseMoveCount = 0;
             break;
 
         case WM_MOUSEMOVE: {
             TrackMouseLeave(hwnd);
             bool isDragging = (GetCapture() == hwnd);
-            if (nWmMouseMoveCount == 0 || isDragging) {
-                if (gLogTabs) {
-                    logfa("TabsCtrl::WndProc: WM_MOUSEMOVE: tabUnderMouse: %d, tabHighlited: %d, isDragging: %d\n",
-                          tabUnderMouse, tabHighlighted, (int)isDragging);
-                }
-            }
-            nWmMouseMoveCount++;
             int hl = tabHighlighted;
             if (isDragging && tabUnderMouse == -1) {
                 // move the tab out: draw it as a image and drag around the screen
@@ -3503,16 +3502,7 @@ LRESULT TabsCtrl::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 if (isDragging && hl != -1) {
                     // send notification if the highlighted tab is dragged over another
                     if (!GetTab(tabUnderMouse)->isPinned) {
-                        if (gLogTabs) {
-                            logfa(
-                                "TabsCtrl::WndProc: WM_MOUSEMOVE: before TriggerTabDragged: hl=%d, tabUnderMouse=%d\n",
-                                hl, tabUnderMouse);
-                        }
                         TriggerTabDragged(this, hl, tabUnderMouse);
-                        if (gLogTabs) {
-                            logfa("TabsCtrl::WndProc: WM_MOUSEMOVE: before UpdateAfterDrag: hl=%d, tabUnderMouse=%d\n",
-                                  hl, tabUnderMouse);
-                        }
                         UpdateAfterDrag(this, hl, tabUnderMouse);
                     }
                 } else {
@@ -3528,16 +3518,14 @@ LRESULT TabsCtrl::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             // logfa("inX=%d, hl=%d, xHl=%d, xHighlighted=%d\n", (int)inX, hl, xHl, tab->xHighlighted);
             if (tabHighlightedClose != xHl) {
                 // logfa("before invalidate, xHl=%d, xHighlited=%d\n", xHl, tab->xHighlighted);
-                HwndScheduleRepaint(hwnd);
                 tabHighlightedClose = xHl;
+                HwndScheduleRepaint(hwnd);
             }
             return 0;
         }
 
         case WM_LBUTTONDOWN: {
-            nWmMouseMoveCount = 0;
             tabHighlighted = tabUnderMouse;
-            logf("tab: WM_LBUTTONDOWN: tabHighlighted = tabUnderMouse: %d\n", tabHighlighted);
             if (overClose) {
                 HwndScheduleRepaint(hwnd);
                 tabBeingClosed = tabUnderMouse;
@@ -3558,23 +3546,10 @@ LRESULT TabsCtrl::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     SetCapture(hwnd);
                 }
             }
-            if (gLogTabs || (tabHighlighted == -1)) {
-                logfa(
-                    "TabsCtrl::WndProc: WM_LBUTTONDOWN, tabUnderMouse: %d, tabHighlited: %d, tabBeingClosed: %d, "
-                    "overClose: %d\n",
-                    tabUnderMouse, tabHighlighted, tabBeingClosed, (int)overClose);
-            }
             return 0;
         }
 
         case WM_LBUTTONUP: {
-            nWmMouseMoveCount = 0;
-            if (gLogTabs) {
-                logfa(
-                    "TabsCtrl::WndProc: WM_LBUTTONUP, tabUnderMouse: %d, tabHighlited: %d, tabBeingClosed: %d, "
-                    "overClose: %d\n",
-                    tabUnderMouse, tabHighlighted, tabBeingClosed, (int)overClose);
-            }
             if (tabBeingClosed != -1 && tabUnderMouse == tabBeingClosed && overClose) {
                 // send notification that the tab is closed
                 TriggerTabClosed(this, tabBeingClosed);
@@ -3588,41 +3563,31 @@ LRESULT TabsCtrl::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             // we don't always get WM_MOUSEMOVE before WM_LBUTTONUP so
             // update tabHighlighted
             tabHighlighted = tabUnderMouse;
-            logf("tab: WM_LBUTTONUP: tabHighlighted = tabUnderMouse: %d\n", tabHighlighted);
 
-            if (draggingTab) {
-                draggingTab = false;
-                ImageList_EndDrag();
-                int selectedTab = GetSelected();
-                if (gLogTabs) {
-                    logfa("TabsCtrl::WndProc: WM_LBUTTONUP, selectedTab: %d tabUnderMouse: %d\n", selectedTab,
-                          tabUnderMouse);
-                }
-                if (tabUnderMouse < 0) {
-                    // migrate to new/different window
-                    POINT p(mousePos.x, mousePos.y);
-                    ClientToScreen(hwnd, &p);
-                    Point scPoint(p.x, p.y);
-                    TriggerTabMigration(this, selectedTab, scPoint);
-                    return 0;
-                }
-                if (tabUnderMouse != selectedTab && !GetTab(tabUnderMouse)->isPinned) {
-                    TriggerTabDragged(this, selectedTab, tabUnderMouse);
-                    UpdateAfterDrag(this, selectedTab, tabUnderMouse);
-                }
+            if (!draggingTab) {
+                return 0;
+            }
+            draggingTab = false;
+            ImageList_EndDrag();
+            int selectedTab = GetSelected();
+            if (tabUnderMouse < 0) {
+                // migrate to new/different window
+                POINT p(mousePos.x, mousePos.y);
+                ClientToScreen(hwnd, &p);
+                Point scPoint(p.x, p.y);
+                TriggerTabMigration(this, selectedTab, scPoint);
+                return 0;
+            }
+            if (tabUnderMouse != selectedTab && !GetTab(tabUnderMouse)->isPinned) {
+                TriggerTabDragged(this, selectedTab, tabUnderMouse);
+                UpdateAfterDrag(this, selectedTab, tabUnderMouse);
             }
             return 0;
         }
 
         case WM_MBUTTONDOWN: {
             // middle-clicking unconditionally closes the tab
-            if (gLogTabs) {
-                logfa(
-                    "TabsCtrl::WndProc: WM_MBUTTONDOWN, tabUnderMouse: %d, tabHighlited: %d, tabBeingClosed: %d, "
-                    "overClose: %d\n",
-                    tabUnderMouse, tabHighlighted, tabBeingClosed, (int)overClose);
-            }
-            nWmMouseMoveCount = 0;
+
             tabBeingClosed = tabUnderMouse;
             if (tabBeingClosed < 0 || !canClose) {
                 return 0;
@@ -3726,38 +3691,9 @@ int TabsCtrl::InsertTab(int idx, TabInfo* tab) {
         return res;
     }
     tabs.InsertAt(idx, tab);
-
-#if 0 // WTF was I trying to do here?
-    if (idx == 0) {
-        SetSelected(0);
-    } else {
-        int selectedTab = GetSelected();
-        if (idx <= selectedTab) {
-            SetSelected(selectedTab + 1);
-        }
-    }
-#else
     SetSelected(idx);
-#endif
-#if 0
-    tabBeingClosed = -1;
-    // TODO: this is probabably incorrect
-    tabHighlighted = -1;
-#else
-    if (tabBeingClosed != -1) {
-        if (idx <= tabBeingClosed) {
-            tabBeingClosed++;
-        }
-    }
-    if (tabHighlighted != -1) {
-        if (idx <= tabHighlighted) {
-            logf("tab: TabsCtrl::InsertTab %d: tabHighlighted: %d (was %d)\n", idx, tabHighlighted + 1, tabHighlighted);
-            tabHighlighted++;
-        }
-    }
-#endif
-    tabHighlightedClose = -1;
     LayoutTabs();
+    TabsCtrlUpdateAfterChangingTabsCount(this);
     return idx;
 }
 
@@ -3778,7 +3714,6 @@ UINT_PTR TabsCtrl::RemoveTab(int idx) {
     UINT_PTR userData = tab->userData;
     tabs.RemoveAt(idx);
     delete tab;
-    tabBeingClosed = -1;
     int selectedTab = GetSelected();
     if (idx < selectedTab) {
         SetSelected(selectedTab - 1);
@@ -3786,6 +3721,7 @@ UINT_PTR TabsCtrl::RemoveTab(int idx) {
         SetSelected(0);
     }
     LayoutTabs();
+    TabsCtrlUpdateAfterChangingTabsCount(this);
     return userData;
 }
 
@@ -3799,13 +3735,10 @@ void TabsCtrl::SwapTabs(int idx1, int idx2) {
 // Note: the caller should take care of deleting userData
 void TabsCtrl::RemoveAllTabs() {
     TabCtrl_DeleteAllItems(hwnd);
-    tabHighlighted = -1;
-    tabBeingClosed = -1;
-    tabHighlightedClose = -1;
     DeleteVecMembers(tabs);
     tabs.Reset();
     LayoutTabs();
-    logf("tab: TabsCtrl::RemoveAllTabs: tabHighlighted: %d\n", -1);
+    TabsCtrlUpdateAfterChangingTabsCount(this);
 }
 
 TabInfo* TabsCtrl::GetTab(int idx) {

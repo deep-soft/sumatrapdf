@@ -96,7 +96,7 @@ struct PrintData {
 
     ~PrintData() {
         delete printer;
-        engine->Release();
+        SafeEngineRelease(&engine);
     }
 };
 
@@ -640,7 +640,7 @@ class PrintThreadData {
         data->current = current;
         data->total = total;
         auto fn = MkFunc0<UpdatePrintProgressData>(UpdatePrintProgress, data);
-        uitask::Post(fn, "TaskPrintUpdateProgress");
+        uitask::Post(fn, nullptr);
     }
 
     bool WasCanceled() {
@@ -1313,7 +1313,7 @@ bool PrintFile(const char* fileName, char* printerName, bool displayErrors, cons
         return false;
     }
     bool ok = PrintFile2(engine, printerName, displayErrors, settings);
-    engine->Release();
+    SafeEngineRelease(&engine);
     logfa("PrintFile: finished ok\n");
     return ok;
 }
