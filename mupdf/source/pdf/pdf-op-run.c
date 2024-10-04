@@ -1142,13 +1142,14 @@ pdf_show_char(fz_context *ctx, pdf_run_processor *pr, int cid, fz_text_language 
 	pdf_gstate *gstate = pr->gstate + pr->gtop;
 	pdf_font_desc *fontdesc = gstate->text.font;
 	fz_matrix trm;
+	float adv;
 	int gid;
 	int ucsbuf[PDF_MRANGE_CAP];
 	int ucslen;
 	int i;
 	int render_direct;
 
-	gid = pdf_tos_make_trm(ctx, &pr->tos, &gstate->text, fontdesc, cid, &trm);
+	gid = pdf_tos_make_trm(ctx, &pr->tos, &gstate->text, fontdesc, cid, &trm, &adv);
 
 	/* If we are uncachable, then render direct. */
 	render_direct = !fz_glyph_cacheable(ctx, fontdesc->font, gid);
@@ -1203,11 +1204,11 @@ pdf_show_char(fz_context *ctx, pdf_run_processor *pr, int cid, fz_text_language 
 	pr->bidi = guess_bidi_level(ucdn_get_bidi_class(ucsbuf[0]), pr->bidi);
 
 	/* add glyph to textobject */
-	fz_show_glyph_aux(ctx, pr->tos.text, fontdesc->font, trm, gid, ucsbuf[0], cid, fontdesc->wmode, pr->bidi, FZ_BIDI_NEUTRAL, lang);
+	fz_show_glyph_aux(ctx, pr->tos.text, fontdesc->font, trm, adv, gid, ucsbuf[0], cid, fontdesc->wmode, pr->bidi, FZ_BIDI_NEUTRAL, lang);
 
 	/* add filler glyphs for one-to-many unicode mapping */
 	for (i = 1; i < ucslen; i++)
-		fz_show_glyph_aux(ctx, pr->tos.text, fontdesc->font, trm, -1, ucsbuf[i], -1, fontdesc->wmode, pr->bidi, FZ_BIDI_NEUTRAL, lang);
+		fz_show_glyph_aux(ctx, pr->tos.text, fontdesc->font, trm, 0, -1, ucsbuf[i], -1, fontdesc->wmode, pr->bidi, FZ_BIDI_NEUTRAL, lang);
 
 	pdf_tos_move_after_char(ctx, &pr->tos);
 }
@@ -3195,32 +3196,32 @@ pdf_new_run_processor(fz_context *ctx, pdf_document *doc, fz_device *dev, fz_mat
 			proc->gstate[0].clip_depth = 0;
 			proc->gstate[0].ctm = ctm;
 		}
+
+		/* We need to save an extra level to allow for level 0 to be the parent gstate level. */
+		pdf_gsave(ctx, proc);
+
+		/* Structure details */
+		{
+			pdf_obj *struct_tree_root = pdf_dict_getl(ctx, pdf_trailer(ctx, doc), PDF_NAME(Root), PDF_NAME(StructTreeRoot), NULL);
+			proc->struct_parent = struct_parent;
+			proc->role_map = pdf_keep_obj(ctx, pdf_dict_get(ctx, struct_tree_root, PDF_NAME(RoleMap)));
+
+			/* Annotations and XObjects can be their own content items. We spot this by
+			 * the struct_parent looking up to be a singular object. */
+			if (struct_parent != -1 && struct_tree_root)
+			{
+				pdf_obj *struct_obj = pdf_lookup_number(ctx, pdf_dict_get(ctx, struct_tree_root, PDF_NAME(ParentTree)), struct_parent);
+				if (pdf_is_dict(ctx, struct_obj))
+					send_begin_structure(ctx, proc, struct_obj);
+				/* We always end structure as required on closedown, so this is safe. */
+			}
+		}
 	}
 	fz_catch(ctx)
 	{
 		pdf_drop_run_processor(ctx, (pdf_processor *) proc);
 		fz_free(ctx, proc);
 		fz_rethrow(ctx);
-	}
-
-	/* We need to save an extra level to allow for level 0 to be the parent gstate level. */
-	pdf_gsave(ctx, proc);
-
-	/* Structure details */
-	{
-		pdf_obj *struct_tree_root = pdf_dict_getl(ctx, pdf_trailer(ctx, doc), PDF_NAME(Root), PDF_NAME(StructTreeRoot), NULL);
-		proc->struct_parent = struct_parent;
-		proc->role_map = pdf_keep_obj(ctx, pdf_dict_get(ctx, struct_tree_root, PDF_NAME(RoleMap)));
-
-		/* Annotations and XObjects can be their own content items. We spot this by
-		 * the struct_parent looking up to be a singular object. */
-		if (struct_parent != -1 && struct_tree_root)
-		{
-			pdf_obj *struct_obj = pdf_lookup_number(ctx, pdf_dict_get(ctx, struct_tree_root, PDF_NAME(ParentTree)), struct_parent);
-			if (pdf_is_dict(ctx, struct_obj))
-				send_begin_structure(ctx, proc, struct_obj);
-			/* We always end structure as required on closedown, so this is safe. */
-		}
 	}
 
 	return (pdf_processor*)proc;
