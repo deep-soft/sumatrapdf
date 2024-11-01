@@ -18,6 +18,4 @@ jobs:
           fetch-depth: 0
 
       - name: Build
-        env:
-          CERT_PWD: ${{ secrets.CERT_PWD }}
         run: .\doit.bat -ci

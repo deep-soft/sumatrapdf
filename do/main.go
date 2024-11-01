@@ -20,7 +20,6 @@ var (
 	b2Access          string
 	b2Secret          string
 	transUploadSecret string
-	certPwd           string
 )
 
 func loadSecrets() bool {
@@ -49,7 +48,6 @@ func loadSecrets() bool {
 	getEnv("BB_ACCESS", &b2Access, 8)
 	getEnv("BB_SECRET", &b2Secret, 8)
 	getEnv("TRANS_UPLOAD_SECRET", &transUploadSecret, 4)
-	getEnv("CERT_PWD", &certPwd, 4)
 	return true
 }
 
@@ -69,7 +67,6 @@ func getSecrets() {
 	b2Access = os.Getenv("BB_ACCESS")
 	b2Secret = os.Getenv("BB_SECRET")
 	transUploadSecret = os.Getenv("TRANS_UPLOAD_SECRET")
-	certPwd = os.Getenv("CERT_PWD")
 }
 
 func regenPremake() {
@@ -190,9 +187,6 @@ func ensureBuildOptionsPreRequesites(opts *BuildOptions) {
 		ensureAllUploadCreds()
 	}
 
-	if opts.sign {
-		panicIf(!hasCertPwd(), "CERT_PWD env variable is not set")
-	}
 	if opts.verifyTranslationUpToDate {
 		verifyTranslationsMust()
 	}
@@ -241,7 +235,6 @@ func main() {
 		flgClangFormat     bool
 		flgClean           bool
 		flgDiff            bool
-		flgDrMem           bool
 		flgExtractUtils    bool
 		flgFilesList       bool
 		flgFileUpload      string
@@ -256,7 +249,6 @@ func main() {
 		flgUpdateGoDeps    bool
 		flgUpdateVer       string
 		flgUpload          bool
-		flgUploadCiBuild   bool
 		flgWc              bool
 	)
 
@@ -266,7 +258,6 @@ func main() {
 		flag.BoolVar(&flgRegenPremake, "premake", false, "regenerate premake*.lua files")
 		flag.BoolVar(&flgCIBuild, "ci", false, "run CI steps")
 		flag.BoolVar(&flgCIDailyBuild, "ci-daily", false, "run CI daily steps")
-		flag.BoolVar(&flgUploadCiBuild, "ci-upload", false, "upload the result of ci build to s3 and do spaces")
 		flag.BoolVar(&flgBuildSmoke, "build-smoke", false, "run smoke build (installer for 64bit release)")
 		flag.BoolVar(&flgBuildPreRelease, "build-pre-rel", false, "build pre-release")
 		flag.BoolVar(&flgBuildRelease, "build-release", false, "build release")
@@ -288,7 +279,6 @@ func main() {
 		flag.BoolVar(&flgDiff, "diff", false, "preview diff using winmerge")
 		flag.BoolVar(&flgGenSettings, "gen-settings", false, "re-generate src/Settings.h")
 		flag.StringVar(&flgUpdateVer, "update-auto-update-ver", "", "update version used for auto-update checks")
-		flag.BoolVar(&flgDrMem, "drmem", false, "run drmemory of rel 64")
 		flag.BoolVar(&flgLogView, "logview", false, "run logview")
 		flag.BoolVar(&flgRunTests, "run-tests", false, "run test_util executable")
 		flag.BoolVar(&flgExtractUtils, "extract-utils", false, "extract utils")
@@ -325,8 +315,8 @@ func main() {
 		defer measureDuration()()
 		u.UpdateGoDeps("do", true)
 		u.UpdateGoDeps(filepath.Join("tools", "regress"), true)
+		u.UpdateGoDeps(filepath.Join("tools", "logview-cli"), true)
 		u.UpdateGoDeps(filepath.Join("tools", "logview"), true)
-		u.UpdateGoDeps(filepath.Join("tools", "logview-win"), true)
 		return
 	}
 
@@ -423,12 +413,6 @@ func main() {
 	}
 
 	opts := &BuildOptions{}
-	if flgUploadCiBuild {
-		// triggered via -ci-upload from .github workflow file
-		// only upload if this is my repo (not a fork)
-		// master branch (not work branches) and on push (not pull requests etc.)
-		opts.upload = isGithubMyMasterBranch()
-	}
 
 	if flgCIBuild {
 		// triggered via -ci from .github workflow file
@@ -488,19 +472,7 @@ func main() {
 	}
 
 	if flgCIDailyBuild {
-		buildCiDaily(opts)
-		if opts.upload {
-			uploadToStorage(buildTypePreRel)
-		} else {
-			logf("uploadToStorage: skipping because opts.upload = false\n")
-		}
-		return
-	}
-
-	// on GitHub Actions the build happens in an earlier step
-	if flgUploadCiBuild {
-		// pre-release build on push
-		uploadToStorage(buildTypePreRel)
+		buildCiDaily()
 		return
 	}
 
@@ -544,14 +516,6 @@ func main() {
 		return
 	}
 
-	if flgDrMem {
-		buildJustPortableExe(rel64Dir, "Release", kPlatformIntel64)
-		//cmd := exec.Command("drmemory.exe", "-light", "-check_leaks", "-possible_leaks", "-count_leaks", "-suppress", "drmem-sup.txt", "--", ".\\out\\rel64\\SumatraPDF.exe")
-		cmd := exec.Command("drmemory.exe", "-leaks_only", "-suppress", "drmem-sup.txt", "--", ".\\out\\rel64\\SumatraPDF.exe")
-		runCmdLoggedMust(cmd)
-		return
-	}
-
 	if flgLogView {
 		logView()
 		return
@@ -590,7 +554,7 @@ func cmdRunLoggedInDir(dir string, args ...string) {
 	cmdRunLoggedMust(cmd)
 }
 
-var logViewWinDir = filepath.Join("tools", "logview-win")
+var logViewWinDir = filepath.Join("tools", "logview")
 
 func buildLogView() {
 	ver := extractLogViewVersion()

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kjk/u"
@@ -382,13 +383,6 @@ func signFilesMust(dir string) {
 	signMust(filepath.Join(dir, "SumatraPDF-dll.exe"))
 }
 
-func signFilesOptional(dir string) {
-	if !hasCertPwd() {
-		return
-	}
-	signFilesMust(dir)
-}
-
 const (
 	kPlatformIntel32 = "Win32"
 	kPlatformIntel64 = "x64"
@@ -466,21 +460,21 @@ func getSuffixForPlatform(platform string) string {
 	return ""
 }
 
-func buildCiDaily(opts *BuildOptions) {
-	if opts.upload {
-		isUploaded := isBuildAlreadyUploaded(newMinioBackblazeClient(), buildTypePreRel)
-		if isUploaded {
-			logf("buildCiDaily: skipping build because already built and uploaded")
-			return
-		}
-	}
+// func buildCiDaily(opts *BuildOptions) {
+// 	if opts.upload {
+// 		isUploaded := isBuildAlreadyUploaded(newMinioBackblazeClient(), buildTypePreRel)
+// 		if isUploaded {
+// 			logf("buildCiDaily: skipping build because already built and uploaded")
+// 			return
+// 		}
+// 	}
 
-	cleanReleaseBuilds()
-	genHTMLDocsForApp()
-	buildPreRelease(kPlatformArm64, false)
-	buildPreRelease(kPlatformIntel32, false)
-	buildPreRelease(kPlatformIntel64, false)
-}
+// 	cleanReleaseBuilds()
+// 	genHTMLDocsForApp()
+// 	buildPreRelease(kPlatformArm64, false)
+// 	buildPreRelease(kPlatformIntel32, false)
+// 	buildPreRelease(kPlatformIntel64, false)
+// }
 
 func buildCi() {
 	gev := getGitHubEventType()
@@ -502,17 +496,19 @@ func buildCi() {
 	}
 }
 
+func ensureManualIsBuilt() {
+	// make sure we've built manual
+	path := filepath.Join("docs", "manual.dat")
+	size, err := u.GetFileSize(path)
+	must(err)
+	panicIf(size < 2*2024, "size of '%s' is %d which indicates we didn't build it", path, size)
+}
+
 func buildPreRelease(platform string, all bool) {
 	// make sure we can sign the executables, early exit if missing
 	detectSigntoolPath()
 
-	{
-		// make sure we've built manual
-		path := filepath.Join("docs", "manual.dat")
-		size, err := u.GetFileSize(path)
-		must(err)
-		panicIf(size < 2*2024, "size of '%s' is %d which indicates we didn't build it", path, size)
-	}
+	ensureManualIsBuilt()
 
 	ver := getVerForBuildType(buildTypePreRel)
 	s := fmt.Sprintf("buidling pre-release version %s", ver)
@@ -623,20 +619,96 @@ func buildSmoke() {
 	signFilesMust(outDir)
 }
 
-func buildJustPortableExe(dir, config, platform string) {
-	msbuildPath := detectMsbuildPath()
-	slnPath := filepath.Join("vs2022", "SumatraPDF.sln")
+// func buildJustPortableExe(dir, config, platform string) {
+// 	msbuildPath := detectMsbuildPath()
+// 	slnPath := filepath.Join("vs2022", "SumatraPDF.sln")
 
-	p := fmt.Sprintf(`/p:Configuration=%s;Platform=%s`, config, platform)
-	runExeLoggedMust(msbuildPath, slnPath, `/t:SumatraPDF`, p, `/m`)
-	signFilesOptional(dir)
-}
+// 	p := fmt.Sprintf(`/p:Configuration=%s;Platform=%s`, config, platform)
+// 	runExeLoggedMust(msbuildPath, slnPath, `/t:SumatraPDF`, p, `/m`)
+// }
 
 func buildTestUtil() {
 	msbuildPath := detectMsbuildPath()
 	slnPath := filepath.Join("vs2022", "SumatraPDF.sln")
 
-	config := "Release"
-	p := fmt.Sprintf(`/p:Configuration=%s;Platform=%s`, config, kPlatformIntel64)
+	p := fmt.Sprintf(`/p:Configuration=Release;Platform=%s`, kPlatformIntel64)
 	runExeLoggedMust(msbuildPath, slnPath, `/t:test_util:Rebuild`, p, `/m`)
+}
+
+// build pre-release builds and upload unsigned binaries to r2
+// TODO: remove old unsigned builds, keep only the last one; do it after we check thie build doesn't exist
+// TODO: maybe compress files before uploading using zstd or brotli
+func buildCiDaily() {
+	if !isGithubMyMasterBranch() {
+		logf("buildCiDaily: skipping build because not on master branch\n")
+		return
+	}
+
+	msbuildPath := detectMsbuildPath()
+
+	ver := getPreReleaseVer()
+	logf("building and uploading pre-release version %s\n", ver)
+
+	keyPrefix := "software/sumatrapdf/prerel/" + ver + "-unsigned/"
+	mc := newMinioR2Client()
+
+	keyAllBuild := keyPrefix + "all-build.txt"
+	{
+		if mc.Exists(keyAllBuild) {
+			logf("buildCiDaily: skipping build because already uploaded (key '%s' exists)\n", keyAllBuild)
+			return
+		}
+	}
+
+	cleanReleaseBuilds()
+	genHTMLDocsForApp()
+	ensureManualIsBuilt()
+
+	setBuildConfigPreRelease()
+	defer revertBuildConfig()
+
+	var wgUploads sync.WaitGroup
+
+	printAllBuildDur := makePrintDuration("all builds")
+	for _, platform := range []string{kPlatformIntel32, kPlatformIntel64, kPlatformArm64} {
+		printBBuildDur := makePrintDuration(fmt.Sprintf("buidling pre-release %s version %s", platform, ver))
+		slnPath := filepath.Join("vs2022", "SumatraPDF.sln")
+		p := `/p:Configuration=Release;Platform=` + platform
+		runExeLoggedMust(msbuildPath, slnPath, `/t:SumatraPDF:Rebuild;SumatraPDF-dll:Rebuild`, p, `/m`)
+		printBBuildDur()
+
+		wgUploads.Add(1)
+		go func(platform string) {
+			defer wgUploads.Done()
+			dir := getOutDirForPlatform(platform)
+			files := []string{
+				"SumatraPDF.exe",
+				"SumatraPDF-dll.exe",
+				"SumatraPDF.pdb",
+				"SumatraPDF-dll.pdb",
+			}
+			for _, file := range files {
+				path := filepath.Join(dir, file)
+				key := keyPrefix + platform + "/" + file
+				printDur := makePrintDuration(fmt.Sprintf("uploading '%s' to '%s'\n", path, key))
+				mc.UploadFile(key, path, true)
+				printDur()
+			}
+		}(platform)
+	}
+	revertBuildConfig() // can do twice
+	printAllBuildDur()
+
+	logf("uploading '%s'\n", keyAllBuild)
+	mc.UploadData(keyAllBuild, []byte("all builds"), true)
+	wgUploads.Wait()
+}
+
+func waitForEnter(s string) {
+	// wait for keyboard press
+	if s == "" {
+		s = "\nPress Enter to continue\n"
+	}
+	logf(s)
+	fmt.Scanln()
 }
