@@ -314,7 +314,7 @@ const char *postfix_js =
 	"mupdf.PDFDocument.prototype.getEmbeddedFiles = function () {\n"
 	"        function _getEmbeddedFilesRec(result, N) {\n"
 	"                var i, n\n"
-	"                if (N) {\n"
+	"                if (N.isDictionary()) {\n"
 	"                        var NN = N.get('Names')\n"
 	"                        if (NN)\n"
 	"                                for (i = 0, n = NN.length; i < n; i += 2)\n"
@@ -327,6 +327,29 @@ const char *postfix_js =
 	"                return result\n"
 	"        }\n"
 	"        return _getEmbeddedFilesRec({}, this.getTrailer().get('Root', 'Names', 'EmbeddedFiles'))\n"
+	"}\n"
+	"mupdf.PDFDocument.prototype.insertEmbeddedFile = function (filename, filespec) {\n"
+	"	var efs = this.getEmbeddedFiles()\n"
+	"	efs[filename] = filespec\n"
+	"	this._rewriteEmbeddedFiles(efs)\n"
+	"}\n"
+	"mupdf.PDFDocument.prototype.deleteEmbeddedFile = function (filename) {\n"
+	"	var efs = this.getEmbeddedFiles()\n"
+	"	delete efs[filename]\n"
+	"	this._rewriteEmbeddedFiles(efs)\n"
+	"}\n"
+	"mupdf.PDFDocument.prototype._rewriteEmbeddedFiles = function (efs) {\n"
+	"	var efs_keys = Object.keys(efs)\n"
+	"	var root = this.getTrailer().get('Root')\n"
+	"	var root_names = root.get('Names')\n"
+	"	if (!root_names.isDictionary())\n"
+	"		root_names = root.put('Names', this.newDictionary(1))\n"
+	"	var root_names_efs = root_names.put('EmbeddedFiles', this.newDictionary(1))\n"
+	"	var root_names_efs_names = root_names_efs.put('Names', this.newArray(efs_keys.length * 2))\n"
+	"	for (var i = 0; i < efs_keys.length; ++i) {\n"
+	"		root_names_efs_names.push(this.newString(efs_keys[i]))\n"
+	"		root_names_efs_names.push(efs[efs_keys[i]])\n"
+	"	}\n"
 	"}\n"
 ;
 
@@ -4058,41 +4081,52 @@ static void ffi_Page_toStructuredText(js_State *J)
 	js_newuserdata(J, "fz_stext_page", text, ffi_gc_fz_stext_page);
 }
 
-static void ffi_pushsearch(js_State *J, int *marks, fz_quad *hits, int n)
+typedef struct {
+	js_State *J;
+	int hits;
+	int error;
+} search_state;
+
+static int hit_callback(fz_context *ctx, void *opaque, int quads, fz_quad *quad)
 {
-	int a = 0;
-	js_newarray(J);
-	if (n > 0) {
-		int i, k = 0;
-		js_newarray(J);
-		for (i = 0; i < n; ++i) {
-			if (i > 0 && marks[i]) {
-				js_setindex(J, -2, a++);
-				js_newarray(J);
-				k = 0;
-			}
-			ffi_pushquad(J, hits[i]);
-			js_setindex(J, -2, k++);
-		}
-		js_setindex(J, -2, a);
+	search_state *state = (search_state *) opaque;
+	int i;
+
+	if (js_try(state->J))
+	{
+		state->error = 1;
+		return 1;
 	}
+
+	js_newarray(state->J);
+	for (i = 0; i < quads; ++i)
+	{
+		ffi_pushquad(state->J, quad[i]);
+		js_setindex(state->J, -2, i);
+	}
+	js_setindex(state->J, -2, state->hits++);
+
+	js_endtry(state->J);
+	return 0;
 }
+
 
 static void ffi_Page_search(js_State *J)
 {
 	fz_context *ctx = js_getcontext(J);
 	fz_page *page = ffi_topage(J, 0);
 	const char *needle = js_tostring(J, 1);
-	fz_quad hits[500];
-	int marks[500];
-	int n = 0;
+	search_state state = { J, 0, 0 };
+
+	js_newarray(J);
 
 	fz_try(ctx)
-		n = fz_search_page(ctx, page, needle, marks, hits, nelem(hits));
+		fz_search_page_cb(ctx, page, needle, hit_callback, &state);
 	fz_catch(ctx)
 		rethrow(J);
 
-	ffi_pushsearch(J, marks, hits, n);
+	if (state.error)
+		js_throw(J);
 }
 
 static void ffi_Page_getLinks(js_State *J)
@@ -5493,16 +5527,17 @@ static void ffi_DisplayList_search(js_State *J)
 	fz_context *ctx = js_getcontext(J);
 	fz_display_list *list = js_touserdata(J, 0, "fz_display_list");
 	const char *needle = js_tostring(J, 1);
-	fz_quad hits[500];
-	int marks[500];
-	int n = 0;
+	search_state state = { J, 0, 0 };
+
+	js_newarray(J);
 
 	fz_try(ctx)
-		n = fz_search_display_list(ctx, list, needle, marks, hits, nelem(hits));
+		fz_search_display_list_cb(ctx, list, needle, hit_callback, &state);
 	fz_catch(ctx)
 		rethrow(J);
 
-	ffi_pushsearch(J, marks, hits, n);
+	if (state.error)
+		js_throw(J);
 }
 
 static void
@@ -5559,7 +5594,7 @@ stext_walk(js_State *J, fz_stext_block *block)
 						ffi_pushfont(J, ch->font);
 						js_pushnumber(J, ch->size);
 						ffi_pushquad(J, ch->quad);
-						js_pushnumber(J, ch->color);
+						js_pushnumber(J, ch->argb);
 						js_call(J, 6);
 						js_pop(J, 1);
 					}
@@ -5619,16 +5654,17 @@ static void ffi_StructuredText_search(js_State *J)
 	fz_context *ctx = js_getcontext(J);
 	fz_stext_page *text = js_touserdata(J, 0, "fz_stext_page");
 	const char *needle = js_tostring(J, 1);
-	fz_quad hits[500];
-	int marks[500];
-	int n = 0;
+	search_state state = { J, 0, 0 };
+
+	js_newarray(J);
 
 	fz_try(ctx)
-		n = fz_search_stext_page(ctx, text, needle, marks, hits, nelem(hits));
+		fz_search_stext_page_cb(ctx, text, needle, hit_callback, &state);
 	fz_catch(ctx)
 		rethrow(J);
 
-	ffi_pushsearch(J, marks, hits, n);
+	if (state.error)
+		js_throw(J);
 }
 
 static void ffi_StructuredText_highlight(js_State *J)

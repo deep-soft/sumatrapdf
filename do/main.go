@@ -14,7 +14,6 @@ import (
 )
 
 var (
-	flgSkipSign       bool
 	r2Access          string
 	r2Secret          string
 	b2Access          string
@@ -171,7 +170,6 @@ func runCppCheck(all bool) {
 }
 
 type BuildOptions struct {
-	sign                      bool
 	upload                    bool
 	verifyTranslationUpToDate bool
 	doCleanCheck              bool
@@ -180,7 +178,6 @@ type BuildOptions struct {
 
 func ensureBuildOptionsPreRequesites(opts *BuildOptions) {
 	logf("upload: %v\n", opts.upload)
-	logf("sign: %v\n", opts.sign)
 	logf("verifyTranslationUpToDate: %v\n", opts.verifyTranslationUpToDate)
 
 	if opts.upload {
@@ -196,10 +193,6 @@ func ensureBuildOptionsPreRequesites(opts *BuildOptions) {
 	if opts.releaseBuild {
 		verifyOnReleaseBranchMust()
 		os.RemoveAll("out")
-	}
-
-	if !opts.sign {
-		flgSkipSign = true
 	}
 }
 
@@ -223,33 +216,33 @@ func main() {
 	)
 
 	var (
-		flgBuildLogview    bool
-		flgBuildNo         int
-		flgBuildPreRelease bool
-		flgBuildRelease    bool
-		flgBuildSmoke      bool
-		flgBuildCodeQL     bool
-		flgCheckAccessKeys bool
-		flgCIBuild         bool
-		flgCIDailyBuild    bool
-		flgClangFormat     bool
-		flgClean           bool
-		flgDiff            bool
-		flgExtractUtils    bool
-		flgFilesList       bool
-		flgFileUpload      string
-		flgGenDocs         bool
-		flgGenSettings     bool
-		flgGenWebsiteDocs  bool
-		flgLogView         bool
-		flgRegenPremake    bool
-		flgRunTests        bool
-		flgTransDownload   bool
-		flgTriggerCodeQL   bool
-		flgUpdateGoDeps    bool
-		flgUpdateVer       string
-		flgUpload          bool
-		flgWc              bool
+		flgBuildLogview         bool
+		flgBuildNo              int
+		flgBuildPreRelease      bool
+		flgBuildRelease         bool
+		flgBuildSmoke           bool
+		flgBuildCodeQL          bool
+		flgCheckAccessKeys      bool
+		flgCIBuild              bool
+		flgCIDailyBuild         bool
+		flgClangFormat          bool
+		flgClean                bool
+		flgDiff                 bool
+		flgFilesList            bool
+		flgFileUpload           string
+		flgGenDocs              bool
+		flgGenSettings          bool
+		flgGenWebsiteDocs       bool
+		flgLogView              bool
+		flgRegenPremake         bool
+		flgRunTests             bool
+		flgTransDownload        bool
+		flgTriggerCodeQL        bool
+		flgUpdateGoDeps         bool
+		flgUpdateVer            string
+		flgUpload               bool
+		flgWc                   bool
+		flgSignUploadPreRelease bool
 	)
 
 	{
@@ -259,6 +252,7 @@ func main() {
 		flag.BoolVar(&flgCIBuild, "ci", false, "run CI steps")
 		flag.BoolVar(&flgCIDailyBuild, "ci-daily", false, "run CI daily steps")
 		flag.BoolVar(&flgBuildSmoke, "build-smoke", false, "run smoke build (installer for 64bit release)")
+		flag.BoolVar(&flgSignUploadPreRelease, "sign-upload-pre-rel", false, "sign and upload pre-release")
 		flag.BoolVar(&flgBuildPreRelease, "build-pre-rel", false, "build pre-release")
 		flag.BoolVar(&flgBuildRelease, "build-release", false, "build release")
 		flag.BoolVar(&flgBuildCodeQL, "build-codeql", false, "build for codeql")
@@ -281,7 +275,6 @@ func main() {
 		flag.StringVar(&flgUpdateVer, "update-auto-update-ver", "", "update version used for auto-update checks")
 		flag.BoolVar(&flgLogView, "logview", false, "run logview")
 		flag.BoolVar(&flgRunTests, "run-tests", false, "run test_util executable")
-		flag.BoolVar(&flgExtractUtils, "extract-utils", false, "extract utils")
 		flag.BoolVar(&flgBuildLogview, "build-logview", false, "build logview-win. Use -upload to also upload it to backblaze")
 		flag.IntVar(&flgBuildNo, "build-no-info", 0, "print build number info for given build number")
 		flag.BoolVar(&flgUpdateGoDeps, "update-go-deps", false, "update go dependencies")
@@ -303,11 +296,6 @@ func main() {
 
 	if flgGenWebsiteDocs {
 		genHTMLDocsForWebsite()
-		return
-	}
-
-	if flgExtractUtils {
-		extractUtils(flgCIBuild)
 		return
 	}
 
@@ -370,17 +358,13 @@ func main() {
 	detectVersions()
 
 	if false {
-		testGenUpdateTxt()
-		return
-	}
-
-	if false {
-		//buildPreRelease()
-		return
-	}
-
-	if false {
-		deleteFilesOneOff()
+		testCompressOneOff()
+		if false {
+			// make them reachable
+			testGenUpdateTxt()
+			buildPreRelease(kPlatformIntel64, true)
+			deleteFilesOneOff()
+		}
 		return
 	}
 
@@ -414,17 +398,14 @@ func main() {
 
 	opts := &BuildOptions{}
 
-	if flgCIBuild {
-		// triggered via -ci from .github workflow file
-		// only sign if this is my repo (not a fork)
-		// master branch (not work branches) and on push (not pull requests etc.)
-		opts.sign = isGithubMyMasterBranch()
-	}
-
 	if flgUpload {
 		// given by me from cmd-line
-		opts.sign = true
 		opts.upload = true
+	}
+
+	if flgSignUploadPreRelease {
+		signAndUploadLatestPreRelease()
+		return
 	}
 
 	if flgBuildRelease {
@@ -463,7 +444,7 @@ func main() {
 	}
 
 	if flgBuildSmoke {
-		buildSmoke()
+		buildSmoke(false) // TODO: flgSign
 		return
 	}
 
@@ -472,7 +453,7 @@ func main() {
 	}
 
 	if flgCIDailyBuild {
-		buildCiDaily()
+		buildCiDaily(flgUpload)
 		return
 	}
 

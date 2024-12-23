@@ -253,7 +253,7 @@ static void fmtquote(struct fmtbuf *out, const char *s, int sq, int eq, int verb
 					for (i = 0; i < n; ++i)
 						fmtputc(out, s[i]);
 				}
-				else
+				else if (c <= 0xffff)
 				{
 					fmtputc(out, '\\');
 					fmtputc(out, 'u');
@@ -261,6 +261,24 @@ static void fmtquote(struct fmtbuf *out, const char *s, int sq, int eq, int verb
 					fmtputc(out, "0123456789ABCDEF"[(c>>8)&15]);
 					fmtputc(out, "0123456789ABCDEF"[(c>>4)&15]);
 					fmtputc(out, "0123456789ABCDEF"[(c)&15]);
+				}
+				else
+				{
+					/* Use a surrogate pair */
+					int hi = 0xd800 + ((c - 0x10000) >> 10);
+					int lo = 0xdc00 + ((c - 0x10000) & 0x3ff);
+					fmtputc(out, '\\');
+					fmtputc(out, 'u');
+					fmtputc(out, "0123456789ABCDEF"[(hi>>12)&15]);
+					fmtputc(out, "0123456789ABCDEF"[(hi>>8)&15]);
+					fmtputc(out, "0123456789ABCDEF"[(hi>>4)&15]);
+					fmtputc(out, "0123456789ABCDEF"[(hi)&15]);
+					fmtputc(out, '\\');
+					fmtputc(out, 'u');
+					fmtputc(out, "0123456789ABCDEF"[(lo>>12)&15]);
+					fmtputc(out, "0123456789ABCDEF"[(lo>>8)&15]);
+					fmtputc(out, "0123456789ABCDEF"[(lo>>4)&15]);
+					fmtputc(out, "0123456789ABCDEF"[(lo)&15]);
 				}
 			} else {
 				if (c == sq || c == eq)
@@ -316,6 +334,68 @@ static void fmtquote_pdf(struct fmtbuf *out, const char *s, int sq, int eq)
 		}
 	}
 	fmtputc(out, eq);
+}
+
+static void fmtquote_xml(struct fmtbuf *out, const char *s)
+{
+	int c, n;
+	fmtputc(out, '"');
+	while (*s != 0) {
+		n = fz_chartorune(&c, s);
+		switch (c) {
+		case '"':
+			fmtputc(out, '&');
+			fmtputc(out, 'q');
+			fmtputc(out, 'u');
+			fmtputc(out, 'o');
+			fmtputc(out, 't');
+			fmtputc(out, ';');
+			break;
+		case '&':
+			fmtputc(out, '&');
+			fmtputc(out, 'a');
+			fmtputc(out, 'm');
+			fmtputc(out, 'p');
+			fmtputc(out, ';');
+			break;
+		case '<':
+			fmtputc(out, '&');
+			fmtputc(out, 'l');
+			fmtputc(out, 't');
+			fmtputc(out, ';');
+			break;
+		case '>':
+			fmtputc(out, '&');
+			fmtputc(out, 'g');
+			fmtputc(out, 't');
+			fmtputc(out, ';');
+			break;
+		default:
+			if (c < 32 || c >= 127) {
+				fmtputc(out, '&');
+				fmtputc(out, '#');
+				fmtputc(out, 'x');
+				if (c > 65535)
+				{
+					fmtputc(out, "0123456789ABCDEF"[(c>>20)&15]);
+					fmtputc(out, "0123456789ABCDEF"[(c>>16)&15]);
+				}
+				if (c > 255)
+				{
+					fmtputc(out, "0123456789ABCDEF"[(c>>12)&15]);
+					fmtputc(out, "0123456789ABCDEF"[(c>>8)&15]);
+				}
+				fmtputc(out, "0123456789ABCDEF"[(c>>4)&15]);
+				fmtputc(out, "0123456789ABCDEF"[(c)&15]);
+				fmtputc(out, ';');
+			}
+			else
+				fmtputc(out, c);
+			break;
+		}
+		s += n;
+	}
+	fmtputc(out, '"');
 }
 
 static void fmtname(struct fmtbuf *out, const char *s)
@@ -573,6 +653,11 @@ fz_format_string(fz_context *ctx, void *user, void (*emit)(fz_context *ctx, void
 				str = va_arg(args, const char*);
 				if (!str) str = "";
 				fmtquote(&out, str, '"', '"', 0);
+				break;
+			case '<': /* quoted string for xml */
+				str = va_arg(args, const char*);
+				if (!str) str = "";
+				fmtquote_xml(&out, str);
 				break;
 			case '(': /* pdf string */
 				str = va_arg(args, const char*);

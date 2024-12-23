@@ -147,7 +147,7 @@ const char *fz_stext_options_usage =
 	"\tpreserve-spans: do not merge spans on the same line\n"
 	"\tdehyphenate: attempt to join up hyphenated words\n"
 	"\tuse-cid-for-unknown-unicode: guess unicode from cid if normal mapping fails\n"
-	"\tmediabox-clip=no: include characters outside mediabox\n"
+	"\tclip: do not include text that is completely clipped\n"
 	"\tstructured=no: don't collect structure data\n"
 	"\taccurate-bboxes=no: calculate char bboxes for from the outlines\n"
 	"\tvectors=no: include vector bboxes in output\n"
@@ -345,7 +345,7 @@ add_char_to_line(fz_context *ctx, fz_stext_page *page, fz_stext_line *line, fz_m
 	}
 
 	ch->c = c;
-	ch->color = color;
+	ch->argb = color;
 	ch->bidi = bidi;
 	ch->origin = *p;
 	ch->size = size;
@@ -676,7 +676,7 @@ fz_add_stext_char_imp(fz_context *ctx, fz_stext_device *dev, fz_font *font, int 
 		{
 			/* Check indent to spot text-indent style paragraphs */
 			if (wmode == 0 && cur_line && dev->new_obj)
-				if (fabsf(p.x - dev->start.x) > 0.5f)
+				if ((p.x - dev->start.x) > 0.5f)
 					new_para = 1;
 			new_line = 1;
 		}
@@ -827,12 +827,16 @@ do_extract(fz_context *ctx, fz_stext_device *dev, fz_text_span *span, fz_matrix 
 		}
 		dev->last.valid = 1;
 
-		if (dev->flags & FZ_STEXT_MEDIABOX_CLIP)
-			if (fz_glyph_entirely_outside_box(ctx, &ctm, span, &span->items[i], &dev->page->mediabox))
+		if (dev->flags & FZ_STEXT_CLIP)
+		{
+			fz_rect r = fz_device_current_scissor(ctx, &dev->super);
+			r = fz_intersect_rect(r, dev->page->mediabox);
+			if (fz_glyph_entirely_outside_box(ctx, &ctm, span, &span->items[i], &r))
 			{
 				dev->last.clipped = 1;
 				continue;
 			}
+		}
 		dev->last.clipped = 0;
 
 		/* Calculate bounding box and new pen position based on font metrics */
@@ -888,7 +892,7 @@ flush_actualtext(fz_context *ctx, fz_stext_device *dev, const char *actualtext, 
 		if (rune == 0)
 			break;
 
-		if (dev->flags & FZ_STEXT_MEDIABOX_CLIP)
+		if (dev->flags & FZ_STEXT_CLIP)
 			if (dev->last.clipped)
 				continue;
 
@@ -987,12 +991,16 @@ do_extract_within_actualtext(fz_context *ctx, fz_stext_device *dev, fz_text_span
 		}
 		dev->last.valid = 1;
 
-		if (dev->flags & FZ_STEXT_MEDIABOX_CLIP)
-			if (fz_glyph_entirely_outside_box(ctx, &ctm, span, &span->items[i], &dev->page->mediabox))
+		if (dev->flags & FZ_STEXT_CLIP)
+		{
+			fz_rect r = fz_device_current_scissor(ctx, &dev->super);
+			r = fz_intersect_rect(r, dev->page->mediabox);
+			if (fz_glyph_entirely_outside_box(ctx, &ctm, span, &span->items[i], &r))
 			{
 				dev->last.clipped = 1;
 				continue;
 			}
+		}
 		dev->last.clipped = 0;
 
 		/* Calculate bounding box and new pen position based on font metrics */
@@ -1052,14 +1060,15 @@ fz_stext_extract(fz_context *ctx, fz_stext_device *dev, fz_text_span *span, fz_m
 		do_extract(ctx, dev, span, ctm, 0, span->len);
 }
 
-static int hexrgb_from_color(fz_context *ctx, fz_colorspace *colorspace, const float *color)
+static int hexrgba_from_color(fz_context *ctx, fz_colorspace *colorspace, const float *color, float alpha)
 {
 	float rgb[3];
 	fz_convert_color(ctx, colorspace, color, fz_device_rgb(ctx), rgb, NULL, fz_default_color_params);
 	return
-		(fz_clampi(rgb[0] * 255, 0, 255) << 16) |
-		(fz_clampi(rgb[1] * 255, 0, 255) << 8) |
-		(fz_clampi(rgb[2] * 255, 0, 255));
+		(fz_clampi(alpha * 255 + 0.5f, 0, 255) << 24) |
+		(fz_clampi(rgb[0] * 255 + 0.5f, 0, 255) << 16) |
+		(fz_clampi(rgb[1] * 255 + 0.5f, 0, 255) << 8) |
+		(fz_clampi(rgb[2] * 255 + 0.5f, 0, 255));
 }
 
 static void
@@ -1070,7 +1079,7 @@ fz_stext_fill_text(fz_context *ctx, fz_device *dev, const fz_text *text, fz_matr
 	fz_text_span *span;
 	if (text == tdev->lasttext)
 		return;
-	tdev->color = hexrgb_from_color(ctx, colorspace, color);
+	tdev->color = hexrgba_from_color(ctx, colorspace, color, alpha);
 	tdev->new_obj = 1;
 	for (span = text->head; span; span = span->next)
 		fz_stext_extract(ctx, tdev, span, ctm);
@@ -1086,7 +1095,7 @@ fz_stext_stroke_text(fz_context *ctx, fz_device *dev, const fz_text *text, const
 	fz_text_span *span;
 	if (text == tdev->lasttext)
 		return;
-	tdev->color = hexrgb_from_color(ctx, colorspace, color);
+	tdev->color = hexrgba_from_color(ctx, colorspace, color, alpha);
 	tdev->new_obj = 1;
 	for (span = text->head; span; span = span->next)
 		fz_stext_extract(ctx, tdev, span, ctm);
@@ -1326,6 +1335,7 @@ fz_stext_fill_shade(fz_context *ctx, fz_device *dev, fz_shade *shade, fz_matrix 
 
 	local_ctm = ctm;
 	scissor = fz_device_current_scissor(ctx, dev);
+	scissor = fz_intersect_rect(scissor, tdev->page->mediabox);
 	image = fz_new_image_from_shade(ctx, shade, &local_ctm, color_params, scissor);
 	fz_try(ctx)
 		fz_stext_fill_image(ctx, dev, image, local_ctm, alpha, color_params);
@@ -1416,9 +1426,15 @@ fz_parse_stext_options(fz_context *ctx, fz_stext_options *opts, const char *stri
 	if (fz_has_option(ctx, string, "segment", &val) && fz_option_eq(val, "yes"))
 		opts->flags |= FZ_STEXT_SEGMENT;
 
-	opts->flags |= FZ_STEXT_MEDIABOX_CLIP;
-	if (fz_has_option(ctx, string, "mediabox-clip", &val) && fz_option_eq(val, "no"))
-		opts->flags ^= FZ_STEXT_MEDIABOX_CLIP;
+	opts->flags |= FZ_STEXT_CLIP;
+	if (fz_has_option(ctx, string, "mediabox-clip", &val))
+	{
+		fz_warn(ctx, "The 'mediabox-clip' option has been deprecated. Use 'clip' instead.");
+		if (fz_option_eq(val, "no"))
+			opts->flags ^= FZ_STEXT_CLIP;
+	}
+	if (fz_has_option(ctx, string, "clip", &val) && fz_option_eq(val, "no"))
+		opts->flags ^= FZ_STEXT_CLIP;
 
 	opts->scale = 1;
 	if (fz_has_option(ctx, string, "resolution", &val))
@@ -1561,15 +1577,15 @@ is_path_rect(fz_context *ctx, fz_path *path, fz_point *from, fz_point *to, float
 		else
 			break;
 	}
-	d32x = rd.corners[3].x - rd.corners[2].x;
-	d32y = rd.corners[3].y - rd.corners[2].y;
+	d32x = rd.corners[2].x - rd.corners[3].x;
+	d32y = rd.corners[2].y - rd.corners[3].y;
 
 	/* So d32x and d01x need to be the same for this to be a strikeout. */
 	if (!feq(d32x, d01x) || !feq(d32y, d01y))
 		return 0;
 
 	/* We are plausibly a rectangle. */
-	*thickness = sqrtf(d32x * d32x + d32y * d32y);
+	*thickness = sqrtf(d03x * d03x + d03y * d03y);
 
 	from->x = (rd.corners[0].x + rd.corners[3].x)/2;
 	from->y = (rd.corners[0].y + rd.corners[3].y)/2;
@@ -1618,6 +1634,90 @@ line_crosses_rect(fz_point a, fz_point b, fz_rect r)
 	return fz_is_point_inside_rect(a, r);
 }
 
+static float
+calculate_ascent(fz_point p, fz_point origin, fz_point dir)
+{
+	return fabsf((origin.x-p.x)*dir.y - (origin.y-p.y)*dir.x);
+}
+
+/* Create us a rect from the given quad, but extend it downwards
+ * to allow for underlines that pass under the glyphs. */
+static fz_rect expanded_rect_from_quad(fz_quad quad, fz_point dir, fz_point origin, float size)
+{
+	/* Consider the two rects from A and g respectively.
+	 *
+	 * ul +------+ ur   or
+	 *    |  /\  |         ul +------+ ur
+	 *    | /__\ |            | /''\ |
+	 *    |/    \|            |(    ||
+	 * ll +------+ lr         | ''''||
+	 *                        |  ''' | <-expected underline level
+	 *                     ll +------+ lr
+	 *
+	 * So an underline won't cross A's rect, but will cross g's.
+	 * We want to make a rect that includes a suitable amount of
+	 * space underneath. The information we have available to us
+	 * is summed up here:
+	 *
+	 *  ul +---------+ ur
+	 *     |         |
+	 *     | origin  |
+	 *     |+----------> dir
+	 *     |         |
+	 *  ll +---------+ lr
+	 *
+	 * Consider the distance from ul to the line that passes through
+	 * the origin with direction dir. Similarly, consider the distance
+	 * from ur to the same line. This can be thought of as the 'ascent'
+	 * of this character.
+	 *
+	 * We'd like the distance from ul to ll to be greater than this, so
+	 * as to ensure we cover the possible location where an underline
+	 * might reasonably go.
+	 *
+	 * If we have a line (l) through point A with direction vector u,
+	 * the distance between point P and line(l) is:
+	 *
+	 * d(P,l) = || AP x u || / || u ||
+	 *
+	 * where x is the cross product.
+	 *
+	 * For us, because || dir || = 1:
+	 *
+	 * d(ul, origin) = || (origin-ul) x dir ||
+	 *
+	 * The cross product is only defined in 3 (or 7!) dimensions, so
+	 * extend both vectors into 3d by defining a 0 z component.
+	 *
+	 * (origin-ul) x dir = [ (origin.y - ul.y) . 0     - 0                 . dir.y ]
+	 *                     [ 0                 . dir.x - (origin.x - ul.y) . 0     ]
+	 *                     [ (origin.x - ul.x) . dir.y - (origin.y - ul.y) . dir.x ]
+	 *
+	 * So d(ul, origin) = abs(D) where D = (origin.x-ul.x).dir.y - (origin.y-ul.y).dir.x
+	 */
+	float ascent = (calculate_ascent(quad.ul, origin, dir) + calculate_ascent(quad.ur, origin, dir)) / 2;
+	fz_point left = { quad.ll.x - quad.ul.x, quad.ll.y - quad.ul.y };
+	fz_point right = { quad.lr.x - quad.ur.x, quad.lr.y - quad.ur.y };
+	float height = (hypotf(left.x, left.y) + hypotf(right.x, right.y))/2;
+	int neg = 0;
+
+	/* We'd like height to be at least ascent + 1/4 size */
+	if (height < 0)
+		neg = 1, height = -height;
+	if (height < ascent + size * 0.25f)
+		height = ascent + size * 0.25f;
+
+	height -= ascent;
+	if (neg)
+		height = -height;
+	quad.ll.x += - height * dir.y;
+	quad.ll.y +=   height * dir.x;
+	quad.lr.x += - height * dir.y;
+	quad.lr.y +=   height * dir.x;
+
+	return fz_rect_from_quad(quad);
+}
+
 static void
 check_for_strikeout(fz_context *ctx, fz_stext_device *tdev, fz_stext_page *page, const fz_path *path, fz_matrix ctm)
 {
@@ -1664,7 +1764,7 @@ check_for_strikeout(fz_context *ctx, fz_stext_device *tdev, fz_stext_page *page,
 				fz_stext_char *ch;
 				for (ch = line->first_char; ch; ch = ch->next)
 				{
-					fz_rect ch_box = fz_rect_from_quad(ch->quad);
+					fz_rect ch_box = expanded_rect_from_quad(ch->quad, line->dir, ch->origin, ch->size);
 
 					if (line_crosses_rect(from, to, ch_box))
 					{
@@ -1697,12 +1797,14 @@ check_for_strikeout(fz_context *ctx, fz_stext_device *tdev, fz_stext_page *page,
 }
 
 static void
-add_vector(fz_context *ctx, fz_stext_page *page, fz_rect bbox)
+add_vector(fz_context *ctx, fz_stext_page *page, fz_rect bbox, int stroked, fz_colorspace *cs, const float *color, float alpha, fz_color_params cp)
 {
 	fz_stext_block *b = add_block_to_page(ctx, page);
 
 	b->type = FZ_STEXT_BLOCK_VECTOR;
 	b->bbox = bbox;
+	b->u.v.stroked = stroked;
+	b->u.v.argb = hexrgba_from_color(ctx, cs, color, alpha);
 }
 
 static void
@@ -1720,7 +1822,7 @@ fz_stext_fill_path(fz_context *ctx, fz_device *dev, const fz_path *path, int eve
 	check_for_strikeout(ctx, tdev, page, path, ctm);
 
 	if (tdev->flags & FZ_STEXT_COLLECT_VECTORS)
-		add_vector(ctx, page, path_bounds);
+		add_vector(ctx, page, path_bounds, 0, cs, color, alpha, cp);
 }
 
 static void
@@ -1738,7 +1840,7 @@ fz_stext_stroke_path(fz_context *ctx, fz_device *dev, const fz_path *path, const
 	check_for_strikeout(ctx, tdev, page, path, ctm);
 
 	if (tdev->flags & FZ_STEXT_COLLECT_VECTORS)
-		add_vector(ctx, page, path_bounds);
+		add_vector(ctx, page, path_bounds, 1, cs, color, alpha, cp);
 }
 
 static void
