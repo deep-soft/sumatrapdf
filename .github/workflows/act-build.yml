@@ -1,4 +1,4 @@
-#2025-06-22 08:17 (prev: #2024-01-31 19:40)
+#2025-06-22 18:15 (prev: #2024-01-31 19:40)
 #act-build.yml
 name: act - Release - build
 
@@ -24,9 +24,7 @@ on:
         type: choice
         options:
           - Release
-          - drmem
           - prerel
-          - smoke
           - ci-daily
 #      GO_VER:
 #        description: 'go version'
@@ -44,7 +42,6 @@ env:
   TAG_DATE:    "20230617T215000"
   TAG_FILE:    "_tag_name_.txt"
 #  GO_VER:      1.21
-  #build_target: 'x64'
 
 jobs:
   build:
@@ -100,26 +97,10 @@ jobs:
 
 # - get ref set build end
 
-      - name: Try fix build
-        #shell: cmd
-        shell: bash
-        run: |
-          echo "Dir0:"
-          ls -l ${{ env.WORK_DIR }}
-          echo "Dir1:"
-          ls -l ${{ env.WORK_DIR }}/vs2022
-          #dir "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.36.32532\"
-          #:: del "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.36.32532\modules\modules.json"
-          #:: rmdir /S/Q "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.36.32532\modules"
-          #:: move "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.36.32532\modules\modules.json" "modules.js!n"
-          #:: sed -ibak 's!<LanguageStandard>stdcpplatest</LanguageStandard>!<LanguageStandard>stdcpp20</LanguageStandard>!' ${{ env.WORK_DIR }}/vs2022/*.vcxproj
-          echo "Dir2:"
-          ls -l ${{ env.WORK_DIR }}/vs2022
-          #dir "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.36.32532\"
-
       - name: Switch CI to x64 version build
         #if env.TARGET='x64'
-        if: ${{ github.event.inputs.build_target == 'x64' }}
+        # if: ${{ github.event.inputs.build_target == 'x64' }} && ${{ github.event.inputs.build_type == 'prerel' }}
+        if: always() && github.event.inputs.build_target == 'x64' && github.event.inputs.build_type == 'prerel'
         shell: bash
         run: |
           echo "cat1:"
@@ -145,32 +126,6 @@ jobs:
         run: |
           msbuild -m /property:Configuration=${{ github.event.inputs.build_type }} /property:Platform=${{ github.event.inputs.build_target }} SumatraPDF.sln
 
-      - name: install drmem
-        if: ${{ github.event.inputs.build_type == 'drmem' }}
-        continue-on-error: true
-        timeout-minutes: 2
-        shell: bash
-        run: |
-          if [[ -f bins/bin-install-drmem.sh ]]; then
-            echo "bash bins//bin-install-drmem.sh"
-            bash bins/bin-install-drmem.sh
-          fi
-
-# no need, is already installed, and not used version installed bellow
-#      - name: Set up Go
-#        uses: deep-soft/setup-go@v5
-#        with:
-#          go-version: ${{ env.GO_VER }}
-
-      - name: Build drmem
-        if: ${{ github.event.inputs.build_type == 'drmem' }}
-        continue-on-error: true
-        env:
-          CERT_PWD: ${{ secrets.CERT_PWD }}
-        run: |
-          .\doit.bat -drmem
-          "OUT_DIR=./out/rel64" | Out-File -FilePath $env:GITHUB_ENV -Append          
-
       - name: Build prerel
         #"OUT_DIR=./out/final-prerel" | Out-File -FilePath $env:GITHUB_ENV -Append
         continue-on-error: true
@@ -180,24 +135,6 @@ jobs:
         run: |
           .\doit.bat -ci
           "OUT_DIR=./out/rel64" | Out-File -FilePath $env:GITHUB_ENV -Append          
-
-      - name: Build ci daily
-        continue-on-error: true
-        if: ${{ github.event.inputs.build_type == 'ci-daily' }}
-        env:
-          CERT_PWD: ${{ secrets.CERT_PWD }}
-        run: |
-          .\doit.bat -ci-daily
-          "OUT_DIR=./out" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-      - name: Build smoke
-        if: ${{ github.event.inputs.build_type == 'smoke' }}
-        continue-on-error: true
-        env:
-          CERT_PWD: ${{ secrets.CERT_PWD }}
-        run: |
-          .\doit.bat -smoke
-          "OUT_DIR=./out/rel64" | Out-File -FilePath $env:GITHUB_ENV -Append
 
 # Sign Windows executables begin
       - name: Sign Windows executables files
@@ -217,102 +154,128 @@ jobs:
       - name: Prepare to Publish
         shell: bash
         run: |
-          pwd
+          pwd;
           ls -la || true;
-          pushd ${{ env.OUT_DIR }}/
-          pwd
+          pushd ${{ env.OUT_DIR }}/;
+          pwd;
           ls -la || true;
-          mv SumatraPDF-*${{ inputs.build_target}}.exe SumatraPDF-${{ env.VERSION }}.exe || true;
-          mv SumatraPDF-*${{ inputs.build_target}}-install.exe SumatraPDF-${{ env.VERSION }}-install.exe || true;
           cp ${{ env.TAG_FILE }} ${{ env.PRG_NAME }}-${{ env.VERSION }}.txt || true;
-          rm SumatraPDF-prerel*.* || true;
-          ls -la || true;
-          popd
-          cat "${{ env.TAG_FILE }}"
+          cat ${{ env.PRG_NAME }}-${{ env.VERSION }}.txt;
+          mkdir PUB_EXE;
+          mv SumatraPDF.exe PUB_EXE/;
+          mkdir PUB_DLL;
+          mv SumatraPDF-dll.exe PUB_DLL/;
+          mv *.dll PUB_DLL/;
+          cp *.exe PUB_EXE/;
+          cp *.exe PUB_DLL/;
+          cp ${{ env.PRG_NAME }}-${{ env.VERSION }}.txt PUB_EXE/ || true;
+          cp ${{ env.PRG_NAME }}-${{ env.VERSION }}.txt PUB_DLL/ || true;
+          echo "ls PUB_EXE/";
+          ls -la PUB_EXE/ || true;
+          echo "ls PUB_DLL/";
+          ls -la PUB_DLL/ || true;
+          echo "PUB_DIR_EXE=$(pwd)/PUB_EXE" >> $GITHUB_ENV;
+          echo "PUB_DIR_DLL=$(pwd)/PUB_DLL" >> $GITHUB_ENV;
+          mkdir PUB_LTT;
+          echo "PUB_DIR_LTT=$(pwd)/PUB_LTT" >> $GITHUB_ENV;
+          popd;
+          cat "${{ env.TAG_FILE }}";
 
-      - name: Copy files to publish folder
-        continue-on-error: true
-        shell: bash
-        run: |
-          pushd ${{ env.OUT_DIR }}/
-          mkdir PUB_DIR
-          pushd PUB_DIR
-          cp ../SumatraPDF-${{ env.VERSION }}.exe ./SumatraPDF-${{ env.VERSION }}.exe || true;
-          cp ../SumatraPDF-${{ env.VERSION }}-install.exe ./SumatraPDF-${{ env.VERSION }}-install.exe || true;
-          cp ../${{ env.PRG_NAME }}-${{ env.VERSION }}.txt ./${{ env.PRG_NAME }}-${{ env.VERSION }}.txt || true;
-          echo "PUB_DIR=$(pwd)" >> $GITHUB_ENV
-          popd
-          popd
-
-      - name: SHA256 checksums
+      - name: SHA256 checksums PUB_EXE
         uses: deep-soft/sha-checksums@v1
         with:
           type: 'SHA256'
           filename: 'SHA256SUMS'
-          directory: '${{ env.PUB_DIR }}'
+          directory: '${{ env.PUB_DIR_EXE }}'
           path: '.'
-          env_variable: 'SHA_SUMS'
+          env_variable: 'SHA_SUMS_EXE'
+          ignore_git: false
+
+      - name: SHA256 checksums PUB_DLL
+        uses: deep-soft/sha-checksums@v1
+        with:
+          type: 'SHA256'
+          filename: 'SHA256SUMS'
+          directory: '${{ env.PUB_DIR_DLL }}'
+          path: '.'
+          env_variable: 'SHA_SUMS_DLL'
           ignore_git: false
 
       - name: print SHA256 checksums
         continue-on-error: true
         shell: bash
         run: |
-          echo "PUB_DIR: ${{ env.PUB_DIR }}";
-          cat "${{ env.SHA_SUMS }}";
           cat "${{ env.TAG_FILE }}";
+          echo "PUB_DIR_EXE: ${{ env.PUB_DIR_EXE }}";
+          cat "${{ env.SHA_SUMS_EXE }}";
+          echo "PUB_DIR_DLL: ${{ env.PUB_DIR_DLL }}";
+          cat "${{ env.SHA_SUMS_DLL }}";
 # Prepare to Publish - end
 
 # zip release begin
-      - name: Set Zip name
+      - name: Set Zip names
         shell: bash
         run: |
-          #echo "ZIP_NAME=${{ env.PRG_NAME }}-${{ env.VERSION }}-x${{ env.TARGET }}.zip" >>$GITHUB_ENV
-          echo "ZIP_NAME=${{ env.PRG_NAME }}-${{ env.VERSION }}-x${{ inputs.build_target }}.zip" >>$GITHUB_ENV
+          echo "ZIP_NAME_EXE=${{ env.PRG_NAME }}-${{ env.VERSION }}-${{ inputs.build_target }}.zip" >>$GITHUB_ENV
+          echo "ZIP_NAME_DLL=${{ env.PRG_NAME }}-${{ env.VERSION }}-${{ inputs.build_target }}-dll.zip" >>$GITHUB_ENV
 
-      - name: Create Zip Archive Release
+      - name: Create Zip Archive Release EXE
         uses: deep-soft/zip-release@v2
         with:
           type: 'zip'
-          filename: '${{ env.ZIP_NAME }}'
+          filename: '${{ env.ZIP_NAME_EXE }}'
           # directory: '.'
-          directory: '${{ env.PUB_DIR }}'
-          path: '*.exe *.dll'
+          directory: '${{ env.PUB_DIR_EXE }}'
+          path: '*.exe *.dll SHA256SUMS _tag_name_.txt'
           exclusions: '*.git* /*node_modules/* .editorconfig'
           recursive_exclusions: '*.map *.pdb'
-        # archive name is ${{ env.ZIP_RELEASE_ARCHIVE }}
+          env_variable: 'ZIP_NAME_EXE'
+
+      - name: Create Zip Archive Release DLL
+        uses: deep-soft/zip-release@v2
+        with:
+          type: 'zip'
+          filename: '${{ env.ZIP_NAME_DLL }}'
+          # directory: '.'
+          directory: '${{ env.PUB_DIR_DLL }}'
+          path: '*.exe *.dll SHA256SUMS _tag_name_.txt'
+          exclusions: '*.git* /*node_modules/* .editorconfig'
+          recursive_exclusions: '*.map *.pdb'
+          env_variable: 'ZIP_NAME_DLL'
 
       - name: print env value
         continue-on-error: true
         shell: bash
         run: |
-          echo "env.ZIP_RELEASE_ARCHIVE=${{ env.ZIP_RELEASE_ARCHIVE }}";
-          ls -la "${{ env.ZIP_RELEASE_ARCHIVE }}";
+          echo "env.ZIP_NAME_EXE=${{ env.ZIP_NAME_EXE }}";
+          ls -la "${{ env.ZIP_NAME_EXE }}";
+          echo "env.ZIP_NAME_DLL=${{ env.ZIP_NAME_DLL }}";
+          ls -la "${{ env.ZIP_NAME_DLL }}";
+
+      - name: Prepare zip files for release latest
+        continue-on-error: true
+        shell: bash
+        run: |
+          echo "env.PUB_DIR_LTT=${{ env.PUB_DIR_LTT }}";
+          cp "${{ env.ZIP_NAME_EXE }}" "${{ env.PUB_DIR_LTT }}/Sumatra.zip";
+          cp "${{ env.ZIP_NAME_DLL }}" "${{ env.PUB_DIR_LTT }}/Sumatra-dll.zip";
 # zip release end
 
 # upload artifacts begin
-      - name: Upload zip
+      - name: Upload zip EXE
         continue-on-error: true
         uses: deep-soft/upload-artifact@v4
         with:
-          name: '${{ env.ZIP_NAME }}'
-          path: '${{ env.ZIP_RELEASE_ARCHIVE }}'
-          # name: '${{ env.PRG_NAME }}-${{ env.VERSION }}.zip'
-          # path: '${{ env.PRG_NAME }}-${{ env.VERSION }}.zip'
-# upload artifacts end
+          name: '${{ env.ZIP_NAME_EXE }}'
+          path: '${{ env.ZIP_NAME_EXE }}'
 
-## upload release begin
-#      - name: Publish
-#        continue-on-error: true
-#        uses: deep-soft/action-gh-release@v2.1
-#        with:
-#          #tag_name: ${{ env.TAG_NAME }}-${{ env.VERSION }}
-#          tag_name: ${{ env.TAG_NAME }}-${{ env.TAG_BUILD }}
-#          draft: true
-#          files: |
-#            ${{ env.TAG_FILE }}
-#            ${{ env.ZIP_RELEASE_ARCHIVE }}
-## upload release end
+      - name: Upload zip DLL
+        continue-on-error: true
+        uses: deep-soft/upload-artifact@v4
+        with:
+          name: '${{ env.ZIP_NAME_DLL }}'
+          path: '${{ env.ZIP_NAME_DLL }}'
+# upload artifacts end
 
 # upload release begin
       - name: Publish
@@ -323,7 +286,8 @@ jobs:
           tag_name: ${{ env.TAG_NAME }}-${{ env.TAG_BUILD }}
           draft: true
           files: |
-            ${{ env.PUB_DIR }}/*
+            ${{ env.PUB_DIR_EXE }}/*.zip
+            ${{ env.PUB_DIR_DLL }}/*.zip
 # upload release end
 
 # upload release latest begin
@@ -333,8 +297,7 @@ jobs:
         with:
           tag_name: ${{ env.TAG_NAME }}-latest
           files: |
-            ${{ env.SHA_SUMS }}
-            ${{ env.ZIP_RELEASE_ARCHIVE }}
             ${{ env.TAG_FILE }}
-            ${{ env.PUB_DIR }}/*
+            "${{ env.PUB_DIR_LTT }}/Sumatra.zip";
+            "${{ env.PUB_DIR_LTT }}/Sumatra-dll.zip";
 # upload release latest end
