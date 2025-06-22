@@ -240,7 +240,7 @@ jobs:
           filename: '${{ env.ZIP_NAME_DLL }}'
           # directory: '.'
           directory: '${{ env.PUB_DIR_DLL }}'
-          path: '*.exe *.dll *.txt  SHA256SUMS'
+          path: '*.exe *.dll *.txt SHA256SUMS'
           exclusions: '*.git* /*node_modules/* .editorconfig'
           recursive_exclusions: '*.map *.pdb'
           env_variable: 'ZIP_NAME_DLL_FILE'
@@ -294,7 +294,7 @@ jobs:
             ${{ env.PUB_DIR_EXE }}/*.zip
             ${{ env.PUB_DIR_DLL }}/*.zip
             ${{ env.TAG_FILE }}
-            "_tag_name_.txt"
+            _tag_name_.txt
 # upload release end
 
 # upload release latest begin
@@ -307,5 +307,5 @@ jobs:
             ${{ env.PUB_DIR_LTT }}/Sumatra.zip
             ${{ env.PUB_DIR_LTT }}/Sumatra-dll.zip
             ${{ env.TAG_FILE }}
-            "_tag_name_.txt"
+            _tag_name_.txt
 # upload release latest end
