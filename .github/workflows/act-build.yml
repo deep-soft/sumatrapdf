@@ -195,7 +195,8 @@ jobs:
           certificatesha1: '${{ secrets.WINDOWS_PFX_SHA1_THUMBPRINT }}'
           # certificatename: '${{ secrets.CERTNAME }}'
           # folder: './out/final-prerel'
-          folder: './out'
+          # folder: './out'
+          folder: '${{ env.OUT_DIR }}/'
           recursive: true
 # Sign Windows executables end
 
@@ -216,12 +217,26 @@ jobs:
           popd
           cat "${{ env.TAG_FILE }}"
 
+      - name: Copy files to publish folder
+        continue-on-error: true
+        shell: bash
+        run: |
+          pushd ${{ env.OUT_DIR }}/
+          mkdir PUB_DIR
+          pushd PUB_DIR
+          cp ../SumatraPDF-${{ env.VERSION }}.exe || true;
+          cp ../SumatraPDF-${{ env.VERSION }}-install.exe || true;
+          cp ../${{ env.PRG_NAME }}-${{ env.VERSION }}.txt || true;
+          echo "PUB_DIR=$(pwd)" >> $GITHUB_ENV
+          popd
+          popd
+
       - name: SHA256 checksums
         uses: deep-soft/sha-checksums@v1
         with:
           type: 'SHA256'
           filename: 'SHA256SUMS'
-          directory: '${{ env.OUT_DIR }}'
+          directory: '${{ env.PUB_DIR }}'
           path: '.'
           env_variable: 'SHA_SUMS'
           ignore_git: false
@@ -230,8 +245,9 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          cat "${{ env.SHA_SUMS }}"
-          cat "${{ env.TAG_FILE }}"
+          echo "PUB_DIR: ${{ env.PUB_DIR }}";
+          cat "${{ env.SHA_SUMS }}";
+          cat "${{ env.TAG_FILE }}";
 # Prepare to Publish - end
 
 # zip release begin
@@ -247,7 +263,7 @@ jobs:
           type: 'zip'
           filename: '${{ env.ZIP_NAME }}'
           # directory: '.'
-          directory: '${{ env.OUT_DIR }}'
+          directory: '${{ env.PUB_DIR }}'
           path: '*.exe *.dll'
           exclusions: '*.git* /*node_modules/* .editorconfig'
           recursive_exclusions: '*.map *.pdb'
@@ -294,7 +310,7 @@ jobs:
           tag_name: ${{ env.TAG_NAME }}-${{ env.TAG_BUILD }}
           draft: true
           files: |
-            ${{ env.OUT_DIR }}/*
+            ${{ env.PUB_DIR }}/*
 # upload release end
 
 # upload release latest begin
@@ -307,5 +323,5 @@ jobs:
             ${{ env.SHA_SUMS }}
             ${{ env.ZIP_RELEASE_ARCHIVE }}
             ${{ env.TAG_FILE }}
-            ${{ env.OUT_DIR }}/*
+            ${{ env.PUB_DIR }}/*
 # upload release latest end
