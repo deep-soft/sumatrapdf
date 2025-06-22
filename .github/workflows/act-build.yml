@@ -12,11 +12,11 @@ on:
       build_target:
         description: '64bit / 32bit'
         required: true
-        default: '64'
+        default: 'x64'
         type: choice
         options:
-          - 64
-          - 32
+          - x64
+          - Win32
       build_type:
         description: 'build type'
         required: true
@@ -44,7 +44,7 @@ env:
   TAG_DATE:    "20230617T215000"
   TAG_FILE:    "_tag_name_.txt"
 #  GO_VER:      1.21
-  #build_target: '64'
+  #build_target: 'x64'
 
 jobs:
   build:
@@ -118,8 +118,8 @@ jobs:
           #dir "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.36.32532\"
 
       - name: Switch CI to x64 version build
-        #if env.TARGET='64'
-        if: ${{ github.event.inputs.build_target == '64' }}
+        #if env.TARGET='x64'
+        if: ${{ github.event.inputs.build_target == 'x64' }}
         shell: bash
         run: |
           echo "cat1:"
