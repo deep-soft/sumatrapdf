@@ -28,6 +28,7 @@
 #include "ExternalViewers.h"
 #include "Annotation.h"
 #include "FileHistory.h"
+#include "DarkModeSubclass.h"
 
 #include "utils/Log.h"
 
@@ -574,7 +575,7 @@ LRESULT CommandPaletteWnd::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
 
 static void SelectionChange(CommandPaletteWnd* wnd) {
     int idx = wnd->listBox->GetCurrentSelection();
-    logf("Selection changed: %d\n", idx);
+    // logf("Selection changed: %d\n", idx);
     if (!wnd->smartTabMode) {
         return;
     }
@@ -910,6 +911,9 @@ bool CommandPaletteWnd::Create(MainWindow* win, const char* prefix, int smartTab
         FilterStringsForQuery(prefix, m->strings);
         c->SetModel(m);
         listBox = c;
+        if (gUseDarkModeLib) {
+            DarkMode::setDarkScrollBar(listBox->hwnd);
+        }
         vbox->AddChild(c, 1);
     }
     {

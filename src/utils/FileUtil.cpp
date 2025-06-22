@@ -239,16 +239,18 @@ static TempWStr NormalizeTemp(const WCHAR* path) {
 
     TempWStr fullPath = AllocArrayTemp<WCHAR>(cch);
     GetFullPathNameW(path, cch, fullPath, nullptr);
+
+    TempWStr normPath = fullPath;
     // convert to long form
     cch = GetLongPathNameW(fullPath, nullptr, 0);
-    if (!cch) {
-        return fullPath;
-    }
-
-    TempWStr normPath = AllocArrayTemp<WCHAR>(cch);
-    GetLongPathNameW(fullPath, normPath, cch);
-    if (cch <= MAX_PATH) {
-        return normPath;
+    if (cch > 0) {
+        // this sometimes fails for valid long paths
+        // https://github.com/sumatrapdfreader/sumatrapdf/issues/4940
+        normPath = AllocArrayTemp<WCHAR>(cch);
+        GetLongPathNameW(fullPath, normPath, cch);
+        if (cch <= MAX_PATH) {
+            return normPath;
+        }
     }
 
     // handle overlong paths: first, try to shorten the path
@@ -607,18 +609,10 @@ bool Exists(const char* path) {
     return true;
 }
 
-// returns -1 on error (can't use INVALID_FILE_SIZE because it won't cast right)
-i64 GetSize(const char* path) {
-    ReportIf(!path);
-    if (!path) {
+i64 GetSize(HANDLE h) {
+    if (h == nullptr || h == INVALID_HANDLE_VALUE) {
         return -1;
     }
-
-    AutoCloseHandle h = OpenReadOnly(path);
-    if (!h.IsValid()) {
-        return -1;
-    }
-
     // Don't use GetFileAttributesEx to retrieve the file size, as
     // that function doesn't interact well with symlinks, etc.
     LARGE_INTEGER size{};
@@ -627,6 +621,17 @@ i64 GetSize(const char* path) {
         return -1;
     }
     return size.QuadPart;
+}
+
+// returns -1 on error (can't use INVALID_FILE_SIZE because it won't cast right)
+i64 GetSize(const char* path) {
+    ReportIf(!path);
+    if (!path) {
+        return -1;
+    }
+
+    AutoCloseHandle h = OpenReadOnly(path);
+    return GetSize(h);
 }
 
 // buf must be at least toRead in size (note: it won't be zero-terminated)
