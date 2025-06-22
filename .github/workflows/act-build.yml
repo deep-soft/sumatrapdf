@@ -159,13 +159,14 @@ jobs:
           "OUT_DIR=./out/rel64" | Out-File -FilePath $env:GITHUB_ENV -Append          
 
       - name: Build prerel
+        #"OUT_DIR=./out/final-prerel" | Out-File -FilePath $env:GITHUB_ENV -Append
         continue-on-error: true
         if: ${{ github.event.inputs.build_type == 'prerel' }}
         env:
           CERT_PWD: ${{ secrets.CERT_PWD }}
         run: |
           .\doit.bat -ci
-          "OUT_DIR=./out/final-prerel" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "OUT_DIR=./out/rel64" | Out-File -FilePath $env:GITHUB_ENV -Append          
 
       - name: Build ci daily
         continue-on-error: true
@@ -246,7 +247,6 @@ jobs:
           type: 'zip'
           filename: '${{ env.ZIP_NAME }}'
           # directory: '.'
-          # directory: ./out/final-prerel
           directory: '${{ env.OUT_DIR }}'
           path: '*.exe *.dll'
           exclusions: '*.git* /*node_modules/* .editorconfig'
