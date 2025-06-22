@@ -20,9 +20,10 @@ on:
       build_type:
         description: 'build type'
         required: true
-        default: 'prerel'
+        default: 'Release'
         type: choice
         options:
+          - Release
           - drmem
           - prerel
           - smoke
@@ -132,6 +133,18 @@ jobs:
           echo "cat2:"
           cat ./do/build.go | grep buildPreRelease
 
+      - name: Set MSVC environment
+        uses: deep-soft/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+
+      - name: Build Release x64
+        if: ${{ github.event.inputs.build_type == 'Release' }}
+        continue-on-error: true
+        working-directory: vs2022
+        run: |
+          msbuild -m /property:Configuration=${{ github.event.inputs.build_type }} /property:Platform=${{ github.event.inputs.build_target }} SumatraPDF.sln
+
       - name: install drmem
         if: ${{ github.event.inputs.build_type == 'drmem' }}
         continue-on-error: true
@@ -209,8 +222,8 @@ jobs:
           pushd ${{ env.OUT_DIR }}/
           pwd
           ls -la || true;
-          mv SumatraPDF-prerel-${{ inputs.build_target}}.exe SumatraPDF-${{ env.VERSION }}.exe || true;
-          mv SumatraPDF-prerel-${{ inputs.build_target}}-install.exe SumatraPDF-${{ env.VERSION }}-install.exe || true;
+          mv SumatraPDF-*${{ inputs.build_target}}.exe SumatraPDF-${{ env.VERSION }}.exe || true;
+          mv SumatraPDF-*${{ inputs.build_target}}-install.exe SumatraPDF-${{ env.VERSION }}-install.exe || true;
           cp ${{ env.TAG_FILE }} ${{ env.PRG_NAME }}-${{ env.VERSION }}.txt || true;
           rm SumatraPDF-prerel*.* || true;
           ls -la || true;
