@@ -224,9 +224,9 @@ jobs:
           pushd ${{ env.OUT_DIR }}/
           mkdir PUB_DIR
           pushd PUB_DIR
-          cp ../SumatraPDF-${{ env.VERSION }}.exe || true;
-          cp ../SumatraPDF-${{ env.VERSION }}-install.exe || true;
-          cp ../${{ env.PRG_NAME }}-${{ env.VERSION }}.txt || true;
+          cp ../SumatraPDF-${{ env.VERSION }}.exe ./SumatraPDF-${{ env.VERSION }}.exe || true;
+          cp ../SumatraPDF-${{ env.VERSION }}-install.exe ./SumatraPDF-${{ env.VERSION }}-install.exe || true;
+          cp ../${{ env.PRG_NAME }}-${{ env.VERSION }}.txt ./${{ env.PRG_NAME }}-${{ env.VERSION }}.txt || true;
           echo "PUB_DIR=$(pwd)" >> $GITHUB_ENV
           popd
           popd
