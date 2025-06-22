@@ -228,10 +228,10 @@ jobs:
           filename: '${{ env.ZIP_NAME_EXE }}'
           # directory: '.'
           directory: '${{ env.PUB_DIR_EXE }}'
-          path: '*.exe *.dll SHA256SUMS _tag_name_.txt'
+          path: '*.exe *.dll *.txt SHA256SUMS'
           exclusions: '*.git* /*node_modules/* .editorconfig'
           recursive_exclusions: '*.map *.pdb'
-          env_variable: 'ZIP_NAME_EXE'
+          env_variable: 'ZIP_NAME_EXE_FILE'
 
       - name: Create Zip Archive Release DLL
         uses: deep-soft/zip-release@v2
@@ -240,27 +240,27 @@ jobs:
           filename: '${{ env.ZIP_NAME_DLL }}'
           # directory: '.'
           directory: '${{ env.PUB_DIR_DLL }}'
-          path: '*.exe *.dll SHA256SUMS _tag_name_.txt'
+          path: '*.exe *.dll *.txt  SHA256SUMS'
           exclusions: '*.git* /*node_modules/* .editorconfig'
           recursive_exclusions: '*.map *.pdb'
-          env_variable: 'ZIP_NAME_DLL'
+          env_variable: 'ZIP_NAME_DLL_FILE'
 
       - name: print env value
         continue-on-error: true
         shell: bash
         run: |
           echo "env.ZIP_NAME_EXE=${{ env.ZIP_NAME_EXE }}";
-          ls -la "${{ env.ZIP_NAME_EXE }}";
+          ls -la "${{ env.ZIP_NAME_EXE_FILE }}";
           echo "env.ZIP_NAME_DLL=${{ env.ZIP_NAME_DLL }}";
-          ls -la "${{ env.ZIP_NAME_DLL }}";
+          ls -la "${{ env.ZIP_NAME_DLL_FILE }}";
 
       - name: Prepare zip files for release latest
         continue-on-error: true
         shell: bash
         run: |
           echo "env.PUB_DIR_LTT=${{ env.PUB_DIR_LTT }}";
-          cp "${{ env.ZIP_NAME_EXE }}" "${{ env.PUB_DIR_LTT }}/Sumatra.zip";
-          cp "${{ env.ZIP_NAME_DLL }}" "${{ env.PUB_DIR_LTT }}/Sumatra-dll.zip";
+          cp "${{ env.ZIP_NAME_EXE_FILE }}" "${{ env.PUB_DIR_LTT }}/Sumatra.zip";
+          cp "${{ env.ZIP_NAME_DLL_FILE }}" "${{ env.PUB_DIR_LTT }}/Sumatra-dll.zip";
           echo "files:";
           ls -la "${{ env.PUB_DIR_LTT }}/Sumatra.zip" || true;
           ls -la "${{ env.PUB_DIR_LTT }}/Sumatra-dll.zip" || true;
@@ -272,14 +272,14 @@ jobs:
         uses: deep-soft/upload-artifact@v4
         with:
           name: '${{ env.ZIP_NAME_EXE }}'
-          path: '${{ env.ZIP_NAME_EXE }}'
+          path: '${{ env.ZIP_NAME_EXE_FILE }}'
 
       - name: Upload zip DLL
         continue-on-error: true
         uses: deep-soft/upload-artifact@v4
         with:
           name: '${{ env.ZIP_NAME_DLL }}'
-          path: '${{ env.ZIP_NAME_DLL }}'
+          path: '${{ env.ZIP_NAME_DLL_FILE }}'
 # upload artifacts end
 
 # upload release begin
@@ -293,6 +293,8 @@ jobs:
           files: |
             ${{ env.PUB_DIR_EXE }}/*.zip
             ${{ env.PUB_DIR_DLL }}/*.zip
+            ${{ env.TAG_FILE }}
+            "_tag_name_.txt"
 # upload release end
 
 # upload release latest begin
@@ -302,7 +304,8 @@ jobs:
         with:
           tag_name: ${{ env.TAG_NAME }}-latest
           files: |
-            ${{ env.TAG_FILE }}
             ${{ env.PUB_DIR_LTT }}/Sumatra.zip
             ${{ env.PUB_DIR_LTT }}/Sumatra-dll.zip
+            ${{ env.TAG_FILE }}
+            "_tag_name_.txt"
 # upload release latest end
