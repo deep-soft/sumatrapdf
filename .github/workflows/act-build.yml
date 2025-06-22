@@ -123,7 +123,8 @@ jobs:
         run: |
           echo "cat1:"
           cat ./do/build.go | grep buildPreRelease
-          sed -ibak 's/buildPreRelease(kPlatformIntel32, true)/buildPreRelease(kPlatformIntel64, true)/' ./do/build.go
+          sed -ibak 's/buildPreRelease(platform32)/buildPreRelease(platform64)/' ./do/build.go
+          #sed -ibak 's/buildPreRelease(kPlatformIntel32, true)/buildPreRelease(kPlatformIntel64, true)/' ./do/build.go
           #sed -ibak 's/buildPreRelease(kPlatformArm64, true)/buildPreRelease(kPlatformIntel64, false)/' ./do/build.go
           #sed -ibak 's/buildPreRelease(kPlatformArm64, false)/buildPreRelease(kPlatformIntel64, false)/' ./do/build.go
           #sed -ibak 's/buildPreRelease(kPlatformIntel32, true)/buildPreRelease(kPlatformIntel64, false)/' ./do/build.go
