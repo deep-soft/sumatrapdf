@@ -27,11 +27,11 @@ on:
           - prerel
           - smoke
           - ci-daily
-      GO_VER:
-        description: 'go version'
-        required: true
-        default: '1.21'
-        type: string
+#      GO_VER:
+#        description: 'go version'
+#        required: true
+#        default: '1.21'
+#        type: string
 
 env:
   PRG_NAME:    "sumatrapdf"
@@ -42,7 +42,7 @@ env:
   TAG_REF:     "0000000"
   TAG_DATE:    "20230617T215000"
   TAG_FILE:    "_tag_name_.txt"
-  GO_VER:      1.21
+#  GO_VER:      1.21
   #build_target: '64'
 
 jobs:
@@ -143,10 +143,11 @@ jobs:
             bash bins/bin-install-drmem.sh
           fi
 
-      - name: Set up Go
-        uses: deep-soft/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VER }}
+# no need, is already installed, and not used version installed bellow
+#      - name: Set up Go
+#        uses: deep-soft/setup-go@v5
+#        with:
+#          go-version: ${{ env.GO_VER }}
 
       - name: Build drmem
         if: ${{ github.event.inputs.build_type == 'drmem' }}
