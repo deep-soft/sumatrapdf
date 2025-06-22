@@ -1,4 +1,4 @@
-#2024-01-31 19:40
+#2025-06-22 08:17 (prev: #2024-01-31 19:40)
 #act-build.yml
 name: act - Release - build
 
@@ -185,7 +185,7 @@ jobs:
 
 # Sign Windows executables begin
       - name: Sign Windows executables files
-        uses: deep-soft/code-sign-action@v9
+        uses: deep-soft/code-sign-action@v10
         with:
           certificate: '${{ secrets.WINDOWS_PFX_BASE64 }}'
           password: '${{ secrets.WINDOWS_PFX_PASSWORD }}'
