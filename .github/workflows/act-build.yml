@@ -174,10 +174,12 @@ jobs:
           ls -la PUB_EXE/ || true;
           echo "ls PUB_DLL/";
           ls -la PUB_DLL/ || true;
-          echo "PUB_DIR_EXE=$(pwd)/PUB_EXE" >> $GITHUB_ENV;
-          echo "PUB_DIR_DLL=$(pwd)/PUB_DLL" >> $GITHUB_ENV;
+          echo "PUB_DIR_EXE=${{ env.OUT_DIR }}/PUB_EXE" >> $GITHUB_ENV;
+          echo "PUB_DIR_DLL=${{ env.OUT_DIR }}/PUB_DLL" >> $GITHUB_ENV;
           mkdir PUB_LTT;
-          echo "PUB_DIR_LTT=$(pwd)/PUB_LTT" >> $GITHUB_ENV;
+          echo "PUB_DIR_LTT=${{ env.OUT_DIR }}/PUB_LTT" >> $GITHUB_ENV;
+          echo "ls PUB_LTT/";
+          ls -la PUB_LTT/ || true;
           popd;
           cat "${{ env.TAG_FILE }}";
 
@@ -259,6 +261,9 @@ jobs:
           echo "env.PUB_DIR_LTT=${{ env.PUB_DIR_LTT }}";
           cp "${{ env.ZIP_NAME_EXE }}" "${{ env.PUB_DIR_LTT }}/Sumatra.zip";
           cp "${{ env.ZIP_NAME_DLL }}" "${{ env.PUB_DIR_LTT }}/Sumatra-dll.zip";
+          echo "files:";
+          ls -la "${{ env.PUB_DIR_LTT }}/Sumatra.zip" || true;
+          ls -la "${{ env.PUB_DIR_LTT }}/Sumatra-dll.zip" || true;
 # zip release end
 
 # upload artifacts begin
@@ -298,6 +303,6 @@ jobs:
           tag_name: ${{ env.TAG_NAME }}-latest
           files: |
             ${{ env.TAG_FILE }}
-            "${{ env.PUB_DIR_LTT }}/Sumatra.zip";
-            "${{ env.PUB_DIR_LTT }}/Sumatra-dll.zip";
+            ${{ env.PUB_DIR_LTT }}/Sumatra.zip
+            ${{ env.PUB_DIR_LTT }}/Sumatra-dll.zip
 # upload release latest end
