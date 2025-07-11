@@ -3662,7 +3662,7 @@ static void OpenAdvancedOptions() {
     // TODO: disable/hide the menu item when there's no prefs file
     //       (happens e.g. when run in portable mode from a CD)?
     TempStr path = GetSettingsPathTemp();
-    LaunchFileShell(path);
+    LaunchFileIfExists(path);
 }
 
 static void ShowOptionsDialog(HWND hwnd) {
@@ -4621,7 +4621,7 @@ constexpr int kMaxURLLen = 1500;
 
 // if url-encoded s is bigger than a reasonable URL path,
 // we don't want to fail but truncate and encode less
-static TempStr URLEncodeNoFailTemp(const char* s) {
+static TempStr URLEncodeMayTruncateTemp(const char* s) {
     HRESULT hr;
     DWORD diff;
     WCHAR buf[kMaxURLLen + 1]{};
@@ -4631,8 +4631,8 @@ static TempStr URLEncodeNoFailTemp(const char* s) {
     // with increasingly smaller input strings, from 1500 down to 1000
     int maxLen = kMaxURLLen;
     for (int i = 0; i < 10; i++) {
-        if (str::Leni(ws) > maxLen) {
-            ws[maxLen] = 0;
+        if (str::Leni(ws) >= maxLen) {
+            ws[maxLen - 1] = 0;
         }
         DWORD cchSizeInOut = kMaxURLLen;
         hr = UrlEscapeW(ws, buf, &cchSizeInOut, flags);
@@ -4665,7 +4665,7 @@ constexpr const char* kSelectionStr = "${selection}";
 // I made it manually by looking at trans_lang.go and
 // https://en.wikipedia.org/wiki/List_of_ISO_639_language_codes
 // but not fully and it might be incorrect anyway wrt. to other translation websites
-static const char* gLangsMap = "am\0hy\0by\0be\0ca-xv\0ca\0cz\0cs\0kr\0ko\0vn\0vi\0cn\0zh-CN\0tw\0zh-TW";
+static const char* gLangsMap = "am\0hy\0by\0be\0ca-xv\0ca\0cz\0cs\0kr\0ko\0vn\0vi\0cn\0zh-CN\0tw\0zh-TW\0";
 static const char* GetISO639LangCodeFromLang(const char* lang) {
     int idx = seqstrings::StrToIdx(gLangsMap, lang);
     if (idx < 0 || idx % 2 != 0) {
@@ -4693,7 +4693,7 @@ static void LaunchBrowserWithSelection(WindowTab* tab, const char* urlPattern) {
     if (!selText) {
         return;
     }
-    TempStr encodedSelection = URLEncodeNoFailTemp(selText);
+    TempStr encodedSelection = URLEncodeMayTruncateTemp(selText);
     // ${userLang} and and ${selectin} are typed by user in settings file
     // to be shomewhat resilient against typos, we'll accept a different case
     const char* lang = trans::GetCurrentLangCode();
@@ -6349,7 +6349,7 @@ void ShowCrashHandlerMessage() {
         log("ShowCrashHandlerMessage: !gCrashFilePath\n");
         return;
     }
-    LaunchFileShell(gCrashFilePath, nullptr, "open");
+    LaunchFileIfExists(gCrashFilePath);
     auto url = "https://www.sumatrapdfreader.org/docs/Submit-crash-report.html";
     LaunchFileShell(url, nullptr, "open");
 }

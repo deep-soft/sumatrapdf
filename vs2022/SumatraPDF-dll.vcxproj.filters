@@ -7,6 +7,9 @@
     <Filter Include=".github\workflows">
       <UniqueIdentifier>{B3AE4BDD-1FC5-4973-683C-D594D4911AFB}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Appx">
+      <UniqueIdentifier>{7E9F827C-6AD6-830D-13C3-6910FFD8FF0E}</UniqueIdentifier>
+    </Filter>
     <Filter Include="do">
       <UniqueIdentifier>{98775900-8403-880B-EDB1-880BD95C880B}</UniqueIdentifier>
     </Filter>
@@ -36,9 +39,6 @@
     </Filter>
     <Filter Include="src">
       <UniqueIdentifier>{2DAB880B-99B4-887C-2230-9F7C8E38947C}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="src\ext">
-      <UniqueIdentifier>{0DFD2FA9-79DC-AE44-82F4-391BEE5215A6}</UniqueIdentifier>
     </Filter>
     <Filter Include="src\mui">
       <UniqueIdentifier>{A71E30A9-13FE-AE44-1C16-3A1B887415A6}</UniqueIdentifier>
@@ -698,6 +698,9 @@
       <Filter>.github\workflows</Filter>
     </None>
     <None Include="..\.gitignore" />
+    <None Include="..\Appx\AppxManifest.xml">
+      <Filter>Appx</Filter>
+    </None>
     <None Include="..\do\appx.go">
       <Filter>do</Filter>
     </None>
@@ -899,12 +902,12 @@
     <None Include="..\docs\www\sumatra.css">
       <Filter>docs\www</Filter>
     </None>
+    <None Include="..\ext\versions.txt">
+      <Filter>ext</Filter>
+    </None>
     <None Include="..\premake5.files.lua" />
     <None Include="..\premake5.lua" />
     <None Include="..\premake5.obsolete.lua" />
-    <None Include="..\src\ext\versions.txt">
-      <Filter>src\ext</Filter>
-    </None>
     <None Include="..\src\scratch.txt">
       <Filter>src</Filter>
     </None>

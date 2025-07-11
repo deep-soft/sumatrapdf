@@ -733,7 +733,7 @@ am:&Այլևս չհարցնել
 ar:لا تسألني مرةً أخرى&
 az:Bir daha &soruşma
 bg:Без повтор&но питане
-br:&Não me perguntar de novo
+br:&Não me pergunte de novo
 by:Больш не пытаць
 ca:&No ho tornis a preguntar
 ca-xv:&No m'ho tornis a preguntar
@@ -2675,7 +2675,7 @@ am:&Հարմարեցնել էջը տպելու համար (եթե պահանջվ
 ar:(تقليص الصفحات إلى منطقة قابلة للطباعة (إذا لزم الأمر&
 az:Ehtiyac varsa, səhifələri çap sahəsinin ölçüsünə görə kiçilt
 bg:&Намали страниците в мястото за отпечатване (при необходимост)
-br:&Reduzir as páginas pra área imprimível (se necessário)
+br:&Encolher as páginas pra área imprimível (se necessário)
 by:&Сціскаць старонкі да вобласці друку (калі неабходна)
 ca:&Reduïu les pàgines a l'àrea imprimible (si és necessari)
 ca-xv:&Reduïu les pàgines a l'àrea imprimible (si és necessari)
@@ -5144,7 +5144,7 @@ hr:Promijeni jezik (Change Language)
 hu:Nyelv kiválasztása (Change Language)
 id:Ubah Bahasa (Change Language)
 it:Lingua interfaccia utente (UI Language)
-ja:言語の変更 (Change Language)
+ja:言語を変更 (Change Language)
 kr:언어 바꾸기(Change Language)
 kw:Chanjya yeth (Change Language)
 lt:Keisti kalbą (Change Language)
@@ -8537,7 +8537,7 @@ hr:Unesite naredbenu liniju za pokretanje kod dvostrukog klika na PDF dokumentu:
 hu:Írja be a parancsot, ami a PDF dokumentumra való dupla kattintáskor fut le:
 id:Masukkan baris perintah untuk dijalankan ketika Anda mengklik dua kali pada dokumen PDF:
 it:Inserisci linea di comando da eseguire quando si fa doppio clic su un documento PDF:
-ja:PDFドキュメント上でダブルクリックしたときに実行するコマンドライン
+ja:PDF文書上でダブルクリックしたときに実行するコマンドライン
 kr:PDF 문서를 더블 클릭할 때 호출할 명령줄 입력:
 kw:Enter an linen-gorhemmyn dh'y elwel pan wre'ta klyck dewblek war an skriven PDF:
 lt:Įveskite komandinę eilutę, vykdomą atverčiant PDF dokumentą:
@@ -15102,7 +15102,7 @@ am:Այս անվամբ տպիչ գոյություն չունի
 ar:طابعة بهذا الاسم غير موجودة
 az:Bu adda printer mövcud deyil
 bg:Принтер с това име не съществува
-br:Uma impressora com este nome dado não existe
+br:Não existe uma impressora com o nome dado
 by:Друкарка з такім імем не існуе
 ca:No existeix cap impressora amb el nom donat
 ca-xv:No existeix cap impressora amb aquest nom
@@ -15507,7 +15507,7 @@ hr:Preime&nuj
 hu:&Átnevezés…
 id:Rubah Nama
 it:Ri&nomina...
-ja:ファイル名の変更(&N)...
+ja:ファイル名を変更(&N)...
 kr:이름 바꾸기(&N)...
 lt:&Pervadinti
 my:Na&makan Semula...
@@ -17466,7 +17466,7 @@ hr:Prikaži alatnu traku
 hu:Eszköztár
 id:Tampilkan &Toolbar
 it:&Barra strumenti
-ja:ツールバーの表示(&T)
+ja:ツールバーを表示(&T)
 kr:도구모음 보이기(&T)
 kw:Diskwedhes toulvar
 lt:Rodyti &priemonių juostą
@@ -17571,7 +17571,7 @@ hr:Prikaži favorite
 hu:Kedvencek megjelenítése
 id:Tampilkan Favorit
 it:Preferiti
-ja:お気に入りの表示
+ja:お気に入りを表示
 kr:즐겨찾기 보이기
 kw:Diskwedhes Taklow Drudh
 lt:Rodyti parankinius

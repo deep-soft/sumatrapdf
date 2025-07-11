@@ -617,6 +617,8 @@ function sumatrapdf_files()
     "premake5.lua",
     "premake5.obsolete.lua",
     "premake5.files.lua",
+    "ext/versions.txt",
+    "Appx/AppxManifest.xml",
   })
   files_in_dir("src", {
     "Accelerators.*",
@@ -687,7 +689,6 @@ function sumatrapdf_files()
     "Uninstaller.cpp",
     "WindowTab.*",
 
-    "ext/versions.txt",
     "scratch.txt",
   })
   filter {"configurations:Debug or DebugFull"}
