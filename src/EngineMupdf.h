@@ -44,7 +44,7 @@ struct FzPageInfo {
     // serializes any operation that runs the underlying fz_page (rendering,
     // text extraction, display-list construction). Different pages can run
     // concurrently on different threads; the same page cannot.
-    // lock order: EngineMupdf::pagesAccess -> FzPageInfo::renderLock
+    // lock order: EngineMupdf::pagesLock -> FzPageInfo::renderLock
     CRITICAL_SECTION renderLock;
 
     FzPageInfo() { InitializeCriticalSection(&renderLock); }
@@ -88,18 +88,27 @@ class EngineMupdf : public EngineBase {
 
     fz_context* Ctx() const;
 
-    // make sure to never ask for pagesAccess in an ctxAccess
-    // protected critical section in order to avoid deadlocks
-    // ctxAccess points to ctxAccessCS; kept as a pointer for historical call-site
-    // compatibility (most users pass it directly as a CRITICAL_SECTION*).
-    // It must NOT alias one of mutexes[] -- mupdf takes those briefly for its
-    // own internal coordination, and reusing one as a long-held outer lock would
-    // serialize every cloned-context allocation across all threads.
-    CRITICAL_SECTION* ctxAccess;
-    CRITICAL_SECTION ctxAccessCS;
-    CRITICAL_SECTION pagesAccess;
+    // Lock hierarchy (acquire in this order; never go upward):
+    //   pagesLock           - protects the pages[] vector / FzPageInfo lookup
+    //   renderLock (per pg) - protects per-page mupdf state for page-running
+    //                         ops (render, text extract, display-list build).
+    //                         Also acquired under pagesLock inside GetFzPageInfo.
+    //   docLock             - serializes document-scope mupdf operations:
+    //                         outline, fonts, info, named dests, page-tree
+    //                         access, annotation mutations. Independent of
+    //                         renderLock; never acquire pagesLock while
+    //                         holding docLock.
+    //
+    // docLock must NOT alias one of fz_locks[] -- mupdf takes those briefly
+    // for its own internal coordination, and reusing one as a long-held outer
+    // lock would serialize every cloned-context allocation across all threads.
+    CRITICAL_SECTION pagesLock;
+    CRITICAL_SECTION docLock;
 
-    CRITICAL_SECTION mutexes[FZ_LOCK_MAX];
+    // per-FZ_LOCK-index critical sections used by mupdf via fz_locks_ctx
+    // callbacks. Mupdf holds these only momentarily; do not hold them across
+    // your own code.
+    CRITICAL_SECTION fz_locks[FZ_LOCK_MAX];
 
     fz_context* _ctx = nullptr;
     fz_locks_context fz_locks_ctx;
