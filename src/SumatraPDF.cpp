@@ -2285,7 +2285,7 @@ static NotificationWnd* ShowLoadingNotif(MainWindow* win, const char* path) {
     NotificationCreateArgs nargs;
     nargs.hwndParent = win->hwndCanvas;
     nargs.groupId = path;
-    nargs.msg = str::FormatTemp(_TRA("Loading %s ..."), path);
+    nargs.msg = str::FormatTemp(_TRA("Loading %s ..."), path::GetBaseNameTemp(path));
     return ShowNotification(nargs);
 }
 
