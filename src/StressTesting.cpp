@@ -234,7 +234,7 @@ static bool IsStressTestSupportedFile(const char* filePath, const char* filter) 
     if (!kind) {
         return false;
     }
-    if (IsSupportedFileType(kind, true) || DocIsSupportedFileType(kind)) {
+    if (IsSupportedFileType(kind, true) || DocIsSupportedFileType(kind) || ChmModel::IsSupportedFileType(kind)) {
         return true;
     }
     if (!filter) {
@@ -247,6 +247,9 @@ static bool IsStressTestSupportedFile(const char* filePath, const char* filter) 
         return false;
     }
     if (IsSupportedFileType(kindSniffed, true)) {
+        return true;
+    }
+    if (ChmModel::IsSupportedFileType(kindSniffed)) {
         return true;
     }
     return DocIsSupportedFileType(kindSniffed);
