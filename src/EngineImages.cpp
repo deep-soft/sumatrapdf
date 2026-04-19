@@ -61,10 +61,17 @@ struct ImagePage {
     bool failedToLoad = false;
     int refs = 1;
 
+    // serializes GDI+ DrawImage calls against this->bmp -- a single Bitmap*
+    // is not safe to draw from multiple threads concurrently. Different pages
+    // have different drawLocks so they render in parallel.
+    CRITICAL_SECTION drawLock;
+
     ImagePage(int pageNo, Bitmap* bmp) {
         this->pageNo = pageNo;
         this->bmp = bmp;
+        InitializeCriticalSection(&drawLock);
     }
+    ~ImagePage() { DeleteCriticalSection(&drawLock); }
 };
 
 struct ImagePageInfo {
@@ -234,9 +241,10 @@ RenderedBitmap* EngineImages::RenderPage(RenderPageArgs& args) {
     Status ok;
     {
         // GDI+ Bitmap is not thread-safe; concurrent DrawImage on the same Bitmap
-        // from multiple render threads causes InsufficientBuffer (status 4) errors.
-        // Serialize access to the shared page bitmap.
-        ScopedCritSec scope(&cacheAccess);
+        // from multiple threads causes InsufficientBuffer (status 4) errors.
+        // Per-page lock: different pages render in parallel, only repeated draws
+        // of the same page serialize.
+        ScopedCritSec scope(&page->drawLock);
         ok = g.DrawImage(page->bmp, ToGdipRect(pageRcI), pageRcI.x, pageRcI.y, pageRcI.dx, pageRcI.dy, UnitPixel,
                          &imgAttrs);
     }
