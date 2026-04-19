@@ -1787,6 +1787,9 @@ EngineMupdf::~EngineMupdf() {
         if (pi->retainedLinks) {
             fz_drop_link(ctx, pi->retainedLinks);
         }
+        if (pi->displayList) {
+            fz_drop_display_list(ctx, pi->displayList);
+        }
         if (pi->page) {
             fz_drop_page(ctx, pi->page);
         }
@@ -2988,6 +2991,28 @@ RectF EngineMupdf::PageMediabox(int pageNo) {
     return pi->mediabox;
 }
 
+// returns a kept reference to the cached "View" display list for the page,
+// building+caching it on first call. Caller must fz_drop_display_list when done.
+// must be called with pi->renderLock held (this both protects pi->displayList
+// and serializes the page-running done by fz_new_display_list_from_page).
+static fz_display_list* GetOrBuildPageDisplayList(FzPageInfo* pi, fz_context* ctx) {
+    if (!pi->displayList) {
+        fz_display_list* list = nullptr;
+        fz_try(ctx) {
+            list = fz_new_display_list_from_page(ctx, pi->page);
+        }
+        fz_catch(ctx) {
+            fz_report_error(ctx);
+            list = nullptr;
+        }
+        pi->displayList = list;
+    }
+    if (!pi->displayList) {
+        return nullptr;
+    }
+    return fz_keep_display_list(ctx, pi->displayList);
+}
+
 RectF EngineMupdf::PageContentBox(int pageNo, RenderTarget target) {
     auto ctx = Ctx();
 
@@ -2999,41 +3024,36 @@ RectF EngineMupdf::PageContentBox(int pageNo, RenderTarget target) {
         return RectF();
     }
 
-    // page-running operation: serialize on per-page lock instead of global ctxAccess
-    ScopedCritSec scope(&pageInfo->renderLock);
+    RectF mediabox = pageInfo->mediabox;
 
+    fz_rect pagerect;
+    fz_display_list* keptList = nullptr;
+    {
+        // Hold per-page lock briefly: page bounds + (re-)acquire cached display list.
+        ScopedCritSec scope(&pageInfo->renderLock);
+        pagerect = fz_bound_page(ctx, pageInfo->page);
+        keptList = GetOrBuildPageDisplayList(pageInfo, ctx);
+    }
+    if (!keptList) {
+        return mediabox;
+    }
+
+    // Lock-free: bbox-device run on a display list is concurrency-safe.
     fz_cookie fzcookie{};
     fz_rect rect = fz_empty_rect;
     fz_device* dev = nullptr;
-    fz_display_list* list = nullptr;
-
-    fz_rect pagerect = fz_bound_page(ctx, pageInfo->page);
-
     fz_var(dev);
-    fz_var(list);
-
-    RectF mediabox = pageInfo->mediabox;
-
     fz_try(ctx) {
-        list = fz_new_display_list_from_page(ctx, pageInfo->page);
-        if (list) {
-            dev = fz_new_bbox_device(ctx, &rect);
-            fz_run_display_list(ctx, list, dev, fz_identity, pagerect, &fzcookie);
-            fz_close_device(ctx, dev);
-        }
+        dev = fz_new_bbox_device(ctx, &rect);
+        fz_run_display_list(ctx, keptList, dev, fz_identity, pagerect, &fzcookie);
+        fz_close_device(ctx, dev);
     }
     fz_always(ctx) {
         fz_drop_device(ctx, dev);
-        if (list) {
-            fz_drop_display_list(ctx, list);
-        }
+        fz_drop_display_list(ctx, keptList);
     }
     fz_catch(ctx) {
         fz_report_error(ctx);
-        list = nullptr;
-    }
-
-    if (!list) {
         return mediabox;
     }
 
@@ -3084,11 +3104,7 @@ RenderedBitmap* EngineMupdf::RenderPage(RenderPageArgs& args) {
     }
     fz_page* page = pageInfo->page;
 
-    // per-page lock: different pages render on different threads in parallel,
-    // but the same fz_page must not be run from two threads at once.
-    // ctx is per-thread (Ctx() clones), so AA level on this ctx is also per-thread.
-    ScopedCritSec cs(&pageInfo->renderLock);
-
+    // AA level is per-thread-context state since Ctx() clones; no lock needed.
     if (disableAntiAlias) {
         fz_set_aa_level(ctx, 0);
     } else {
@@ -3099,19 +3115,35 @@ RenderedBitmap* EngineMupdf::RenderPage(RenderPageArgs& args) {
     auto pageRect = args.pageRect;
     auto zoom = args.zoom;
     auto rotation = args.rotation;
+
+    // The "View" rendering (no Print, no hideAnnotations) is what
+    // fz_new_display_list_from_page produces; safe to cache and re-run lock-free.
+    bool useCache = (args.target == RenderTarget::View) && !hideAnnotations;
+
     fz_rect pRect;
-    if (pageRect) {
-        pRect = ToFzRect(*pageRect);
-    } else {
-        // TODO(port): use pageInfo->mediabox?
-        pRect = fz_bound_page(ctx, page);
+    fz_matrix ctm;
+    fz_irect ibounds;
+    fz_display_list* keptList = nullptr;
+
+    {
+        // Hold per-page lock while we touch the page (bounds, optional list build).
+        ScopedCritSec cs(&pageInfo->renderLock);
+
+        if (pageRect) {
+            pRect = ToFzRect(*pageRect);
+        } else {
+            // TODO(port): use pageInfo->mediabox?
+            pRect = fz_bound_page(ctx, page);
+        }
+        ctm = viewctm(page, zoom, rotation);
+        ibounds = fz_round_rect(fz_transform_rect(pRect, ctm));
+
+        if (useCache) {
+            keptList = GetOrBuildPageDisplayList(pageInfo, ctx);
+        }
     }
-    fz_matrix ctm = viewctm(page, zoom, rotation);
-    fz_irect bbox = fz_round_rect(fz_transform_rect(pRect, ctm));
 
     fz_colorspace* csRgb = fz_device_rgb(ctx);
-    fz_irect ibounds = bbox;
-
     fz_pixmap* pix = nullptr;
     fz_device* dev = nullptr;
     RenderedBitmap* bitmap = nullptr;
@@ -3119,6 +3151,39 @@ RenderedBitmap* EngineMupdf::RenderPage(RenderPageArgs& args) {
     fz_var(dev);
     fz_var(pix);
     fz_var(bitmap);
+
+    if (keptList) {
+        // Lock-free render path: display lists are safe to run concurrently
+        // across cloned fz_contexts.
+        fz_try(ctx) {
+            pix = fz_new_pixmap_with_bbox(ctx, csRgb, ibounds, nullptr, 1);
+            fz_clear_pixmap_with_value(ctx, pix, 0xff);
+            dev = fz_new_draw_device(ctx, ctm, pix);
+            fz_run_display_list(ctx, keptList, dev, fz_identity, fz_infinite_rect, fzcookie);
+            fz_close_device(ctx, dev);
+            bitmap = NewRenderedFzPixmap(ctx, pix);
+        }
+        fz_always(ctx) {
+            if (dev) {
+                fz_drop_device(ctx, dev);
+            }
+            if (pix) {
+                fz_drop_pixmap(ctx, pix);
+            }
+            fz_drop_display_list(ctx, keptList);
+        }
+        fz_catch(ctx) {
+            fz_report_error(ctx);
+            delete bitmap;
+            return nullptr;
+        }
+        return bitmap;
+    }
+
+    // Fallback: Print or hideAnnotations (each needs different content/usage,
+    // not what the cached display list captured), or display-list construction
+    // failed. Run the page directly under per-page lock.
+    ScopedCritSec cs(&pageInfo->renderLock);
 
     const char* usage = "View";
     switch (args.target) {
@@ -3134,8 +3199,6 @@ RenderedBitmap* EngineMupdf::RenderPage(RenderPageArgs& args) {
             pdfpage = pdf_page_from_fz_page(ctx, page);
             pix = fz_new_pixmap_with_bbox(ctx, csRgb, ibounds, nullptr, 1);
             fz_clear_pixmap_with_value(ctx, pix, 0xff);
-            // TODO: in printing different style. old code use pdf_run_page_with_usage(), with usage ="View"
-            // or "Print". "Export" is not used
             dev = fz_new_draw_device(ctx, ctm, pix);
             if (hideAnnotations) {
                 pdf_run_page_contents_with_usage(ctx, pdfpage, dev, fz_identity, usage, fzcookie);
@@ -3160,11 +3223,7 @@ RenderedBitmap* EngineMupdf::RenderPage(RenderPageArgs& args) {
     } else {
         fz_try(ctx) {
             pix = fz_new_pixmap_with_bbox(ctx, csRgb, ibounds, nullptr, 1);
-            // TODO: to have uniform background needs to set custom css
-            // background-color and clear pixmap with the same color
             fz_clear_pixmap_with_value(ctx, pix, 0xff);
-            // fz_clear_pixmap(ctx, pix);
-            // fz_fill_pixmap_with_color(ctx, pix, )
             dev = fz_new_draw_device(ctx, ctm, pix);
             fz_run_page_contents(ctx, page, dev, fz_identity, NULL);
             fz_close_device(ctx, dev);
@@ -4180,6 +4239,17 @@ NO_INLINE void MarkNotificationAsModified(EngineMupdf* e, Annotation* annot, Ann
         RebuildCommentsFromAnnotations(ctx, pageInfo);
     }
     pageInfo->elementsNeedRebuilding = true;
+
+    // cached display list captured the old annotations; drop it so the next
+    // render rebuilds with the new state.
+    {
+        auto ctx = e->Ctx();
+        ScopedCritSec rl(&pageInfo->renderLock);
+        if (pageInfo->displayList) {
+            fz_drop_display_list(ctx, pageInfo->displayList);
+            pageInfo->displayList = nullptr;
+        }
+    }
 }
 
 // creates Annotation wrapper around pdf_annot

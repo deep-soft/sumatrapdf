@@ -35,6 +35,12 @@ struct FzPageInfo {
     // if true, loaded expensive info (extracted text etc.)
     bool fullyLoaded = false;
 
+    // cached "View" rendering of the page; built lazily under renderLock.
+    // running an fz_display_list is thread-safe across cloned fz_contexts,
+    // so re-renders (zoom/scroll) of the same page need no global lock.
+    // not used for Print or hideAnnotations (those run the page directly).
+    fz_display_list* displayList = nullptr;
+
     // serializes any operation that runs the underlying fz_page (rendering,
     // text extraction, display-list construction). Different pages can run
     // concurrently on different threads; the same page cannot.
