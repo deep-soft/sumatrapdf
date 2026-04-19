@@ -2368,24 +2368,37 @@ RectF EngineCbx::LoadMediabox(int pageNo) {
     if (!img.empty()) {
         Size size = ImageSizeFromData(img);
         img.Free();
-        if (size.IsEmpty()) {
-            logf("EngineCbx::LoadMediabox: empty media box for page: %d\n", pageNo);
+        if (!size.IsEmpty()) {
+            return RectF(0, 0, (float)size.dx, (float)size.dy);
         }
-        return RectF(0, 0, (float)size.dx, (float)size.dy);
+        // partial/corrupt header (e.g. dx>0 but dy==0) -- don't return that;
+        // fall through to GetPage so we can use the actual decoded dimensions
+        // and never hand back a zero-area mediabox (would div-by-zero in
+        // CalcZoomReal).
+        logf("EngineCbx::LoadMediabox: empty media box from header for page: %d\n", pageNo);
     }
     img.Free();
 
     ImagePage* page = GetPage(pageNo, MAX_IMAGE_PAGE_CACHE == pageCache.size());
     if (page) {
-        if (page->bmp) {
-            RectF mbox(0, 0, (float)page->bmp->GetWidth(), (float)page->bmp->GetHeight());
-            DropPage(page, false);
-            return mbox;
+        int w = 0, h = 0;
+        if (page->img) {
+            // mupdf decoded the image; use its dimensions
+            w = page->img->w;
+            h = page->img->h;
+        } else if (page->bmp) {
+            w = (int)page->bmp->GetWidth();
+            h = (int)page->bmp->GetHeight();
         }
         DropPage(page, false);
+        if (w > 0 && h > 0) {
+            return RectF(0, 0, (float)w, (float)h);
+        }
     }
 
-    // use A4-like dimensions (at 96 DPI) as fallback for failed pages
+    // use A4-like dimensions (at 96 DPI) as fallback for failed pages.
+    // Important: this MUST be non-empty -- DisplayModel::CalcZoomReal divides
+    // by the mediabox, and a zero-area box trips a debug-break assertion.
     return RectF(0, 0, 595, 842);
 }
 
