@@ -70,10 +70,11 @@ RenderCache::RenderCache() : maxTileSize({GetSystemMetrics(SM_CXSCREEN), GetSyst
 }
 
 RenderCache::~RenderCache() {
-    EnterCriticalSection(&requestAccess);
-    EnterCriticalSection(&cacheAccess);
-
-    // signal all threads to exit
+    // Signal threads to exit FIRST, then wait for them WITHOUT holding the
+    // critical sections. Workers take requestAccess for their idle bookkeeping,
+    // so holding it here would deadlock until the WaitForMultipleObjects
+    // timeout fires -- after which DeleteCriticalSection on a still-in-use
+    // CS would access-violate.
     AtomicBoolSet(&shouldExit, true);
 
     if (nRenderThreads > 0) {
@@ -92,6 +93,7 @@ RenderCache::~RenderCache() {
     }
     CloseHandle(startRendering);
 
+    // Threads are gone; remaining state inspection is single-threaded.
     bool hasCurReq = false;
     for (int i = 0; i < nRenderThreads; i++) {
         if (curReqs[i]) {
@@ -104,9 +106,7 @@ RenderCache::~RenderCache() {
         ReportIf(true);
     }
 
-    LeaveCriticalSection(&cacheAccess);
     DeleteCriticalSection(&cacheAccess);
-    LeaveCriticalSection(&requestAccess);
     DeleteCriticalSection(&requestAccess);
 }
 
