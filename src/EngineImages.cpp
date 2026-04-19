@@ -33,7 +33,7 @@ using Gdiplus::FrameDimensionPage;
 using Gdiplus::FrameDimensionTime;
 using Gdiplus::Graphics;
 using Gdiplus::ImageAttributes;
-using Gdiplus::InterpolationModeHighQualityBicubic;
+using Gdiplus::InterpolationModeHighQualityBilinear;
 using Gdiplus::Matrix;
 using Gdiplus::MatrixOrderAppend;
 using Gdiplus::Ok;
@@ -224,7 +224,10 @@ RenderedBitmap* EngineImages::RenderPage(RenderPageArgs& args) {
         g.SetInterpolationMode(Gdiplus::InterpolationModeNearestNeighbor);
     } else {
         g.SetSmoothingMode(SmoothingModeAntiAlias);
-        g.SetInterpolationMode(InterpolationModeHighQualityBicubic);
+        // HighQualityBilinear is several times faster than HighQualityBicubic
+        // and visually indistinguishable for typical photographic content,
+        // especially when downscaling (the common case for image viewing).
+        g.SetInterpolationMode(InterpolationModeHighQualityBilinear);
     }
     g.SetPageUnit(UnitPixel);
 
