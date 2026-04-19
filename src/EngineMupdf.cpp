@@ -3159,9 +3159,6 @@ RenderedBitmap* EngineMupdf::RenderPage(RenderPageArgs& args) {
             pix = fz_new_pixmap_with_bbox(ctx, csRgb, ibounds, nullptr, 1);
             fz_clear_pixmap_with_value(ctx, pix, 0xff);
             dev = fz_new_draw_device(ctx, ctm, pix);
-            // pRect (page bounds) is a safe scissor that covers the whole page.
-            // Don't use fz_infinite_rect: in DLL builds Sumatra's MuPDF_Exports.cpp
-            // overrides it with a stale sentinel value that culls every draw call.
             fz_run_display_list(ctx, keptList, dev, fz_identity, pRect, fzcookie);
             fz_close_device(ctx, dev);
             bitmap = NewRenderedFzPixmap(ctx, pix);
