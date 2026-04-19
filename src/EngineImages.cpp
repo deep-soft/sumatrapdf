@@ -64,13 +64,14 @@ Kind kindEngineComicBooks = "engineComicBooks";
 
 struct ImagePage {
     int pageNo = 0;
-    // Decoded forms; at most one is non-null. pix (mupdf) is preferred for
-    // RenderPage when available -- fz_scale_pixmap + DIB conversion is
-    // significantly faster than GDI+ DrawImage. bmp (GDI+) is the fallback
-    // for paths that need GDI+ (e.g. multi-frame TIFF, or rotation/tile cases
-    // the mupdf render path doesn't handle yet).
+    // Decoded forms; at most one is non-null. img (mupdf, lazy) is preferred
+    // for RenderPage when available: each render decodes the JPEG at near-
+    // target scale (DCT-domain 1/2, 1/4, 1/8 downsampling), so big images
+    // displayed at small zooms cost only a fraction of a full-res decode.
+    // bmp (GDI+) is the fallback for paths that need GDI+ (multi-frame TIFF,
+    // or rotation/tile cases the mupdf render path doesn't handle yet).
     Bitmap* bmp = nullptr;
-    fz_pixmap* pix = nullptr;
+    fz_image* img = nullptr;
     bool ownBmp = true;
     bool failedToLoad = false;
     // true while LoadBitmapForPage / LoadFzPixmapForPage is running on a worker;
@@ -104,9 +105,9 @@ struct ImagePage {
         if (loadedEvent) {
             CloseHandle(loadedEvent);
         }
-        // pix is dropped by DropPage before delete (it needs the engine's
+        // img is dropped by DropPage before delete (it needs the engine's
         // per-thread fz_context to call into mupdf safely).
-        ReportIf(pix);
+        ReportIf(img);
     }
 };
 
@@ -170,12 +171,14 @@ class EngineImages : public EngineBase {
     void GetTransform(Matrix& m, int pageNo, float zoom, int rotation);
 
     virtual Bitmap* LoadBitmapForPage(int pageNo, bool& deleteAfterUse) = 0;
-    // Optional: decode the page directly into an fz_pixmap so RenderPage can
-    // skip GDI+. Default impl uses GetRawImageData + mupdf's image loader,
+    // Optional: load the page as an fz_image (encoded form, lazy decode).
+    // RenderPage then asks mupdf to decode the JPEG at near-target scale on
+    // each render -- much cheaper than decoding at full resolution and
+    // scaling down. Default impl uses GetRawImageData + fz_new_image_from_buffer,
     // which works for any single-frame format mupdf understands (JPEG, PNG,
     // BMP, etc.). Subclasses can override to return nullptr (forcing the
     // GDI+ path) for cases mupdf can't handle -- e.g. multi-frame TIFFs.
-    virtual fz_pixmap* LoadFzPixmapForPage(fz_context* ctx, int pageNo);
+    virtual fz_image* LoadFzImageForPage(fz_context* ctx, int pageNo);
     virtual RectF LoadMediabox(int pageNo) = 0;
     virtual ByteSlice GetRawImageData(int pageNo) = 0;
     virtual TempStr GetImagePathTemp(int pageNo) { return nullptr; }
@@ -247,35 +250,35 @@ EngineImages::~EngineImages() {
     DeleteCriticalSection(&threadCtxsLock);
 }
 
-// Decode the page via mupdf into an fz_pixmap. Default implementation feeds
-// the raw image bytes from GetRawImageData through mupdf's image loader.
-fz_pixmap* EngineImages::LoadFzPixmapForPage(fz_context* ctx, int pageNo) {
+// Wrap the page's raw image bytes in an fz_image for lazy mupdf decoding.
+// The actual JPEG/PNG decode happens later in RenderPage at near-target
+// scale, much cheaper than decoding at full resolution up front.
+fz_image* EngineImages::LoadFzImageForPage(fz_context* ctx, int pageNo) {
     ByteSlice data = GetRawImageData(pageNo);
     if (data.empty()) {
         data.Free();
         return nullptr;
     }
-    fz_pixmap* pix = nullptr;
-    fz_buffer* buf = nullptr;
     fz_image* img = nullptr;
+    fz_buffer* buf = nullptr;
     fz_var(buf);
     fz_var(img);
-    fz_var(pix);
     fz_try(ctx) {
+        // fz_new_buffer_from_copied_data takes ownership of the copy; the
+        // resulting fz_image keeps a ref to the buffer, so it's safe to drop
+        // the local buffer ref in fz_always.
         buf = fz_new_buffer_from_copied_data(ctx, data.data(), data.size());
         img = fz_new_image_from_buffer(ctx, buf);
-        pix = fz_get_pixmap_from_image(ctx, img, nullptr, nullptr, nullptr, nullptr);
     }
     fz_always(ctx) {
-        fz_drop_image(ctx, img);
         fz_drop_buffer(ctx, buf);
     }
     fz_catch(ctx) {
         fz_report_error(ctx);
-        pix = nullptr;
+        img = nullptr;
     }
     data.Free();
-    return pix;
+    return img;
 }
 
 RectF EngineImages::PageMediabox(int pageNo) {
@@ -379,27 +382,46 @@ RenderedBitmap* EngineImages::RenderPage(RenderPageArgs& args) {
     RectF pageRc = pageRect ? *pageRect : mediabox;
     Rect screen = Transform(pageRc, pageNo, zoom, rotation).Round();
 
-    // Mupdf fast path: rotation 0 + full-page render + decoded pixmap available.
+    // Mupdf fast path: rotation 0 + full-page render + cached fz_image available.
     // Tiles (pageRect != mediabox) and rotations fall through to the GDI+ path.
-    if (page->pix && rotation == 0 && !page->failedToLoad) {
+    if (page->img && rotation == 0 && !page->failedToLoad) {
         Rect mediaScreen = Transform(mediabox, pageNo, zoom, rotation).Round();
         bool isFullPage = (mediaScreen.dx == screen.dx && mediaScreen.dy == screen.dy);
         if (isFullPage) {
-            // Per-thread cloned context lets multiple workers scale concurrently.
+            // Per-thread cloned context lets multiple workers decode/scale concurrently.
             fz_context* ctx = Ctx();
             RenderedBitmap* result = nullptr;
+            fz_pixmap* decoded = nullptr;
             fz_pixmap* scaled = nullptr;
+            fz_var(decoded);
             fz_var(scaled);
+            // Build a CTM that scales source-image space to target screen space.
+            // mupdf uses |ctm| to pick a JPEG decode scale (1, 1/2, 1/4, 1/8) so
+            // huge images at small zooms decode dramatically faster.
+            float sx = (float)screen.dx / (float)page->img->w;
+            float sy = (float)screen.dy / (float)page->img->h;
+            fz_matrix ctm = fz_scale(sx, sy);
             fz_try(ctx) {
-                scaled = fz_scale_pixmap(ctx, page->pix, 0, 0, (float)screen.dx, (float)screen.dy, nullptr);
+                int dw = 0, dh = 0;
+                decoded = fz_get_pixmap_from_image(ctx, page->img, nullptr, &ctm, &dw, &dh);
+                if (decoded && (decoded->w != screen.dx || decoded->h != screen.dy)) {
+                    // mupdf decoded at a JPEG-friendly scale that's >= target;
+                    // do the final exact-size scale on the much smaller pixmap.
+                    scaled = fz_scale_pixmap(ctx, decoded, 0, 0, (float)screen.dx, (float)screen.dy, nullptr);
+                }
             }
             fz_catch(ctx) {
                 fz_report_error(ctx);
-                scaled = nullptr;
+            }
+            fz_pixmap* final = scaled ? scaled : decoded;
+            if (final) {
+                result = FzPixmapToRenderedBitmap(ctx, final);
             }
             if (scaled) {
-                result = FzPixmapToRenderedBitmap(ctx, scaled);
                 fz_drop_pixmap(ctx, scaled);
+            }
+            if (decoded) {
+                fz_drop_pixmap(ctx, decoded);
             }
             if (result) {
                 DropPage(page, false);
@@ -409,9 +431,9 @@ RenderedBitmap* EngineImages::RenderPage(RenderPageArgs& args) {
         }
     }
 
-    // GDI+ path: needs page->bmp. If we only have pix (subclass loaded via
+    // GDI+ path: needs page->bmp. If we only have img (subclass loaded via
     // mupdf), lazy-load the GDI+ Bitmap on demand for this rare path
-    // (rotation, sub-rect tile, or mupdf scale failure).
+    // (rotation, sub-rect tile, or mupdf decode/scale failure).
     if (!page->bmp && !page->failedToLoad) {
         ScopedCritSec scope(&page->drawLock);
         if (!page->bmp) {
@@ -649,23 +671,24 @@ ImagePage* EngineImages::GetPage(int pageNo, bool tryOnly) {
     }
 
     if (isLoader) {
-        // Slow path: decode without cacheLock held. The page is pinned
+        // Slow path: load without cacheLock held. The page is pinned
         // (refs >= 2) so it can't be deleted under us, even if some other
         // thread evicts it from the cache while we're working.
-        // Try the mupdf pixmap path first; if it returns null (subclass opted
-        // out, or decode failed), fall back to the GDI+ Bitmap path.
-        fz_pixmap* pix = LoadFzPixmapForPage(Ctx(), pageNo);
+        // Try the mupdf image path first (lazy decode at render time at near-
+        // target scale); fall back to GDI+ Bitmap if the subclass opts out
+        // or mupdf can't handle the format.
+        fz_image* img = LoadFzImageForPage(Ctx(), pageNo);
         Bitmap* bmp = nullptr;
         bool ownBmp = true;
-        if (!pix) {
+        if (!img) {
             bmp = LoadBitmapForPage(pageNo, ownBmp);
         }
         {
             ScopedCritSec scope(&cacheLock);
-            result->pix = pix;
+            result->img = img;
             result->bmp = bmp;
             result->ownBmp = ownBmp;
-            if (!pix && !bmp) {
+            if (!img && !bmp) {
                 result->failedToLoad = true;
             }
             result->loading = false;
@@ -699,11 +722,11 @@ void EngineImages::DropPage(ImagePage* page, bool forceRemove) {
         if (page->ownBmp) {
             delete page->bmp;
         }
-        if (page->pix) {
-            // safe across threads: fz_drop_pixmap uses our per-thread cloned
+        if (page->img) {
+            // safe across threads: fz_drop_image uses our per-thread cloned
             // ctx for atomic refcount + dealloc via mupdf's locks callbacks.
-            fz_drop_pixmap(Ctx(), page->pix);
-            page->pix = nullptr;
+            fz_drop_image(Ctx(), page->img);
+            page->img = nullptr;
         }
         delete page;
     }
@@ -839,7 +862,7 @@ class EngineImage : public EngineImages {
     bool FinishLoading();
 
     Bitmap* LoadBitmapForPage(int pageNo, bool& deleteAfterUse) override;
-    fz_pixmap* LoadFzPixmapForPage(fz_context* ctx, int pageNo) override;
+    fz_image* LoadFzImageForPage(fz_context* ctx, int pageNo) override;
     RectF LoadMediabox(int pageNo) override;
     ByteSlice GetRawImageData(int pageNo) override;
 };
@@ -1544,14 +1567,14 @@ ByteSlice EngineImage::GetRawImageData(int) {
     return file::ReadFile(FilePath());
 }
 
-fz_pixmap* EngineImage::LoadFzPixmapForPage(fz_context* ctx, int pageNo) {
+fz_image* EngineImage::LoadFzImageForPage(fz_context* ctx, int pageNo) {
     // mupdf can decode the file's first frame, but multi-frame TIFFs and
     // animated GIFs are handled by GDI+'s SelectActiveFrame in
     // LoadBitmapForPage. Fall back to the GDI+ path for non-first frames.
     if (pageNo != 1) {
         return nullptr;
     }
-    return EngineImages::LoadFzPixmapForPage(ctx, pageNo);
+    return EngineImages::LoadFzImageForPage(ctx, pageNo);
 }
 
 RectF EngineImage::LoadMediabox(int pageNo) {
