@@ -848,57 +848,13 @@ static LinkRectList* LinkifyText(const WCHAR* pageText, Rect* coords) {
 static RenderedBitmap* TryRenderAsPaletteImage(fz_pixmap* pixmap) {
     int w = pixmap->w;
     int h = pixmap->h;
-    int rows8 = ((w + 3) / 4) * 4;
-    u8* bmpData = (u8*)calloc(rows8, h);
-    if (!bmpData) {
-        return nullptr;
-    }
+    int stride = ((w + 3) / 4) * 4;
 
     size_t sz = sizeof(BITMAPINFO) + (255 * sizeof(RGBQUAD));
     ScopedMem<BITMAPINFO> bmi((BITMAPINFO*)calloc(1, sz));
-
-    u8* dest = bmpData;
-    u8* source = pixmap->samples;
-    u32* palette = (u32*)bmi.Get()->bmiColors;
-    u8 grayIdxs[256]{};
-
-    int paletteSize = 0;
-    RGBQUAD c;
-    for (int j = 0; j < h; j++) {
-        for (int i = 0; i < w; i++) {
-            c.rgbRed = *source++;
-            c.rgbGreen = *source++;
-            c.rgbBlue = *source++;
-            c.rgbReserved = 0;
-            source++;
-
-            /* find this color in the palette */
-            int k;
-            bool isGray = c.rgbRed == c.rgbGreen && c.rgbRed == c.rgbBlue;
-            if (isGray) {
-                k = grayIdxs[c.rgbRed] || palette[0] == *(u32*)&c ? grayIdxs[c.rgbRed] : paletteSize;
-            } else {
-                for (k = 0; k < paletteSize && palette[k] != *(u32*)&c; k++) {
-                    ;
-                }
-            }
-            /* add it to the palette if it isn't in there and if there's still space left */
-            if (k == paletteSize) {
-                if (++paletteSize > 256) {
-                    free(bmpData);
-                    return nullptr;
-                }
-                if (isGray) {
-                    grayIdxs[c.rgbRed] = (BYTE)k;
-                }
-                palette[k] = *(u32*)&c;
-            }
-            /* 8-bit data consists of indices into the color palette */
-            *dest++ = k;
-        }
-        dest += rows8 - w;
+    if (!bmi.Get()) {
+        return nullptr;
     }
-
     BITMAPINFOHEADER* bmih = &bmi.Get()->bmiHeader;
     bmih->biSize = sizeof(*bmih);
     bmih->biWidth = w;
@@ -906,18 +862,92 @@ static RenderedBitmap* TryRenderAsPaletteImage(fz_pixmap* pixmap) {
     bmih->biPlanes = 1;
     bmih->biCompression = BI_RGB;
     bmih->biBitCount = 8;
-    bmih->biSizeImage = h * rows8;
-    bmih->biClrUsed = paletteSize;
+    bmih->biSizeImage = h * stride;
+    bmih->biClrUsed = 256;
 
     void* data = nullptr;
     HANDLE hMap = CreateFileMapping(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, bmih->biSizeImage, nullptr);
     HBITMAP hbmp = CreateDIBSection(nullptr, bmi, DIB_RGB_COLORS, &data, hMap, 0);
     if (!hbmp) {
-        free(bmpData);
+        if (hMap) {
+            CloseHandle(hMap);
+        }
         return nullptr;
     }
-    memcpy(data, bmpData, bmih->biSizeImage);
-    free(bmpData);
+
+    u32* palette = (u32*)bmi.Get()->bmiColors;
+
+    // open-addressed hash table for color -> palette index lookup.
+    // key is RGB in source byte order (R | G<<8 | B<<16); empty slot = -1.
+    // kHashSize = 1,024 slots (4x the 256 max palette entries -> load factor <= 25%).
+    // hashIdx is 1,024 * 2 = 2,048 bytes; hashKey is 1,024 * 4 = 4,096 bytes; 6 KB total on the stack.
+    constexpr int kHashBits = 10;
+    constexpr int kHashSize = 1 << kHashBits;
+    constexpr u32 kHashMask = kHashSize - 1;
+    i16 hashIdx[kHashSize];
+    u32 hashKey[kHashSize];
+    memset(hashIdx, 0xFF, sizeof(hashIdx));
+
+    u8* dest = (u8*)data;
+    u8* source = pixmap->samples;
+    int paletteSize = 0;
+    int padding = stride - w;
+    // sentinel that can't equal any masked pixel (alpha bits would be 0)
+    u32 lastPx = 0xFFFFFFFFu;
+    int lastIdx = 0;
+
+    for (int j = 0; j < h; j++) {
+        for (int i = 0; i < w; i++) {
+            u32 px = *(u32*)source & 0x00FFFFFFu;
+            source += 4;
+
+            if (px == lastPx) {
+                *dest++ = (u8)lastIdx;
+                continue;
+            }
+
+            u32 slot = (px * 2654435761u) >> (32 - kHashBits);
+            int k;
+            for (;;) {
+                int idx = hashIdx[slot];
+                if (idx < 0) {
+                    if (paletteSize >= 256) {
+                        DeleteObject(hbmp);
+                        if (hMap) {
+                            CloseHandle(hMap);
+                        }
+                        return nullptr;
+                    }
+                    k = paletteSize++;
+                    hashKey[slot] = px;
+                    hashIdx[slot] = (i16)k;
+                    // palette is BGR0 (RGBQUAD layout); source is RGBA, so swap R and B
+                    palette[k] = ((px & 0xFFu) << 16) | (px & 0xFF00u) | ((px >> 16) & 0xFFu);
+                    break;
+                }
+                if (hashKey[slot] == px) {
+                    k = idx;
+                    break;
+                }
+                slot = (slot + 1) & kHashMask;
+            }
+            lastPx = px;
+            lastIdx = k;
+            *dest++ = (u8)k;
+        }
+        dest += padding;
+    }
+
+    bmih->biClrUsed = paletteSize;
+    // CreateDIBSection snapshotted the (empty) color table at call time, so push the
+    // palette we just built into the DIB now via SetDIBColorTable.
+    HDC hdc = CreateCompatibleDC(nullptr);
+    if (hdc) {
+        HGDIOBJ oldBmp = SelectObject(hdc, hbmp);
+        SetDIBColorTable(hdc, 0, paletteSize, (RGBQUAD*)palette);
+        SelectObject(hdc, oldBmp);
+        DeleteDC(hdc);
+    }
     return new RenderedBitmap(hbmp, Size(w, h), hMap);
 }
 
