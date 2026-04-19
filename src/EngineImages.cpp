@@ -64,12 +64,12 @@ struct ImagePage {
     bool ownBmp = true;
     bool failedToLoad = false;
     // true while LoadBitmapForPage is running on a worker; concurrent GetPage
-    // callers wait on loadedEvent instead of serializing on cacheAccess
+    // callers wait on loadedEvent instead of serializing on cacheLock
     bool loading = false;
 
     // refcount: cache holds 1, every successful GetPage adds 1.
     // mutated atomically so DropPage's common case (refs > 0 after decrement)
-    // doesn't need to acquire cacheAccess. ++ stays under cacheAccess in GetPage
+    // doesn't need to acquire cacheLock. ++ stays under cacheLock in GetPage
     // because we need exclusion against eviction-in-progress.
     AtomicInt refs = 1;
 
@@ -133,7 +133,7 @@ class EngineImages : public EngineBase {
 
     ScopedComPtr<IStream> fileStream;
 
-    CRITICAL_SECTION cacheAccess;
+    CRITICAL_SECTION cacheLock;
     Vec<ImagePage*> pageCache;
     Vec<ImagePageInfo*> pageInfos;
 
@@ -158,19 +158,19 @@ EngineImages::EngineImages() {
     preferredLayout.nonContinuous = true;
     isImageCollection = true;
 
-    InitializeCriticalSection(&cacheAccess);
+    InitializeCriticalSection(&cacheLock);
 }
 
 EngineImages::~EngineImages() {
-    EnterCriticalSection(&cacheAccess);
+    EnterCriticalSection(&cacheLock);
     while (pageCache.size() > 0) {
         ImagePage* lastPage = pageCache.Last();
         ReportIf(lastPage->refs != 1);
         DropPage(lastPage, true);
     }
     DeleteVecMembers(pageInfos);
-    LeaveCriticalSection(&cacheAccess);
-    DeleteCriticalSection(&cacheAccess);
+    LeaveCriticalSection(&cacheLock);
+    DeleteCriticalSection(&cacheLock);
 }
 
 RectF EngineImages::PageMediabox(int pageNo) {
@@ -391,7 +391,7 @@ ImagePage* EngineImages::GetPage(int pageNo, bool tryOnly) {
     bool waitForLoad = false;
 
     {
-        ScopedCritSec scope(&cacheAccess);
+        ScopedCritSec scope(&cacheLock);
 
         for (size_t i = 0; i < pageCache.size(); i++) {
             if (pageCache.at(i)->pageNo == pageNo) {
@@ -410,7 +410,7 @@ ImagePage* EngineImages::GetPage(int pageNo, bool tryOnly) {
                 DropPage(pageCache.Last(), true);
             }
             // insert a loading placeholder; do the actual decode without
-            // holding cacheAccess so other threads can keep using the cache
+            // holding cacheLock so other threads can keep using the cache
             result = new ImagePage(pageNo, nullptr);
             result->loading = true;
             pageCache.InsertAt(0, result);
@@ -430,13 +430,13 @@ ImagePage* EngineImages::GetPage(int pageNo, bool tryOnly) {
     }
 
     if (isLoader) {
-        // Slow path: decode without cacheAccess held. The page is pinned
+        // Slow path: decode without cacheLock held. The page is pinned
         // (refs >= 2) so it can't be deleted under us, even if some other
         // thread evicts it from the cache while we're working.
         bool ownBmp = true;
         Bitmap* bmp = LoadBitmapForPage(pageNo, ownBmp);
         {
-            ScopedCritSec scope(&cacheAccess);
+            ScopedCritSec scope(&cacheLock);
             result->bmp = bmp;
             result->ownBmp = ownBmp;
             if (!bmp) {
@@ -464,7 +464,7 @@ void EngineImages::DropPage(ImagePage* page, bool forceRemove) {
     }
 
     {
-        ScopedCritSec scope(&cacheAccess);
+        ScopedCritSec scope(&cacheLock);
         // pageCache.Remove is a no-op if the page was already evicted earlier
         pageCache.Remove(page);
     }
@@ -1721,7 +1721,7 @@ class EngineCbx : public EngineImages {
 
     ByteSlice GetImageData(int pageNo);
 
-    // access to cbxFile must be protected after initialization (with cacheAccess)
+    // access to cbxFile must be protected after initialization (with cacheLock)
     MultiFormatArchive* cbxArchive = nullptr;
     Vec<MultiFormatArchive::FileInfo*> files;
     TocTree* tocTree = nullptr;
