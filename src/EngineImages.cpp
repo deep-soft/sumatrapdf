@@ -1979,10 +1979,18 @@ static void GumboFreeWrapper(void*, void* ptr) {
 // extract ComicInfo.xml metadata
 // cf. http://comicrack.cyolito.com/downloads/comicrack/ComicRack/Support-Files/ComicInfoSchema.zip/
 void ComicInfoParser::Parse(const ByteSlice& xmlData) {
-    // TODO: convert UTF-16 data and skip UTF-8 BOM
     if (xmlData.empty()) {
         return;
     }
+    // Detect the encoding from a leading BOM and produce UTF-8 (gumbo expects
+    // UTF-8 input). Handles UTF-8, UTF-16 LE, and UTF-16 BE BOMs; if there's
+    // no BOM the data is treated as UTF-8 (ComicInfo.xml's spec encoding).
+    TempStr utf8 = strconv::UnknownToUtf8Temp((const char*)xmlData.data(), xmlData.size());
+    if (!utf8) {
+        return;
+    }
+    size_t utf8Len = str::Len(utf8);
+
     // Build our own options instead of using kGumboDefaultOptions: that's a
     // data extern, awkward to import across the libmupdf.dll boundary.
     GumboOptions opts{};
@@ -1994,7 +2002,7 @@ void ComicInfoParser::Parse(const ByteSlice& xmlData) {
     opts.max_errors = -1;
     opts.fragment_context = GUMBO_TAG_LAST;
     opts.fragment_namespace = GUMBO_NAMESPACE_HTML;
-    GumboOutput* output = gumbo_parse_with_options(&opts, (const char*)xmlData.data(), xmlData.size());
+    GumboOutput* output = gumbo_parse_with_options(&opts, utf8, utf8Len);
     if (!output) {
         return;
     }

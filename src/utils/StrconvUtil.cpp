@@ -131,8 +131,12 @@ TempStr StrToUtf8Temp(const char* src, uint codePage) {
 // tries to convert a string in unknown encoding to utf8, as best
 // as it can
 // caller has to free() it
-TempStr UnknownToUtf8Temp(const char* s) {
-    size_t len = str::Len(s);
+// pass cb = (size_t)-1 to have it auto-computed via str::Len (requires s
+// to be null-terminated). When the length is already known, pass it
+// directly to avoid the extra strlen scan -- the input doesn't need to
+// be null-terminated in that case.
+TempStr UnknownToUtf8Temp(const char* s, size_t cb) {
+    size_t len = (cb == (size_t)-1) ? str::Len(s) : cb;
 
     if (len < 3) {
         return str::DupTemp(s, len);
