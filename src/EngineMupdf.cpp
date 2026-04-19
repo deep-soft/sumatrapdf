@@ -2907,7 +2907,9 @@ FzPageInfo* EngineMupdf::GetFzPageInfo(int pageNo, bool loadQuick, fz_cookie* co
         return nullptr;
     }
 
-    ScopedCritSec ctxScope(ctxAccess);
+    // page-running operations on this specific page run under per-page lock.
+    // pagesAccess (held above) serializes concurrent fz_load_page on _doc.
+    ScopedCritSec ctxScope(&pageInfo->renderLock);
     if (!pageInfo->page) {
         fz_try(ctx) {
             pageInfo->page = fz_load_page(ctx, _doc, pageIdx);
@@ -2997,7 +2999,8 @@ RectF EngineMupdf::PageContentBox(int pageNo, RenderTarget target) {
         return RectF();
     }
 
-    ScopedCritSec scope(ctxAccess);
+    // page-running operation: serialize on per-page lock instead of global ctxAccess
+    ScopedCritSec scope(&pageInfo->renderLock);
 
     fz_cookie fzcookie{};
     fz_rect rect = fz_empty_rect;
@@ -3081,7 +3084,10 @@ RenderedBitmap* EngineMupdf::RenderPage(RenderPageArgs& args) {
     }
     fz_page* page = pageInfo->page;
 
-    ScopedCritSec cs(ctxAccess);
+    // per-page lock: different pages render on different threads in parallel,
+    // but the same fz_page must not be run from two threads at once.
+    // ctx is per-thread (Ctx() clones), so AA level on this ctx is also per-thread.
+    ScopedCritSec cs(&pageInfo->renderLock);
 
     if (disableAntiAlias) {
         fz_set_aa_level(ctx, 0);
@@ -3349,7 +3355,8 @@ PageText EngineMupdf::ExtractPageText(int pageNo) {
         return {};
     }
 
-    ScopedCritSec scope(ctxAccess);
+    // page-running operation: serialize on per-page lock instead of global ctxAccess
+    ScopedCritSec scope(&pageInfo->renderLock);
 
     fz_stext_page* stext = nullptr;
     fz_var(stext);

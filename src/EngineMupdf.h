@@ -34,6 +34,15 @@ struct FzPageInfo {
     // if false, only loaded page (fast)
     // if true, loaded expensive info (extracted text etc.)
     bool fullyLoaded = false;
+
+    // serializes any operation that runs the underlying fz_page (rendering,
+    // text extraction, display-list construction). Different pages can run
+    // concurrently on different threads; the same page cannot.
+    // lock order: EngineMupdf::pagesAccess -> FzPageInfo::renderLock
+    CRITICAL_SECTION renderLock;
+
+    FzPageInfo() { InitializeCriticalSection(&renderLock); }
+    ~FzPageInfo() { DeleteCriticalSection(&renderLock); }
 };
 
 class EngineMupdf : public EngineBase {
