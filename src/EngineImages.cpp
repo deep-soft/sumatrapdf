@@ -59,7 +59,13 @@ struct ImagePage {
     Bitmap* bmp = nullptr;
     bool ownBmp = true;
     bool failedToLoad = false;
+    // true while LoadBitmapForPage is running on a worker; concurrent GetPage
+    // callers wait on loadedEvent instead of serializing on cacheAccess
+    bool loading = false;
     int refs = 1;
+
+    // manual-reset event, signaled when loading transitions to false
+    HANDLE loadedEvent = nullptr;
 
     // serializes GDI+ DrawImage calls against this->bmp -- a single Bitmap*
     // is not safe to draw from multiple threads concurrently. Different pages
@@ -70,8 +76,14 @@ struct ImagePage {
         this->pageNo = pageNo;
         this->bmp = bmp;
         InitializeCriticalSection(&drawLock);
+        loadedEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     }
-    ~ImagePage() { DeleteCriticalSection(&drawLock); }
+    ~ImagePage() {
+        DeleteCriticalSection(&drawLock);
+        if (loadedEvent) {
+            CloseHandle(loadedEvent);
+        }
+    }
 };
 
 struct ImagePageInfo {
@@ -365,42 +377,68 @@ bool EngineImages::SaveFileAs(const char* dstPath) {
 }
 
 ImagePage* EngineImages::GetPage(int pageNo, bool tryOnly) {
-    ScopedCritSec scope(&cacheAccess);
-
     ImagePage* result = nullptr;
+    bool isLoader = false;
+    bool waitForLoad = false;
 
-    for (size_t i = 0; i < pageCache.size(); i++) {
-        if (pageCache.at(i)->pageNo == pageNo) {
-            result = pageCache.at(i);
-            break;
+    {
+        ScopedCritSec scope(&cacheAccess);
+
+        for (size_t i = 0; i < pageCache.size(); i++) {
+            if (pageCache.at(i)->pageNo == pageNo) {
+                result = pageCache.at(i);
+                break;
+            }
         }
-    }
-    if (!result && tryOnly) {
-        return nullptr;
+        if (!result && tryOnly) {
+            return nullptr;
+        }
+
+        if (!result) {
+            // TODO: drop most memory intensive pages first
+            if (pageCache.size() >= MAX_IMAGE_PAGE_CACHE) {
+                ReportIf(pageCache.size() != MAX_IMAGE_PAGE_CACHE);
+                DropPage(pageCache.Last(), true);
+            }
+            // insert a loading placeholder; do the actual decode without
+            // holding cacheAccess so other threads can keep using the cache
+            result = new ImagePage(pageNo, nullptr);
+            result->loading = true;
+            pageCache.InsertAt(0, result);
+            isLoader = true;
+        } else if (result != pageCache.at(0)) {
+            // keep the list Most Recently Used first
+            pageCache.Remove(result);
+            pageCache.InsertAt(0, result);
+        }
+
+        if (!isLoader && result->loading) {
+            waitForLoad = true;
+        }
+        result->refs++;
     }
 
-    if (!result) {
-        // TODO: drop most memory intensive pages first
-        if (pageCache.size() >= MAX_IMAGE_PAGE_CACHE) {
-            ReportIf(pageCache.size() != MAX_IMAGE_PAGE_CACHE);
-            DropPage(pageCache.Last(), true);
+    if (isLoader) {
+        // Slow path: decode without cacheAccess held. The page is pinned
+        // (refs >= 2) so it can't be deleted under us, even if some other
+        // thread evicts it from the cache while we're working.
+        bool ownBmp = true;
+        Bitmap* bmp = LoadBitmapForPage(pageNo, ownBmp);
+        {
+            ScopedCritSec scope(&cacheAccess);
+            result->bmp = bmp;
+            result->ownBmp = ownBmp;
+            if (!bmp) {
+                result->failedToLoad = true;
+            }
+            result->loading = false;
         }
-        result = new ImagePage(pageNo, nullptr);
-        result->bmp = LoadBitmapForPage(pageNo, result->ownBmp);
-        if (!result->bmp) {
-            result->failedToLoad = true;
-        }
-        pageCache.InsertAt(0, result);
-    } else if (result != pageCache.at(0)) {
-        // keep the list Most Recently Used first
-        pageCache.Remove(result);
-        pageCache.InsertAt(0, result);
-    }
-    if (!result) {
-        return nullptr;
+        SetEvent(result->loadedEvent);
+    } else if (waitForLoad) {
+        // Another thread is decoding this same page; wait for it to finish.
+        WaitForSingleObject(result->loadedEvent, INFINITE);
     }
 
-    result->refs++;
     return result;
 }
 
