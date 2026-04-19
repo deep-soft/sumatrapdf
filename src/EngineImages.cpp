@@ -49,8 +49,12 @@ Kind kindEngineImage = "engineImage";
 Kind kindEngineImageDir = "engineImageDir";
 Kind kindEngineComicBooks = "engineComicBooks";
 
-// number of decoded bitmaps to cache for quicker rendering
-#define MAX_IMAGE_PAGE_CACHE 10
+// number of decoded bitmaps to cache for quicker rendering.
+// Sized for multi-threaded prefetch: enough to hold a few visible pages,
+// the worker pool's in-flight pages, and a few prefetch slots without
+// thrashing. Each cached entry holds the decoded GDI+ Bitmap, so the
+// memory cost scales with image dimensions -- bump cautiously.
+#define MAX_IMAGE_PAGE_CACHE 32
 
 ///// EngineImages methods apply to all types of engines handling full-page images /////
 
@@ -62,7 +66,12 @@ struct ImagePage {
     // true while LoadBitmapForPage is running on a worker; concurrent GetPage
     // callers wait on loadedEvent instead of serializing on cacheAccess
     bool loading = false;
-    int refs = 1;
+
+    // refcount: cache holds 1, every successful GetPage adds 1.
+    // mutated atomically so DropPage's common case (refs > 0 after decrement)
+    // doesn't need to acquire cacheAccess. ++ stays under cacheAccess in GetPage
+    // because we need exclusion against eviction-in-progress.
+    AtomicInt refs = 1;
 
     // manual-reset event, signaled when loading transitions to false
     HANDLE loadedEvent = nullptr;
@@ -415,7 +424,9 @@ ImagePage* EngineImages::GetPage(int pageNo, bool tryOnly) {
         if (!isLoader && result->loading) {
             waitForLoad = true;
         }
-        result->refs++;
+        // ++ under lock: prevents racing with eviction that would otherwise
+        // delete the page between our lookup and our ref bump.
+        AtomicIntInc(&result->refs);
     }
 
     if (isLoader) {
@@ -443,15 +454,22 @@ ImagePage* EngineImages::GetPage(int pageNo, bool tryOnly) {
 }
 
 void EngineImages::DropPage(ImagePage* page, bool forceRemove) {
-    ScopedCritSec scope(&cacheAccess);
-    page->refs--;
-    ReportIf(page->refs < 0);
+    int newRefs = AtomicIntDec(&page->refs);
+    ReportIf(newRefs < 0);
 
-    if (0 == page->refs || forceRemove) {
+    // common case: ref still held by someone (typically the cache) -- no lock,
+    // no removal, just return. This is the hot path during render workloads.
+    if (newRefs > 0 && !forceRemove) {
+        return;
+    }
+
+    {
+        ScopedCritSec scope(&cacheAccess);
+        // pageCache.Remove is a no-op if the page was already evicted earlier
         pageCache.Remove(page);
     }
 
-    if (0 == page->refs) {
+    if (newRefs == 0) {
         if (page->ownBmp) {
             delete page->bmp;
         }
