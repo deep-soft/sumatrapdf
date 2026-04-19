@@ -71,8 +71,6 @@ struct ImagePage {
     // the mupdf render path doesn't handle yet).
     Bitmap* bmp = nullptr;
     fz_pixmap* pix = nullptr;
-    // engine's shared fz_context, stashed so the dtor can drop pix
-    fz_context* fz_ctx = nullptr;
     bool ownBmp = true;
     bool failedToLoad = false;
     // true while LoadBitmapForPage / LoadFzPixmapForPage is running on a worker;
@@ -106,8 +104,8 @@ struct ImagePage {
         if (loadedEvent) {
             CloseHandle(loadedEvent);
         }
-        // pix is dropped by DropPage before delete (it holds the fzCtxLock
-        // needed to safely call into mupdf).
+        // pix is dropped by DropPage before delete (it needs the engine's
+        // per-thread fz_context to call into mupdf safely).
         ReportIf(pix);
     }
 };
@@ -154,13 +152,20 @@ class EngineImages : public EngineBase {
     Vec<ImagePage*> pageCache;
     Vec<ImagePageInfo*> pageInfos;
 
-    // shared mupdf context for image decode + scaling. mupdf's per-context
-    // setjmp/error stack is NOT thread-safe even with the locks callbacks --
-    // two threads inside fz_try clobber each other's jmp_buf and a subsequent
-    // fz_throw longjmps into a stale stack frame and crashes. fzCtxLock
-    // serializes all our mupdf calls until per-thread context cloning lands.
+    // root mupdf context. Each thread that calls into mupdf gets its own
+    // cloned context via Ctx() -- mupdf's per-context setjmp/error stack
+    // is NOT thread-safe (concurrent fz_try would clobber each other's
+    // jmp_buf and fz_throw would longjmp into a stale stack frame). Cloned
+    // contexts share the underlying allocator/store/etc via refcounts.
     fz_context* fz_ctx = nullptr;
-    CRITICAL_SECTION fzCtxLock;
+    struct ThreadCtx {
+        DWORD threadID;
+        fz_context* ctx;
+    };
+    Vec<ThreadCtx> threadCtxs;
+    CRITICAL_SECTION threadCtxsLock;
+
+    fz_context* Ctx();
 
     void GetTransform(Matrix& m, int pageNo, float zoom, int rotation);
 
@@ -190,11 +195,43 @@ EngineImages::EngineImages() {
     isImageCollection = true;
 
     InitializeCriticalSection(&cacheLock);
-    InitializeCriticalSection(&fzCtxLock);
+    InitializeCriticalSection(&threadCtxsLock);
     fz_ctx = fz_new_context_windows();
 }
 
+fz_context* EngineImages::Ctx() {
+    DWORD tid = GetCurrentThreadId();
+    {
+        ScopedCritSec scope(&threadCtxsLock);
+        for (auto& tc : threadCtxs) {
+            if (tc.threadID == tid) {
+                return tc.ctx;
+            }
+        }
+    }
+    // clone outside the lock to avoid blocking other threads.
+    // safe because only the current thread can register an entry for its own tid.
+    fz_context* newCtx = fz_clone_context(fz_ctx);
+    if (!newCtx) {
+        return fz_ctx; // last-resort fallback; caller will serialize on the root
+    }
+    {
+        ScopedCritSec scope(&threadCtxsLock);
+        threadCtxs.Append({tid, newCtx});
+    }
+    return newCtx;
+}
+
 EngineImages::~EngineImages() {
+    // drop per-thread cloned contexts BEFORE pages: workers are no longer
+    // running by the time we destruct, so this just releases their refcounts
+    // on the shared mupdf state. Pages then drop their pixmaps via the root
+    // ctx in DropPage.
+    for (auto& tc : threadCtxs) {
+        fz_drop_context(tc.ctx);
+    }
+    threadCtxs.Reset();
+
     EnterCriticalSection(&cacheLock);
     while (pageCache.size() > 0) {
         ImagePage* lastPage = pageCache.Last();
@@ -204,11 +241,10 @@ EngineImages::~EngineImages() {
     DeleteVecMembers(pageInfos);
     LeaveCriticalSection(&cacheLock);
     DeleteCriticalSection(&cacheLock);
-    // drop fz_ctx after all pages (which may hold pixmaps allocated from it)
     if (fz_ctx) {
         fz_drop_context_windows(fz_ctx);
     }
-    DeleteCriticalSection(&fzCtxLock);
+    DeleteCriticalSection(&threadCtxsLock);
 }
 
 // Decode the page via mupdf into an fz_pixmap. Default implementation feeds
@@ -225,23 +261,18 @@ fz_pixmap* EngineImages::LoadFzPixmapForPage(fz_context* ctx, int pageNo) {
     fz_var(buf);
     fz_var(img);
     fz_var(pix);
-    {
-        // serialize ALL mupdf usage on this engine -- shared fz_context's
-        // setjmp/error stack would race otherwise (see fzCtxLock comment).
-        ScopedCritSec scope(&fzCtxLock);
-        fz_try(ctx) {
-            buf = fz_new_buffer_from_copied_data(ctx, data.data(), data.size());
-            img = fz_new_image_from_buffer(ctx, buf);
-            pix = fz_get_pixmap_from_image(ctx, img, nullptr, nullptr, nullptr, nullptr);
-        }
-        fz_always(ctx) {
-            fz_drop_image(ctx, img);
-            fz_drop_buffer(ctx, buf);
-        }
-        fz_catch(ctx) {
-            fz_report_error(ctx);
-            pix = nullptr;
-        }
+    fz_try(ctx) {
+        buf = fz_new_buffer_from_copied_data(ctx, data.data(), data.size());
+        img = fz_new_image_from_buffer(ctx, buf);
+        pix = fz_get_pixmap_from_image(ctx, img, nullptr, nullptr, nullptr, nullptr);
+    }
+    fz_always(ctx) {
+        fz_drop_image(ctx, img);
+        fz_drop_buffer(ctx, buf);
+    }
+    fz_catch(ctx) {
+        fz_report_error(ctx);
+        pix = nullptr;
     }
     data.Free();
     return pix;
@@ -354,23 +385,21 @@ RenderedBitmap* EngineImages::RenderPage(RenderPageArgs& args) {
         Rect mediaScreen = Transform(mediabox, pageNo, zoom, rotation).Round();
         bool isFullPage = (mediaScreen.dx == screen.dx && mediaScreen.dy == screen.dy);
         if (isFullPage) {
+            // Per-thread cloned context lets multiple workers scale concurrently.
+            fz_context* ctx = Ctx();
             RenderedBitmap* result = nullptr;
-            // serialize all mupdf usage; see fzCtxLock comment.
-            {
-                ScopedCritSec scope(&fzCtxLock);
-                fz_pixmap* scaled = nullptr;
-                fz_var(scaled);
-                fz_try(fz_ctx) {
-                    scaled = fz_scale_pixmap(fz_ctx, page->pix, 0, 0, (float)screen.dx, (float)screen.dy, nullptr);
-                }
-                fz_catch(fz_ctx) {
-                    fz_report_error(fz_ctx);
-                    scaled = nullptr;
-                }
-                if (scaled) {
-                    result = FzPixmapToRenderedBitmap(fz_ctx, scaled);
-                    fz_drop_pixmap(fz_ctx, scaled);
-                }
+            fz_pixmap* scaled = nullptr;
+            fz_var(scaled);
+            fz_try(ctx) {
+                scaled = fz_scale_pixmap(ctx, page->pix, 0, 0, (float)screen.dx, (float)screen.dy, nullptr);
+            }
+            fz_catch(ctx) {
+                fz_report_error(ctx);
+                scaled = nullptr;
+            }
+            if (scaled) {
+                result = FzPixmapToRenderedBitmap(ctx, scaled);
+                fz_drop_pixmap(ctx, scaled);
             }
             if (result) {
                 DropPage(page, false);
@@ -602,7 +631,6 @@ ImagePage* EngineImages::GetPage(int pageNo, bool tryOnly) {
             // insert a loading placeholder; do the actual decode without
             // holding cacheLock so other threads can keep using the cache
             result = new ImagePage(pageNo, nullptr);
-            result->fz_ctx = fz_ctx;
             result->loading = true;
             pageCache.InsertAt(0, result);
             isLoader = true;
@@ -626,7 +654,7 @@ ImagePage* EngineImages::GetPage(int pageNo, bool tryOnly) {
         // thread evicts it from the cache while we're working.
         // Try the mupdf pixmap path first; if it returns null (subclass opted
         // out, or decode failed), fall back to the GDI+ Bitmap path.
-        fz_pixmap* pix = LoadFzPixmapForPage(fz_ctx, pageNo);
+        fz_pixmap* pix = LoadFzPixmapForPage(Ctx(), pageNo);
         Bitmap* bmp = nullptr;
         bool ownBmp = true;
         if (!pix) {
@@ -672,8 +700,9 @@ void EngineImages::DropPage(ImagePage* page, bool forceRemove) {
             delete page->bmp;
         }
         if (page->pix) {
-            ScopedCritSec scope(&fzCtxLock);
-            fz_drop_pixmap(fz_ctx, page->pix);
+            // safe across threads: fz_drop_pixmap uses our per-thread cloned
+            // ctx for atomic refcount + dealloc via mupdf's locks callbacks.
+            fz_drop_pixmap(Ctx(), page->pix);
             page->pix = nullptr;
         }
         delete page;
