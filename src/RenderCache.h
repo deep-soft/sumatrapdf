@@ -104,7 +104,13 @@ struct RenderCache {
     PageRenderRequest* curReqs[kMaxRenderThreads]{};
     CRITICAL_SECTION requestAccess;
     HANDLE renderThreads[kMaxRenderThreads]{};
+    // Render threads are spawned lazily: nRenderThreads is the count actually
+    // running so far, maxRenderThreads is the cap. Threads track idleThreads
+    // (incremented when they're about to wait on startRendering); Render()
+    // only spawns a fresh thread when no idle one is available.
     int nRenderThreads = 0;
+    int maxRenderThreads = 0;
+    int idleThreads = 0;
 
     Size maxTileSize{};
     bool isRemoteSession = false;

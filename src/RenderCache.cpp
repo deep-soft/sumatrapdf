@@ -57,18 +57,16 @@ RenderCache::RenderCache() : maxTileSize({GetSystemMetrics(SM_CXSCREEN), GetSyst
     SYSTEM_INFO si;
     GetSystemInfo(&si);
     int numCores = (int)si.dwNumberOfProcessors;
-    nRenderThreads = std::max(gMaxRenderThreads, numCores);
-    if (nRenderThreads > kMaxRenderThreads) {
-        nRenderThreads = kMaxRenderThreads;
+    maxRenderThreads = std::max(gMaxRenderThreads, numCores);
+    if (maxRenderThreads > kMaxRenderThreads) {
+        maxRenderThreads = kMaxRenderThreads;
     }
 
-    // use a semaphore so each queued request wakes one thread
+    // use a semaphore so each queued request wakes one thread.
+    // threads themselves are spawned lazily in Render() when work appears
+    // and no idle thread is available -- many sessions only ever need a
+    // couple of render threads, so creating 8+ upfront is wasteful.
     startRendering = CreateSemaphoreW(nullptr, 0, INT_MAX, nullptr);
-    for (int i = 0; i < nRenderThreads; i++) {
-        auto* data = new RenderThreadData{this, i};
-        renderThreads[i] = CreateThread(nullptr, 0, RenderCacheThread, data, 0, nullptr);
-        ReportIf(nullptr == renderThreads[i]);
-    }
 }
 
 RenderCache::~RenderCache() {
@@ -77,17 +75,20 @@ RenderCache::~RenderCache() {
 
     // signal all threads to exit
     AtomicBoolSet(&shouldExit, true);
-    // wake all threads waiting on the semaphore
-    ReleaseSemaphore(startRendering, nRenderThreads, nullptr);
 
-    // wait for all threads to finish
-    DWORD res = WaitForMultipleObjects((DWORD)nRenderThreads, renderThreads, TRUE, 5000);
-    if (res == WAIT_TIMEOUT) {
-        logf("RenderCache::~RenderCache: threads didn't exit in 5 seconds\n");
-    }
+    if (nRenderThreads > 0) {
+        // wake all threads waiting on the semaphore
+        ReleaseSemaphore(startRendering, nRenderThreads, nullptr);
 
-    for (int i = 0; i < nRenderThreads; i++) {
-        CloseHandle(renderThreads[i]);
+        // wait for all threads to finish
+        DWORD res = WaitForMultipleObjects((DWORD)nRenderThreads, renderThreads, TRUE, 5000);
+        if (res == WAIT_TIMEOUT) {
+            logf("RenderCache::~RenderCache: threads didn't exit in 5 seconds\n");
+        }
+
+        for (int i = 0; i < nRenderThreads; i++) {
+            CloseHandle(renderThreads[i]);
+        }
     }
     CloseHandle(startRendering);
 
@@ -607,6 +608,20 @@ bool RenderCache::Render(DisplayModel* dm, int pageNo, int rotation, float zoom,
 
     ReleaseSemaphore(startRendering, 1, nullptr);
 
+    // Lazy thread spawn: if no thread is currently waiting and we're below
+    // the cap, start a new one. Existing busy threads will pick up the work
+    // when they finish their current task.
+    if (idleThreads == 0 && nRenderThreads < maxRenderThreads) {
+        int idx = nRenderThreads;
+        auto* td = new RenderThreadData{this, idx};
+        renderThreads[idx] = CreateThread(nullptr, 0, RenderCacheThread, td, 0, nullptr);
+        if (renderThreads[idx]) {
+            nRenderThreads++;
+        } else {
+            delete td;
+        }
+    }
+
     return true;
 }
 
@@ -732,7 +747,18 @@ static DWORD WINAPI RenderCacheThread(LPVOID data) {
             break;
         }
         if (cache->ClearCurrentRequest(threadIdx)) {
+            // Mark ourselves idle so Render() knows whether to spawn a new
+            // thread when work appears. Increment before waiting, decrement
+            // after waking (whether due to new work or shutdown).
+            {
+                ScopedCritSec scope(&cache->requestAccess);
+                cache->idleThreads++;
+            }
             DWORD waitResult = WaitForSingleObject(cache->startRendering, INFINITE);
+            {
+                ScopedCritSec scope(&cache->requestAccess);
+                cache->idleThreads--;
+            }
             if (AtomicBoolGet(&cache->shouldExit)) {
                 break;
             }
