@@ -7,8 +7,7 @@
 #include "utils/FileUtil.h"
 #include "utils/GuessFileType.h"
 #include "utils/GdiPlusUtil.h"
-#include "utils/HtmlParserLookup.h"
-#include "utils/HtmlPullParser.h"
+#include "../ext/gumbo-parser/src/gumbo.h"
 #include "utils/JsonParser.h"
 #include "utils/WinUtil.h"
 #include "utils/Timer.h"
@@ -1872,58 +1871,135 @@ struct ComicInfoParser : json::ValueVisitor {
     void Parse(const ByteSlice& xmlData);
 };
 
-static TempStr GetTextContentTemp(HtmlPullParser& parser) {
-    HtmlToken* tok = parser.Next();
-    if (!tok || !tok->IsText()) {
+// True if this gumbo node is an element whose tag name (case-insensitive)
+// matches `name`. ComicInfo uses PascalCase tag names that gumbo treats as
+// GUMBO_TAG_UNKNOWN, so we read the original-source tag bytes for those.
+static bool GumboTagNameIs(const GumboNode* node, const char* name) {
+    if (node->type != GUMBO_NODE_ELEMENT) {
+        return false;
+    }
+    const char* tag;
+    size_t tagLen;
+    if (node->v.element.tag != GUMBO_TAG_UNKNOWN) {
+        tag = gumbo_normalized_tagname(node->v.element.tag);
+        tagLen = str::Len(tag);
+    } else {
+        const char* s = node->v.element.original_tag.data;
+        const char* sentinel = s + node->v.element.original_tag.length;
+        if (s < sentinel && s[0] == '<') {
+            s++;
+        }
+        const char* end = s;
+        while (end < sentinel && end[0] != '>' && end[0] != '/' && end[0] != ' ' && end[0] != '\t' && end[0] != '\n' &&
+               end[0] != '\r') {
+            end++;
+        }
+        tag = s;
+        tagLen = (size_t)(end - s);
+    }
+    return str::EqNIx(tag, tagLen, name);
+}
+
+// Concatenated text content of an element's direct children.
+static TempStr GumboTextContentTemp(const GumboNode* node) {
+    if (!node || node->type != GUMBO_NODE_ELEMENT) {
         return nullptr;
     }
-    return ResolveHtmlEntitiesTemp(tok->s, tok->sLen);
+    str::Str sb;
+    const GumboVector* children = &node->v.element.children;
+    for (unsigned int i = 0; i < children->length; i++) {
+        const GumboNode* child = (const GumboNode*)children->data[i];
+        if (child->type == GUMBO_NODE_TEXT || child->type == GUMBO_NODE_WHITESPACE || child->type == GUMBO_NODE_CDATA) {
+            sb.Append(child->v.text.text);
+        }
+    }
+    if (sb.IsEmpty()) {
+        return nullptr;
+    }
+    return str::DupTemp(sb.LendData());
+}
+
+static void ComicInfoVisitNode(ComicInfoParser* cip, const GumboNode* node) {
+    if (!node) {
+        return;
+    }
+    if (node->type == GUMBO_NODE_ELEMENT) {
+        if (GumboTagNameIs(node, "Title")) {
+            TempStr v = GumboTextContentTemp(node);
+            if (v) {
+                cip->Visit("/ComicBookInfo/1.0/title", v, json::Type::String);
+            }
+        } else if (GumboTagNameIs(node, "Year")) {
+            TempStr v = GumboTextContentTemp(node);
+            if (v) {
+                cip->Visit("/ComicBookInfo/1.0/publicationYear", v, json::Type::Number);
+            }
+        } else if (GumboTagNameIs(node, "Month")) {
+            TempStr v = GumboTextContentTemp(node);
+            if (v) {
+                cip->Visit("/ComicBookInfo/1.0/publicationMonth", v, json::Type::Number);
+            }
+        } else if (GumboTagNameIs(node, "Summary")) {
+            TempStr v = GumboTextContentTemp(node);
+            if (v) {
+                cip->Visit("/X-summary", v, json::Type::String);
+            }
+        } else if (GumboTagNameIs(node, "Writer")) {
+            TempStr v = GumboTextContentTemp(node);
+            if (v) {
+                cip->Visit("/ComicBookInfo/1.0/credits[0]/person", v, json::Type::String);
+                cip->Visit("/ComicBookInfo/1.0/credits[0]/primary", "true", json::Type::Bool);
+            }
+        } else if (GumboTagNameIs(node, "Penciller")) {
+            TempStr v = GumboTextContentTemp(node);
+            if (v) {
+                cip->Visit("/ComicBookInfo/1.0/credits[1]/person", v, json::Type::String);
+                cip->Visit("/ComicBookInfo/1.0/credits[1]/primary", "true", json::Type::Bool);
+            }
+        }
+        const GumboVector* children = &node->v.element.children;
+        for (unsigned int i = 0; i < children->length; i++) {
+            ComicInfoVisitNode(cip, (const GumboNode*)children->data[i]);
+        }
+    } else if (node->type == GUMBO_NODE_DOCUMENT) {
+        const GumboVector* children = &node->v.document.children;
+        for (unsigned int i = 0; i < children->length; i++) {
+            ComicInfoVisitNode(cip, (const GumboNode*)children->data[i]);
+        }
+    }
+}
+
+static void* GumboMallocWrapper(void*, size_t size) {
+    return malloc(size);
+}
+static void GumboFreeWrapper(void*, void* ptr) {
+    free(ptr);
 }
 
 // extract ComicInfo.xml metadata
 // cf. http://comicrack.cyolito.com/downloads/comicrack/ComicRack/Support-Files/ComicInfoSchema.zip/
 void ComicInfoParser::Parse(const ByteSlice& xmlData) {
     // TODO: convert UTF-16 data and skip UTF-8 BOM
-    HtmlPullParser parser(xmlData);
-    HtmlToken* tok;
-    while ((tok = parser.Next()) != nullptr && !tok->IsError()) {
-        if (!tok->IsStartTag()) {
-            continue;
-        }
-        if (tok->NameIs("Title")) {
-            TempStr value = GetTextContentTemp(parser);
-            if (value) {
-                Visit("/ComicBookInfo/1.0/title", value, json::Type::String);
-            }
-        } else if (tok->NameIs("Year")) {
-            TempStr value = GetTextContentTemp(parser);
-            if (value) {
-                Visit("/ComicBookInfo/1.0/publicationYear", value, json::Type::Number);
-            }
-        } else if (tok->NameIs("Month")) {
-            TempStr value = GetTextContentTemp(parser);
-            if (value) {
-                Visit("/ComicBookInfo/1.0/publicationMonth", value, json::Type::Number);
-            }
-        } else if (tok->NameIs("Summary")) {
-            TempStr value = GetTextContentTemp(parser);
-            if (value) {
-                Visit("/X-summary", value, json::Type::String);
-            }
-        } else if (tok->NameIs("Writer")) {
-            TempStr value = GetTextContentTemp(parser);
-            if (value) {
-                Visit("/ComicBookInfo/1.0/credits[0]/person", value, json::Type::String);
-                Visit("/ComicBookInfo/1.0/credits[0]/primary", "true", json::Type::Bool);
-            }
-        } else if (tok->NameIs("Penciller")) {
-            TempStr value = GetTextContentTemp(parser);
-            if (value) {
-                Visit("/ComicBookInfo/1.0/credits[1]/person", value, json::Type::String);
-                Visit("/ComicBookInfo/1.0/credits[1]/primary", "true", json::Type::Bool);
-            }
-        }
+    if (xmlData.empty()) {
+        return;
     }
+    // Build our own options instead of using kGumboDefaultOptions: that's a
+    // data extern, awkward to import across the libmupdf.dll boundary.
+    GumboOptions opts{};
+    opts.allocator = GumboMallocWrapper;
+    opts.deallocator = GumboFreeWrapper;
+    opts.userdata = nullptr;
+    opts.tab_stop = 8;
+    opts.stop_on_first_error = false;
+    opts.max_errors = -1;
+    opts.fragment_context = GUMBO_TAG_LAST;
+    opts.fragment_namespace = GUMBO_NAMESPACE_HTML;
+    GumboOutput* output = gumbo_parse_with_options(&opts, (const char*)xmlData.data(), xmlData.size());
+    if (!output) {
+        return;
+    }
+    ComicInfoVisitNode(this, output->document);
+    gumbo_destroy_output(&opts, output);
 }
 
 // extract ComicBookInfo metadata
