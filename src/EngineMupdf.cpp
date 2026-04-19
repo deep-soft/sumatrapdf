@@ -1757,7 +1757,8 @@ EngineMupdf::EngineMupdf() {
         InitializeCriticalSection(&mutexes[i]);
     }
     InitializeCriticalSection(&pagesAccess);
-    ctxAccess = &mutexes[FZ_LOCK_ALLOC];
+    InitializeCriticalSection(&ctxAccessCS);
+    ctxAccess = &ctxAccessCS;
 
     fz_locks_ctx.user = this;
     fz_locks_ctx.lock = fz_lock_context_cs;
@@ -1816,6 +1817,7 @@ EngineMupdf::~EngineMupdf() {
     }
     LeaveCriticalSection(&pagesAccess);
     DeleteCriticalSection(&pagesAccess);
+    DeleteCriticalSection(&ctxAccessCS);
 
     DeInitializeEngineMupdf();
 }

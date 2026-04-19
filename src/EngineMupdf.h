@@ -75,7 +75,13 @@ class EngineMupdf : public EngineBase {
 
     // make sure to never ask for pagesAccess in an ctxAccess
     // protected critical section in order to avoid deadlocks
+    // ctxAccess points to ctxAccessCS; kept as a pointer for historical call-site
+    // compatibility (most users pass it directly as a CRITICAL_SECTION*).
+    // It must NOT alias one of mutexes[] -- mupdf takes those briefly for its
+    // own internal coordination, and reusing one as a long-held outer lock would
+    // serialize every cloned-context allocation across all threads.
     CRITICAL_SECTION* ctxAccess;
+    CRITICAL_SECTION ctxAccessCS;
     CRITICAL_SECTION pagesAccess;
 
     CRITICAL_SECTION mutexes[FZ_LOCK_MAX];
