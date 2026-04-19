@@ -1757,6 +1757,7 @@ EngineMupdf::EngineMupdf() {
         InitializeCriticalSection(&fz_locks[i]);
     }
     InitializeCriticalSection(&pagesLock);
+    InitializeCriticalSection(&renderLock);
     InitializeCriticalSection(&docLock);
 
     fz_locks_ctx.user = this;
@@ -1819,6 +1820,7 @@ EngineMupdf::~EngineMupdf() {
     }
     LeaveCriticalSection(&pagesLock);
     DeleteCriticalSection(&pagesLock);
+    DeleteCriticalSection(&renderLock);
     DeleteCriticalSection(&docLock);
 
     DeInitializeEngineMupdf();
@@ -2911,7 +2913,7 @@ FzPageInfo* EngineMupdf::GetFzPageInfo(int pageNo, bool loadQuick, fz_cookie* co
 
     // page-running operations on this specific page run under per-page lock.
     // pagesLock (held above) serializes concurrent fz_load_page on _doc.
-    ScopedCritSec ctxScope(&pageInfo->renderLock);
+    ScopedCritSec ctxScope(&renderLock);
     if (!pageInfo->page) {
         fz_try(ctx) {
             pageInfo->page = fz_load_page(ctx, _doc, pageIdx);
@@ -3029,7 +3031,7 @@ RectF EngineMupdf::PageContentBox(int pageNo, RenderTarget target) {
     fz_display_list* keptList = nullptr;
     {
         // Hold per-page lock briefly: page bounds + (re-)acquire cached display list.
-        ScopedCritSec scope(&pageInfo->renderLock);
+        ScopedCritSec scope(&renderLock);
         pagerect = fz_bound_page(ctx, pageInfo->page);
         keptList = GetOrBuildPageDisplayList(pageInfo, ctx);
     }
@@ -3126,7 +3128,7 @@ RenderedBitmap* EngineMupdf::RenderPage(RenderPageArgs& args) {
 
     {
         // Hold per-page lock while we touch the page (bounds, optional list build).
-        ScopedCritSec cs(&pageInfo->renderLock);
+        ScopedCritSec cs(&renderLock);
 
         if (pageRect) {
             pRect = ToFzRect(*pageRect);
@@ -3152,8 +3154,11 @@ RenderedBitmap* EngineMupdf::RenderPage(RenderPageArgs& args) {
     fz_var(bitmap);
 
     if (keptList) {
-        // Lock-free render path: display lists are safe to run concurrently
-        // across cloned fz_contexts.
+        // Display-list replay still decodes shared images (JBIG2 etc.) under
+        // the hood, and mupdf's image store races on concurrent decode of the
+        // same image -- crashes seen in template_image_compose_opt with use-
+        // after-free. Hold renderLock to serialize.
+        ScopedCritSec rls(&renderLock);
         fz_try(ctx) {
             pix = fz_new_pixmap_with_bbox(ctx, csRgb, ibounds, nullptr, 1);
             fz_clear_pixmap_with_value(ctx, pix, 0xff);
@@ -3182,7 +3187,7 @@ RenderedBitmap* EngineMupdf::RenderPage(RenderPageArgs& args) {
     // Fallback: Print or hideAnnotations (each needs different content/usage,
     // not what the cached display list captured), or display-list construction
     // failed. Run the page directly under per-page lock.
-    ScopedCritSec cs(&pageInfo->renderLock);
+    ScopedCritSec cs(&renderLock);
 
     const char* usage = "View";
     switch (args.target) {
@@ -3414,7 +3419,7 @@ PageText EngineMupdf::ExtractPageText(int pageNo) {
     }
 
     // page-running operation: serialize on per-page lock instead of global docLock
-    ScopedCritSec scope(&pageInfo->renderLock);
+    ScopedCritSec scope(&renderLock);
 
     fz_stext_page* stext = nullptr;
     fz_var(stext);
@@ -4243,7 +4248,7 @@ NO_INLINE void MarkNotificationAsModified(EngineMupdf* e, Annotation* annot, Ann
     // render rebuilds with the new state.
     {
         auto ctx = e->Ctx();
-        ScopedCritSec rl(&pageInfo->renderLock);
+        ScopedCritSec rl(&e->renderLock);
         if (pageInfo->displayList) {
             fz_drop_display_list(ctx, pageInfo->displayList);
             pageInfo->displayList = nullptr;
