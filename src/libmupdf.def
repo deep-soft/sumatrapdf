@@ -896,7 +896,9 @@ EXPORTS
 	heif_image_handle_get_width
 	heif_image_handle_get_height
 	heif_image_release
-	; gumbo-parser (used by EngineImages for ComicInfo.xml)
+	; gumbo-parser (used by EngineImages for ComicInfo.xml,
+	; ChmFile for TOC/index parsing)
 	gumbo_parse_with_options
 	gumbo_destroy_output
 	gumbo_normalized_tagname
+	gumbo_get_attribute
