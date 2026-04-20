@@ -92,6 +92,7 @@ StaticLink::~StaticLink() {
 MainWindow::MainWindow(HWND hwnd) {
     hwndFrame = hwnd;
     linkHandler = new LinkHandler(this);
+    cbHandler = CreateControllerCallbackHandler(this);
 }
 
 static WORD dotPatternBmp[8] = {0x00aa, 0x0055, 0x00aa, 0x0055, 0x00aa, 0x0055, 0x00aa, 0x0055};

@@ -831,6 +831,10 @@ struct ControllerCallbackHandler : DocControllerCallback {
     void SaveDownload(const char* url, const ByteSlice&) override;
 };
 
+DocControllerCallback* CreateControllerCallbackHandler(MainWindow* win) {
+    return new ControllerCallbackHandler(win);
+}
+
 struct ThumbnailRenderData {
     const OnBitmapRendered* saveThumbnail = nullptr;
 };
@@ -1259,11 +1263,6 @@ DocController* gMostRecentlyOpenedDoc = nullptr;
 
 DocController* CreateControllerForEngineOrFile(EngineBase* engine, const char* path, PasswordUI* pwdUI,
                                                MainWindow* win) {
-    // TODO: move this to MainWindow constructor
-    if (!win->cbHandler) {
-        win->cbHandler = new ControllerCallbackHandler(win);
-    }
-
     auto timeStart = TimeGet();
     bool chmInFixedUI = gGlobalPrefs->chmUI.useFixedPageUI;
     // TODO: sniff file content only once
