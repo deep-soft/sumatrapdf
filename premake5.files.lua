@@ -1393,6 +1393,7 @@ function search_filter_files()
     "EngineBase.*",
     "EngineMupdf.*",
     "EngineMupdfImpl.*",
+    "GumboHelpers.*",
     "MobiDoc.*",
     "MUPDF_Exports.cpp",
     "PalmDbReader.*",
