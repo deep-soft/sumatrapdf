@@ -500,7 +500,6 @@ static bool PathHasNonAscii(const char* s) {
     return false;
 }
 
-
 /**
  * Convert a string encoded in the local character page (system ANSI code page) to UTF-8 encoding.
  *
@@ -537,7 +536,6 @@ char* ConvertLocalToUTF8(const char* localStr) {
     return utf8Buf;
 }
 
-
 TempStr CopyPlainSyncToTempFile(TempStr pathSync) {
     if (!pathSync) {
         return nullptr;
@@ -561,7 +559,7 @@ TempStr CopyPlainSyncToTempFile(TempStr pathSync) {
         return nullptr;
     }
 
-    TempStr tempPathNoExt = path::GetPathNoExtTemp(tempPath);         // stxabcdef
+    TempStr tempPathNoExt = path::GetPathNoExtTemp(tempPath);        // stxabcdef
     TempStr tempPathSync = str::JoinTemp(tempPathNoExt, ".synctex"); // stxabcdef.synctex
     int ret = rename(tempPath, tempPathSync);
     if (ret) {
@@ -650,7 +648,7 @@ TempStr ungzipToTempSync(char* gzPath) {
         return nullptr;
     }
 
-    TempStr tempPathNoExt = path::GetPathNoExtTemp(tempPath);         // stxabcdef
+    TempStr tempPathNoExt = path::GetPathNoExtTemp(tempPath);        // stxabcdef
     TempStr tempPathSync = str::JoinTemp(tempPathNoExt, ".synctex"); // stxabcdef.synctex
     int ret = rename(tempPath, tempPathSync);
     if (ret) {
@@ -670,9 +668,9 @@ int SyncTex::RebuildIndexIfNeeded() {
     }
     synctex_scanner_free(scanner);
     scanner = nullptr;
-    TempStr pathBase;    //  abc
-    TempStr pathSync;     //  abc.synctex
-    TempStr pathSyncGz;   //  abc.synctex.gz
+    TempStr pathBase;   //  abc
+    TempStr pathSync;   //  abc.synctex
+    TempStr pathSyncGz; //  abc.synctex.gz
     pathSync = str::DupTemp(syncFilePath.Get());
     pathBase = path::GetPathNoExtTemp(syncFilePath);
     pathSyncGz = str::JoinTemp(pathBase, ".synctex.gz");
@@ -697,7 +695,7 @@ int SyncTex::RebuildIndexIfNeeded() {
             }
         }
     } else {
-         //ANSI in file path
+        // ANSI in file path
         if (file::Exists(pathSync)) {
             // plain file first
             tempsync1 = CopyPlainSyncToTempFile(pathSync);

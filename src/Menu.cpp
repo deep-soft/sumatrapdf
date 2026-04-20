@@ -50,6 +50,7 @@
 struct BuildMenuCtx {
     WindowTab* tab = nullptr;
     bool isCbx = false;
+    bool isImageCollection = false;
     bool hasSelection = false;
     bool supportsAnnotations = false;
     Annotation* annotationUnderCursor = nullptr;
@@ -831,6 +832,22 @@ static MenuDef menuDefContextImage[] = {
 //[ ACCESSKEY_GROUP Context Menu (Document )
 static MenuDef menuDefDocumentOperations[] = {
     {
+        _TRN("P&roperties"),
+        CmdProperties,
+    },
+    {
+        _TRN("Show PDF Info"),
+        CmdPdShowInfo,
+    },
+    {
+        _TRN("Show Document Outline"),
+        CmdDocumentShowOutline,
+    },
+    {
+        _TRN("Extract Pages From PDF"),
+        CmdPdfExtractPages,
+    },
+    {
         _TRN("Encrypt PDF"),
         CmdPdfEncrypt,
     },
@@ -851,24 +868,16 @@ static MenuDef menuDefDocumentOperations[] = {
         CmdPdfDeletePages,
     },
     {
-        _TRN("Extract Pages From PDF"),
-        CmdPdfExtractPages,
-    },
-    {
-        _TRN("Show PDF Info"),
-        CmdPdShowInfo,
-    },
-    {
-        _TRN("Show Document Outline"),
-        CmdDocumentShowOutline,
-    },
-    {
         _TRN("Bake PDF"),
         CmdPdfBake,
     },
     {
         _TRN("Extract Text From Document"),
         CmdDocumentExtractText,
+    },
+    {
+        _TRN("Show in &folder"),
+        CmdShowInFolder,
     },
     {
         nullptr,
@@ -1266,6 +1275,9 @@ BuildMenuCtx* NewBuildMenuCtx(WindowTab* tab, Point pt) {
     if (engine && (engine->kind == kindEngineComicBooks)) {
         ctx->isCbx = true;
     }
+    if (engine && engine->IsImageCollection()) {
+        ctx->isImageCollection = true;
+    }
     ctx->supportsAnnotations = EngineSupportsAnnotations(engine) && !tab->win->isFullScreen;
     ctx->hasUnsavedAnnotations = EngineHasUnsavedAnnotations(engine);
     ctx->canSendEmail = CanSendAsEmailAttachment(tab);
@@ -1465,6 +1477,7 @@ std::pair<bool, bool> GetCommandIdState(BuildMenuCtx* ctx, int cmdId) {
 
     remove |= (ctx->tab && ctx->tab->AsChm() && cmdIdInList(removeIfChm));
     remove |= (!ctx->isCbx && (cmdId == CmdToggleMangaMode));
+    remove |= (ctx->isImageCollection && (cmdId == CmdDocumentExtractText));
     remove |= (!ctx->supportsAnnotations && cmdIdInList(removeIfAnnotsNotSupported));
     remove |= !ctx->canSendEmail && (cmdId == CmdSendByEmail);
 
@@ -1479,6 +1492,8 @@ std::pair<bool, bool> GetCommandIdState(BuildMenuCtx* ctx, int cmdId) {
         remove |= (cmdId == CmdPdfDecompress);
         remove |= (cmdId == CmdPdfDeletePages);
         remove |= (cmdId == CmdPdfExtractPages);
+        remove |= (cmdId == CmdPdShowInfo);
+        remove |= (cmdId == CmdPdfBake);
     }
     if (ctx->pageCount < 2) {
         remove |= (cmdId == CmdPdfDeletePages);
