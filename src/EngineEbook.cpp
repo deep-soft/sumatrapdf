@@ -19,6 +19,8 @@
 
 #include "wingui/UIModels.h"
 
+#include "GumboHelpers.h"
+
 #include "DocProperties.h"
 #include "DocController.h"
 #include "FzImgReader.h"
@@ -1410,46 +1412,71 @@ class EngineChm : public EngineEbook {
     IPageElement* CreatePageLink(DrawInstr* link, Rect rect, int pageNo) override;
 };
 
+static uint CharsetNameToCodepage(const char* charset) {
+    static struct {
+        const char* name;
+        uint codepage;
+    } codepages[] = {
+        {"ISO-8859-1", 1252}, {"Latin1", 1252}, {"CP1252", 1252},       {"Windows-1252", 1252}, {"ISO-8859-2", 28592},
+        {"Latin2", 28592},    {"CP1251", 1251}, {"Windows-1251", 1251}, {"KOI8-R", 20866},      {"shift-jis", 932},
+        {"x-euc", 932},       {"euc-kr", 949},  {"Big5", 950},          {"GB2312", 936},        {"UTF-8", CP_UTF8},
+    };
+    for (int i = 0; i < dimofi(codepages); i++) {
+        if (str::EqI(charset, codepages[i].name)) {
+            return codepages[i].codepage;
+        }
+    }
+    return 0;
+}
+
+static uint FindHttpCharsetInNode(const GumboNode* node) {
+    if (!node) {
+        return 0;
+    }
+    if (node->type == GUMBO_NODE_ELEMENT && GumboTagNameIs(node, "meta")) {
+        const GumboAttribute* httpEquiv = gumbo_get_attribute(&node->v.element.attributes, "http-equiv");
+        if (httpEquiv && str::EqI(httpEquiv->value, "Content-Type")) {
+            const GumboAttribute* content = gumbo_get_attribute(&node->v.element.attributes, "content");
+            AutoFree mimetype, charset;
+            if (content && str::Parse(content->value, "%S;%_charset=%S", &mimetype, &charset)) {
+                uint cp = CharsetNameToCodepage(charset);
+                if (cp) {
+                    return cp;
+                }
+            }
+        }
+    }
+    const GumboVector* children = nullptr;
+    if (node->type == GUMBO_NODE_ELEMENT) {
+        children = &node->v.element.children;
+    } else if (node->type == GUMBO_NODE_DOCUMENT) {
+        children = &node->v.document.children;
+    }
+    if (children) {
+        for (unsigned int i = 0; i < children->length; i++) {
+            uint cp = FindHttpCharsetInNode((const GumboNode*)children->data[i]);
+            if (cp) {
+                return cp;
+            }
+        }
+    }
+    return 0;
+}
+
 // cf. http://www.w3.org/TR/html4/charset.html#h-5.2.2
 static uint ExtractHttpCharset(const char* html, size_t htmlLen) {
     if (!strstr(html, "charset=")) {
         return 0;
     }
-
-    HtmlPullParser parser(html, std::min(htmlLen, (size_t)1024));
-    HtmlToken* tok;
-    while ((tok = parser.Next()) != nullptr && !tok->IsError()) {
-        if (tok->tag != Tag_Meta) {
-            continue;
-        }
-        AttrInfo* attr = tok->GetAttrByName("http-equiv");
-        if (!attr || !attr->ValIs("Content-Type")) {
-            continue;
-        }
-        attr = tok->GetAttrByName("content");
-        AutoFree mimetype, charset;
-        if (!attr || !str::Parse(attr->val, attr->valLen, "%S;%_charset=%S", &mimetype, &charset)) {
-            continue;
-        }
-
-        static struct {
-            const char* name;
-            uint codepage;
-        } codepages[] = {
-            {"ISO-8859-1", 1252},  {"Latin1", 1252},   {"CP1252", 1252},   {"Windows-1252", 1252},
-            {"ISO-8859-2", 28592}, {"Latin2", 28592},  {"CP1251", 1251},   {"Windows-1251", 1251},
-            {"KOI8-R", 20866},     {"shift-jis", 932}, {"x-euc", 932},     {"euc-kr", 949},
-            {"Big5", 950},         {"GB2312", 936},    {"UTF-8", CP_UTF8},
-        };
-        for (int i = 0; i < dimofi(codepages); i++) {
-            if (str::EqI(charset, codepages[i].name)) {
-                return codepages[i].codepage;
-            }
-        }
-        break;
+    size_t parseLen = std::min(htmlLen, (size_t)1024);
+    GumboOptions opts = GumboMakeOptions();
+    GumboOutput* output = gumbo_parse_with_options(&opts, html, parseLen);
+    if (!output) {
+        return 0;
     }
-
-    return 0;
+    uint cp = FindHttpCharsetInNode(output->document);
+    gumbo_destroy_output(&opts, output);
+    return cp;
 }
 
 class ChmHtmlCollector : public EbookTocVisitor {
