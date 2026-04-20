@@ -5,7 +5,6 @@
 #include "utils/ScopedWin.h"
 #include "utils/CmdLineArgsIter.h"
 #include "utils/FileUtil.h"
-#include "utils/HtmlParserLookup.h"
 #include "utils/BitManip.h"
 #include "utils/Dpi.h"
 #include "utils/GdiPlusUtil.h"
