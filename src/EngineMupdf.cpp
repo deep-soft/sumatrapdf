@@ -4119,26 +4119,6 @@ ByteSlice EngineMupdfLoadAnnotAttachment(EngineBase* engine, int objNum) {
 }
 
 // if an elements fully obscures another, remove it from the list
-static bool RemoveHeWhoFullyContains(Vec<Annotation*>& els) {
-    int n = els.Size();
-    ReportIf(n < 2);
-    for (int i = 0; i < n; i++) {
-        RectF r1 = els[i]->bounds;
-        for (int j = 0; j < n; j++) {
-            if (j == i) {
-                continue; // skip checking against self
-            }
-            RectF r2 = els[j]->bounds;
-            if (RectFullyContains(r1, r2)) {
-                // logfa("el %d fully obscures %d\n", i, j);
-                els.RemoveAtFast(i);
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
 Annotation* EngineMupdfGetAnnotationAtPos(EngineBase* engine, int pageNo, PointF pos, Annotation* preferredAnnot) {
     EngineMupdf* epdf = AsEngineMupdf(engine);
     if (!epdf->pdfdoc) {
@@ -4168,18 +4148,21 @@ Annotation* EngineMupdfGetAnnotationAtPos(EngineBase* engine, int pageNo, PointF
         }
     }
 
-    // pick the best
-Encore:
-    int n = els.Size();
-    if (n == 1) {
-        return els[0];
+    // pick the annotation with the smallest rect: if the click lands inside
+    // a big highlight that also wraps a smaller annotation, the smaller one
+    // is almost always what the user meant
+    Annotation* best = els[0];
+    RectF br = best->bounds;
+    float bestArea = br.dx * br.dy;
+    for (int i = 1; i < els.Size(); i++) {
+        RectF r = els[i]->bounds;
+        float area = r.dx * r.dy;
+        if (area < bestArea) {
+            best = els[i];
+            bestArea = area;
+        }
     }
-    bool didRemove = RemoveHeWhoFullyContains(els);
-    if (didRemove) {
-        ReportIf(els.Size() != n - 1);
-        goto Encore;
-    }
-    return els[0];
+    return best;
 }
 
 // Note: this code is compiled in release mode even if debug build so
