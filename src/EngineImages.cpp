@@ -394,12 +394,12 @@ RenderedBitmap* EngineImages::RenderPage(RenderPageArgs& args) {
             fz_pixmap* scaled = nullptr;
             fz_var(decoded);
             fz_var(scaled);
-            // Build a CTM that scales source-image space to target screen space.
-            // mupdf uses |ctm| to pick a JPEG decode scale (1, 1/2, 1/4, 1/8) so
-            // huge images at small zooms decode dramatically faster.
-            float sx = (float)screen.dx / (float)page->img->w;
-            float sy = (float)screen.dy / (float)page->img->h;
-            fz_matrix ctm = fz_scale(sx, sy);
+            // Build a CTM mapping the fz_image unit box (1x1) to target
+            // screen dimensions. mupdf reads |ctm| as the output pixel size
+            // (w = sqrt(ctm.a^2 + ctm.b^2)) and picks a JPEG decode scale
+            // (1, 1/2, 1/4, 1/8) so huge images at small zooms decode
+            // dramatically faster.
+            fz_matrix ctm = fz_scale((float)screen.dx, (float)screen.dy);
             fz_try(ctx) {
                 int dw = 0, dh = 0;
                 decoded = fz_get_pixmap_from_image(ctx, page->img, nullptr, &ctm, &dw, &dh);
