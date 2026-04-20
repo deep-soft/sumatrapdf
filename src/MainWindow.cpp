@@ -772,6 +772,10 @@ MainWindow* FindMainWindowByTab(WindowTab* tabToFind) {
     return nullptr;
 }
 
+bool IsWindowTabValid(WindowTab* tab) {
+    return FindMainWindowByTab(tab) != nullptr;
+}
+
 // temporarily highlight this tab
 void HighlightTab(MainWindow* win, WindowTab* tab) {
     if (!win) {
