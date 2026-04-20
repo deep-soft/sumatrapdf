@@ -108,6 +108,7 @@ class EngineEbook : public EngineBase {
 
     bool SaveFileAs(const char* copyFileName) override;
     PageText ExtractPageText(int pageNo) override;
+    PageTextUtf8 ExtractPageTextUtf8(int pageNo) override;
     // make RenderCache request larger tiles than per default
     bool HasClipOptimizations(int pageNo) override;
 
@@ -448,6 +449,95 @@ PageText EngineEbook::ExtractPageText(int pageNo) {
     ReportIf(coords.size() != content.size());
 
     PageText res;
+    res.len = (int)content.size();
+    res.text = content.StealData();
+    res.coords = coords.StealData();
+    return res;
+}
+
+PageTextUtf8 EngineEbook::ExtractPageTextUtf8(int pageNo) {
+    const char* lineSep = "\n";
+    ScopedCritSec scope(&pagesAccess);
+
+    InterlockedIncrement(&gAllowAllocFailure);
+    defer {
+        InterlockedDecrement(&gAllowAllocFailure);
+    };
+
+    str::Str content;
+    Vec<Rect> coords;
+    bool insertSpace = false;
+
+    Vec<DrawInstr>* pageInstrs = GetHtmlPage(pageNo);
+    for (DrawInstr& i : *pageInstrs) {
+        Rect bbox = GetInstrBbox(i, pageBorder);
+        switch (i.type) {
+            case DrawInstrType::String:
+                if (coords.size() > 0 &&
+                    (bbox.x < coords.Last().BR().x || bbox.y > coords.Last().y + coords.Last().dy * 0.8)) {
+                    content.Append(lineSep);
+                    coords.AppendBlanks(str::Len(lineSep));
+                    ReportIf(*lineSep && !coords.Last().IsEmpty());
+                } else if (insertSpace && coords.size() > 0) {
+                    int swidth = bbox.x - coords.Last().BR().x;
+                    if (swidth > 0) {
+                        content.AppendChar(' ');
+                        coords.Append(Rect(bbox.x - swidth, bbox.y, swidth, bbox.dy));
+                    }
+                }
+                insertSpace = false;
+                {
+                    TempStr s = strconv::FromHtmlUtf8Temp(i.str.s, i.str.len);
+                    size_t len = str::Len(s);
+                    content.Append(s);
+                    if (len > 0) {
+                        double cwidth = 1.0 * bbox.dx / (double)len;
+                        for (size_t k = 0; k < len; k++) {
+                            coords.Append(Rect((int)(bbox.x + (double)k * cwidth), bbox.y, (int)cwidth, bbox.dy));
+                        }
+                    }
+                }
+                break;
+            case DrawInstrType::RtlString:
+                if (coords.size() > 0 &&
+                    (bbox.BR().x > coords.Last().x || bbox.y > coords.Last().y + coords.Last().dy * 0.8)) {
+                    content.Append(lineSep);
+                    coords.AppendBlanks(str::Len(lineSep));
+                    ReportIf(*lineSep && !coords.Last().IsEmpty());
+                } else if (insertSpace && coords.size() > 0) {
+                    int swidth = coords.Last().x - bbox.BR().x;
+                    if (swidth > 0) {
+                        content.AppendChar(' ');
+                        coords.Append(Rect(bbox.BR().x, bbox.y, swidth, bbox.dy));
+                    }
+                }
+                insertSpace = false;
+                {
+                    TempStr s = strconv::FromHtmlUtf8Temp(i.str.s, i.str.len);
+                    size_t len = str::Len(s);
+                    content.Append(s);
+                    if (len > 0) {
+                        double cwidth = 1.0 * bbox.dx / (double)len;
+                        for (size_t k = 0; k < len; k++) {
+                            coords.Append(
+                                Rect((int)(bbox.x + (double)(len - k - 1) * cwidth), bbox.y, (int)cwidth, bbox.dy));
+                        }
+                    }
+                }
+                break;
+            case DrawInstrType::ElasticSpace:
+            case DrawInstrType::FixedSpace:
+                insertSpace = true;
+                break;
+        }
+    }
+    if (content.size() > 0 && !str::EndsWith(content.Get(), lineSep)) {
+        content.Append(lineSep);
+        coords.AppendBlanks(str::Len(lineSep));
+    }
+    ReportIf(coords.size() != content.size());
+
+    PageTextUtf8 res;
     res.len = (int)content.size();
     res.text = content.StealData();
     res.coords = coords.StealData();
