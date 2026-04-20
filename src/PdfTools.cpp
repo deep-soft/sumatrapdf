@@ -336,13 +336,12 @@ static bool ExtractTextViaEngine(PdfExtractTextDialog* dlg, const char* destPath
         int start = std::max(range.start, 1);
         int end = std::min(range.end, pageCount);
         for (int pageNo = start; pageNo <= end; pageNo++) {
-            PageText pt = engine->ExtractPageText(pageNo);
+            PageTextUtf8 pt = engine->ExtractPageTextUtf8(pageNo);
             if (pt.text) {
-                TempStr utf8 = ToUtf8Temp(pt.text);
-                text.Append(utf8);
+                text.Append(pt.text);
                 text.AppendChar('\n');
             }
-            FreePageText(&pt);
+            FreePageTextUtf8(&pt);
         }
     }
     return file::WriteFile(destPath, text.AsByteSlice());
