@@ -71,19 +71,14 @@ ByteSlice ChmFile::GetData(const char* fileName) const {
     return {d, len};
 }
 
-TempStr ChmFile::SmartToUtf8Temp(const char* s, uint overrideCP) const {
+TempStr SmartToUtf8Temp(const char* s, uint codepage) {
     if (str::StartsWith(s, UTF8_BOM)) {
         return str::DupTemp(s + 3);
-    }
-    if (overrideCP) {
-        TempStr res = strconv::ToMultiByteTemp(s, overrideCP, CP_UTF8);
-        return res;
     }
     if (CP_UTF8 == codepage) {
         return str::DupTemp(s);
     }
-    TempStr res = strconv::ToMultiByteTemp(s, codepage, CP_UTF8);
-    return res;
+    return strconv::ToMultiByteTemp(s, codepage, CP_UTF8);
 }
 
 static char* GetCharZ(const ByteSlice& d, size_t off) {
@@ -252,7 +247,7 @@ void ChmFile::FixPathCodepage(AutoFreeStr& path, uint& fileCP) {
         return;
     }
 
-    TempStr utf8Path = SmartToUtf8Temp(path.Get());
+    TempStr utf8Path = SmartToUtf8Temp(path.Get(), codepage);
     if (HasData(utf8Path)) {
         path.SetCopy(utf8Path);
         fileCP = codepage;
@@ -321,9 +316,9 @@ bool ChmFile::Load(const char* path) {
 TempStr ChmFile::GetPropertyTemp(const char* name) const {
     char* result = nullptr;
     if (str::Eq(kPropTitle, name) && title.CStr()) {
-        result = SmartToUtf8Temp(title.CStr());
+        result = SmartToUtf8Temp(title.CStr(), codepage);
     } else if (str::Eq(kPropCreatorApp, name) && creator.CStr()) {
-        result = SmartToUtf8Temp(creator.CStr());
+        result = SmartToUtf8Temp(creator.CStr(), codepage);
     }
     // TODO: shouldn't it be up to the front-end to normalize whitespace?
     if (!result) {
@@ -545,7 +540,7 @@ bool ChmFile::ParseTocOrIndex(EbookTocVisitor* visitor, const char* path, bool i
     // Convert to UTF-8 (handling UTF-8 BOM and the file's codepage) so gumbo's
     // attribute values come out in a known encoding -- no per-attribute
     // conversion needed in the visit functions.
-    TempStr utf8 = SmartToUtf8Temp((const char*)htmlData.data());
+    TempStr utf8 = SmartToUtf8Temp((const char*)htmlData.data(), codepage);
     if (!utf8) {
         return false;
     }
