@@ -2,6 +2,7 @@
 
 LIBRARY libmupdf
 EXPORTS
+	gzwrite
 	ddjvu_page_get_initial_rotation
 	fz_set_optind
 	fz_open_document
