@@ -593,6 +593,20 @@ RenderedBitmap* EngineImages::GetImageForPageElement(IPageElement* pel) {
         return nullptr;
     }
 
+    // mupdf fz_image path leaves page->bmp null; lazy-load the GDI+ Bitmap
+    if (!page->bmp && !page->failedToLoad) {
+        ScopedCritSec scope(&page->drawLock);
+        if (!page->bmp) {
+            bool ownBmp = true;
+            page->bmp = LoadBitmapForPage(pageNo, ownBmp);
+            page->ownBmp = ownBmp;
+        }
+    }
+    if (!page->bmp) {
+        DropPage(page, false);
+        return nullptr;
+    }
+
     HBITMAP hbmp;
     auto bmp = page->bmp;
     int dx = bmp->GetWidth();
