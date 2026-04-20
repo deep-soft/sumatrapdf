@@ -843,8 +843,12 @@ void UpdateToolbarPageText(MainWindow* win, int pageCount, bool updateOnly) {
 
     Rect pageWndRect = WindowRect(win->hwndPageBg);
 
+    // TB_GETRECT fails for hidden buttons, so anchor on a button that's still
+    // visible. CmdPrint is hidden when PrinterAccess is revoked via
+    // sumatrapdfrestrict.ini (issue #5563); fall back to CmdOpenFile in that case.
     RECT r{};
-    SendMessageW(win->hwndToolbar, TB_GETRECT, CmdPrint, (LPARAM)&r);
+    int anchorCmd = HasPermission(Perm::PrinterAccess) ? CmdPrint : CmdOpenFile;
+    SendMessageW(win->hwndToolbar, TB_GETRECT, anchorCmd, (LPARAM)&r);
     int currX = r.right + DpiScale(win->hwndFrame, 10);
     int currY = (r.bottom - pageWndRect.dy) / 2;
 
