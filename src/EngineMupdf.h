@@ -60,6 +60,7 @@ class EngineMupdf : public EngineBase {
     ByteSlice GetFileData() override;
     bool SaveFileAs(const char* copyFileName) override;
     PageText ExtractPageText(int pageNo) override;
+    PageTextUtf8 ExtractPageTextUtf8(int pageNo) override;
 
     bool HasClipOptimizations(int pageNo) override;
     TempStr GetPropertyTemp(const char* name) override;

@@ -66,6 +66,17 @@ struct PageText {
 
 void FreePageText(PageText*);
 
+// UTF-8 variant: text is a UTF-8 byte string (len bytes, not including the
+// terminating null), and coords has one entry per UTF-8 byte (the same rect
+// repeated for each byte of a multi-byte codepoint).
+struct PageTextUtf8 {
+    char* text = nullptr;
+    Rect* coords = nullptr;
+    int len = 0;
+};
+
+void FreePageTextUtf8(PageTextUtf8*);
+
 // a link destination
 struct IPageDestination : KindBase {
     // page the destination points to (-1 for external destinations such as URLs)
@@ -425,6 +436,8 @@ class EngineBase {
     // coordinates of the individual glyphs)
     // caller needs to free() the result and *coordsOut (if coordsOut is non-nullptr)
     virtual PageText ExtractPageText(int pageNo) = 0;
+    // UTF-8 variant of ExtractPageText. Default implementation returns empty.
+    virtual PageTextUtf8 ExtractPageTextUtf8(int) { return {}; }
     // pages where clipping doesn't help are rendered in larger tiles
     virtual bool HasClipOptimizations(int pageNo) = 0;
 

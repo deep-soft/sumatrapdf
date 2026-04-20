@@ -55,6 +55,14 @@ void FreePageText(PageText* pageText) {
     pageText->len = 0;
 }
 
+void FreePageTextUtf8(PageTextUtf8* pageText) {
+    str::Free(pageText->text);
+    free((void*)pageText->coords);
+    pageText->text = nullptr;
+    pageText->coords = nullptr;
+    pageText->len = 0;
+}
+
 PageDestination::~PageDestination() {
     free(value);
     free(name);

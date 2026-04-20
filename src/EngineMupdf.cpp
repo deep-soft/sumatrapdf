@@ -620,6 +620,86 @@ static void AddLineSep(str::WStr& s, Vec<Rect>& rects, const WCHAR* lineSep, siz
     }
 }
 
+// UTF-8 variant: append `c` as up to 4 UTF-8 bytes to `s` and the same
+// rect `r` for each byte, so rects.size() == s.size() holds.
+static void AddCharUtf8(fz_stext_line*, fz_stext_char* c, str::Str& s, Vec<Rect>& rects) {
+    fz_rect bbox = fz_rect_from_quad(c->quad);
+    Rect r = ToRectF(bbox).Round();
+
+    int rune = c->c;
+    bool isWhitespace = rune > 0 && rune <= 0x7f && str::IsWs((WCHAR)rune);
+    bool isNonPrintable = rune <= 32 || str::IsNonCharacter((WCHAR)rune);
+    if (isNonPrintable && !isWhitespace) {
+        s.AppendChar('?');
+        rects.Append(r);
+        return;
+    }
+    if (isWhitespace) {
+        // collapse multiple whitespace characters into one
+        char prev = s.IsEmpty() ? 0 : s.LastChar();
+        if (prev == ' ' || prev == '\t' || prev == '\n' || prev == '\r') {
+            return;
+        }
+        s.AppendChar(' ');
+        rects.Append(r);
+        return;
+    }
+    char buf[4];
+    int n = fz_runetochar(buf, rune);
+    s.Append(buf, (size_t)n);
+    for (int i = 0; i < n; i++) {
+        rects.Append(r);
+    }
+}
+
+static void AddLineSepUtf8(str::Str& s, Vec<Rect>& rects, const char* lineSep) {
+    size_t lineSepLen = str::Len(lineSep);
+    if (lineSepLen == 0) {
+        return;
+    }
+    // remove trailing space
+    if (!s.IsEmpty() && s.LastChar() == ' ') {
+        s.RemoveLast();
+        rects.RemoveLast();
+    }
+    s.Append(lineSep);
+    for (size_t i = 0; i < lineSepLen; i++) {
+        rects.Append(Rect());
+    }
+}
+
+static char* FzTextPageToUtf8(fz_stext_page* text, Rect** coordsOut) {
+    const char* lineSep = "\n";
+    str::Str content;
+    Vec<Rect> rects;
+
+    fz_stext_block* block = text->first_block;
+    while (block) {
+        if (block->type != FZ_STEXT_BLOCK_TEXT) {
+            block = block->next;
+            continue;
+        }
+        fz_stext_line* line = block->u.t.first_line;
+        while (line) {
+            fz_stext_char* c = line->first_char;
+            while (c) {
+                AddCharUtf8(line, c, content, rects);
+                c = c->next;
+            }
+            AddLineSepUtf8(content, rects, lineSep);
+            line = line->next;
+        }
+        block = block->next;
+    }
+
+    ReportIf(content.size() != rects.size());
+
+    if (coordsOut) {
+        *coordsOut = rects.StealData();
+    }
+    return content.StealData();
+}
+
 static WCHAR* FzTextPageToStr(fz_stext_page* text, Rect** coordsOut) {
     const WCHAR* lineSep = L"\n";
 
@@ -3433,6 +3513,36 @@ PageText EngineMupdf::ExtractPageText(int pageNo) {
     PageText res;
     // TODO: convert to return PageText
     WCHAR* text = FzTextPageToStr(stext, &res.coords);
+    fz_drop_stext_page(ctx, stext);
+    res.text = text;
+    res.len = (int)str::Len(text);
+    return res;
+}
+
+PageTextUtf8 EngineMupdf::ExtractPageTextUtf8(int pageNo) {
+    auto ctx = Ctx();
+
+    FzPageInfo* pageInfo = GetFzPageInfo(pageNo, true);
+    if (!pageInfo) {
+        return {};
+    }
+
+    ScopedCritSec scope(&renderLock);
+
+    fz_stext_page* stext = nullptr;
+    fz_var(stext);
+    fz_stext_options opts{};
+    fz_try(ctx) {
+        stext = fz_new_stext_page_from_page(ctx, pageInfo->page, &opts);
+    }
+    fz_catch(ctx) {
+        fz_report_error(ctx);
+    }
+    if (!stext) {
+        return {};
+    }
+    PageTextUtf8 res;
+    char* text = FzTextPageToUtf8(stext, &res.coords);
     fz_drop_stext_page(ctx, stext);
     res.text = text;
     res.len = (int)str::Len(text);
