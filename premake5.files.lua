@@ -923,7 +923,6 @@ function utils_files()
     "TxtParser.*",
     "UITask.*",
     "Vec.h",
-    "VecSegmented.h",
     "WebpReader.*",
     "WinDynCalls.*",
     "WinUtil.*",
