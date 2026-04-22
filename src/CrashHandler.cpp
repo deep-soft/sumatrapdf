@@ -63,7 +63,7 @@ allocate memory. I assume it'll use GetProcessHeap() heap and further assume
 that CRT creates its own heap for malloc()/free() etc. so that while a deadlock
 is still possible, the probability should be greatly reduced. */
 
-static HeapAllocator* gCrashHandlerAllocator = nullptr;
+static Arena* gCrashHandlerAllocator = nullptr;
 
 // Note: intentionally not using ScopedMem<> to avoid
 // static initializers/destructors, which are bad
@@ -196,7 +196,7 @@ void UploadCrashReport(const ByteSlice& d) {
     HttpPost(kCrashHandlerServer, kCrashHandlerServerPort, kCrashHandlerServerSubmitURL, &headers, &data);
 }
 
-static bool ExtractSymbols(const u8* archiveData, size_t dataSize, const char* dstDir, Allocator* allocator) {
+static bool ExtractSymbols(const u8* archiveData, size_t dataSize, const char* dstDir, Arena* allocator) {
     logf("ExtractSymbols: dir '%s', size: %d\n", dstDir, (int)dataSize);
     lzma::SimpleArchive archive;
     bool ok = ParseSimpleArchive(archiveData, dataSize, &archive);
@@ -224,8 +224,8 @@ static bool ExtractSymbols(const u8* archiveData, size_t dataSize, const char* d
             logf("ExtractSymbols: failed to write '%s'\n", filePath);
             LogLastError(err);
         }
-        Allocator::Free(allocator, filePath);
-        Allocator::Free(allocator, uncompressed);
+        Free(allocator, filePath);
+        Free(allocator, uncompressed);
         if (!ok) {
             return false;
         }
@@ -813,7 +813,7 @@ void InstallCrashHandler(const char* crashDumpPath, const char* crashFilePath, c
     // we pre-allocate as much as possible to minimize allocations
     // when crash handler is invoked. It's ok to use standard
     // allocation functions here.
-    gCrashHandlerAllocator = new HeapAllocator();
+    gCrashHandlerAllocator = ArenaNew();
     gSymbolsUrl = BuildSymbolsUrl();
 
     TempStr path = GetSettingsPathTemp();

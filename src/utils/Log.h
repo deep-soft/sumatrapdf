@@ -1,7 +1,7 @@
 /* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
-extern HeapAllocator* gLogAllocator;
+extern Arena* gLogAllocator;
 extern StrBuilder* gLogBuf;
 extern bool gLogToConsole;
 extern bool gLogToDebugger;

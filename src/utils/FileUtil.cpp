@@ -105,7 +105,7 @@ TempStr JoinTemp(const char* path, const char* fileName, const char* fileName2) 
     return res;
 }
 
-char* Join(Allocator* allocator, const char* path, const char* fileName) {
+char* Join(Arena* allocator, const char* path, const char* fileName) {
     if (IsSep(*fileName)) {
         fileName++;
     }
@@ -594,7 +594,7 @@ FILE* OpenFILE(const char* path) {
     return _wfopen(pathW, L"rb");
 }
 
-ByteSlice ReadFileWithAllocator(const char* filePath, Allocator* allocator) {
+ByteSlice ReadFileWithAllocator(const char* filePath, Arena* allocator) {
 #if 0 // OS_WIN
     WCHAR buf[512];
     strconv::Utf8ToWcharBuf(filePath, str::Len(filePath), buf, dimof(buf));
@@ -618,7 +618,7 @@ ByteSlice ReadFileWithAllocator(const char* filePath, Allocator* allocator) {
     if (addOverflows<size_t>(size, ZERO_PADDING_COUNT)) {
         goto Error;
     }
-    d = Allocator::AllocArray<char>(allocator, size + ZERO_PADDING_COUNT);
+    d = AllocArray<char>(allocator, size + ZERO_PADDING_COUNT);
     if (!d) {
         goto Error;
     }
@@ -643,7 +643,7 @@ ByteSlice ReadFileWithAllocator(const char* filePath, Allocator* allocator) {
 
     return {(u8*)d, size};
 Error:
-    Allocator::Free(allocator, (void*)d);
+    Free(allocator, (void*)d);
     return {};
 #endif
 }

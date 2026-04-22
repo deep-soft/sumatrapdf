@@ -90,7 +90,7 @@ int StrVecPage::BytesLeft() {
 }
 
 static StrVecPage* AllocStrVecPage(int pageSize, int dataSize) {
-    auto page = (StrVecPage*)Allocator::AllocZero(nullptr, pageSize);
+    auto page = (StrVecPage*)AllocZero(nullptr, pageSize);
     page->next = nullptr;
     page->nStrings = 0;
     page->pageSize = pageSize;
@@ -277,7 +277,7 @@ static void FreePages(StrVecPage* toFree) {
     StrVecPage* next;
     while (toFree) {
         next = toFree->next;
-        Allocator::Free(nullptr, toFree);
+        Free(nullptr, toFree);
         toFree = next;
     }
 }
@@ -339,7 +339,7 @@ static void CompactPages(StrVec* v, int extraSize) {
 
 static inline void InvalidateSortIndexes(StrVec* v) {
     if (v->sortIndexes) {
-        Allocator::Free(nullptr, v->sortIndexes);
+        Free(nullptr, v->sortIndexes);
         v->sortIndexes = nullptr;
     }
 }

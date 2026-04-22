@@ -27,7 +27,9 @@ FILETIME MultiFormatArchive::FileInfo::GetWinFileTime() const {
     return ft;
 }
 
-MultiFormatArchive::MultiFormatArchive() {}
+MultiFormatArchive::MultiFormatArchive() {
+    allocator_ = ArenaNew();
+}
 
 static MultiFormatArchive::Format FormatFromArchive(struct archive* a) {
     int fmt = archive_format(a);
@@ -53,6 +55,7 @@ MultiFormatArchive::~MultiFormatArchive() {
     }
     free(archivePath_);
     str::Free(password);
+    ArenaDelete(allocator_);
 }
 
 bool MultiFormatArchive::ParseEntries(struct archive* a) {
@@ -66,12 +69,12 @@ bool MultiFormatArchive::ParseEntries(struct archive* a) {
         if (!name) {
             name = "";
         }
-        FileInfo* i = allocator_.AllocStruct<FileInfo>();
+        FileInfo* i = AllocArray<FileInfo>(allocator_);
         i->fileId = fileId;
         i->fileSizeUncompressed = (size_t)archive_entry_size(entry);
         i->filePos = (i64)fileId; // use fileId as position identifier
         i->fileTime = (i64)archive_entry_mtime(entry);
-        i->name = str::Dup(&allocator_, name);
+        i->name = str::Dup(allocator_, name);
         i->isDir = (archive_entry_filetype(entry) == AE_IFDIR);
         i->data = nullptr;
         fileInfos_.Append(i);
@@ -669,12 +672,12 @@ bool MultiFormatArchive::OpenUnrarFallback(const char* rarPath) {
         str::TransCharsInPlace(rarHeader.FileNameW, L"\\", L"/");
         auto name = ToUtf8Temp(rarHeader.FileNameW);
 
-        FileInfo* i = allocator_.AllocStruct<FileInfo>();
+        FileInfo* i = AllocArray<FileInfo>(allocator_);
         i->fileId = fileId;
         i->fileSizeUncompressed = (size_t)rarHeader.UnpSize;
         i->filePos = 0;
         i->fileTime = (i64)rarHeader.FileTime;
-        i->name = str::Dup(&allocator_, name);
+        i->name = str::Dup(allocator_, name);
         i->isDir = (rarHeader.Flags & RHDF_DIRECTORY) != 0;
         i->data = nullptr;
         if (loadOnOpen) {
@@ -697,6 +700,6 @@ bool MultiFormatArchive::OpenUnrarFallback(const char* rarPath) {
 
     RARCloseArchive(hArc);
 
-    rarFilePath_ = str::Dup(&allocator_, rarPath);
+    rarFilePath_ = str::Dup(allocator_, rarPath);
     return true;
 }

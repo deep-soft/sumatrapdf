@@ -57,7 +57,7 @@ class MultiFormatArchive {
 
   protected:
     // used for allocating strings that are referenced by ArchFileInfo::name
-    PoolAllocator allocator_;
+    Arena* allocator_ = nullptr;
     Vec<FileInfo*> fileInfos_;
 
     char* archivePath_ = nullptr;

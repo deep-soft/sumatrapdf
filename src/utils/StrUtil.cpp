@@ -274,14 +274,14 @@ void FreePtr(WCHAR** s) {
     *s = nullptr;
 }
 
-char* Dup(Allocator* a, const char* s, size_t cch) {
+char* Dup(Arena* a, const char* s, size_t cch) {
     if (!s) {
         return nullptr;
     }
     if (cch == (size_t)-1) {
         cch = str::Len(s);
     }
-    return (char*)Allocator::MemDup(a, s, cch * sizeof(char), sizeof(char));
+    return (char*)MemDup(a, s, cch * sizeof(char), sizeof(char));
 }
 
 char* Dup(const char* s, size_t cch) {
@@ -292,11 +292,11 @@ char* Dup(const ByteSlice& d) {
     return Dup(nullptr, (const char*)d.data(), d.size());
 }
 
-WCHAR* Dup(Allocator* a, const WCHAR* s, size_t cch) {
+WCHAR* Dup(Arena* a, const WCHAR* s, size_t cch) {
     if (cch == (size_t)-1) {
         cch = str::Len(s);
     }
-    return (WCHAR*)Allocator::MemDup(a, s, cch * sizeof(WCHAR), sizeof(WCHAR));
+    return (WCHAR*)MemDup(a, s, cch * sizeof(WCHAR), sizeof(WCHAR));
 }
 
 WCHAR* Dup(const WCHAR* s, size_t cch) {
@@ -503,14 +503,14 @@ void ReplaceWithCopy(char** s, const char* snew) {
     }
 }
 
-char* Join(Allocator* allocator, const char* s1, const char* s2, const char* s3, const char* s4, const char* s5) {
+char* Join(Arena* allocator, const char* s1, const char* s2, const char* s3, const char* s4, const char* s5) {
     size_t s1Len = str::Len(s1);
     size_t s2Len = str::Len(s2);
     size_t s3Len = str::Len(s3);
     size_t s4Len = str::Len(s4);
     size_t s5Len = str::Len(s5);
     size_t len = s1Len + s2Len + s3Len + s4Len + s5Len + 1;
-    char* res = (char*)Allocator::Alloc(allocator, len);
+    char* res = (char*)Alloc(allocator, len);
 
     char* s = res;
     memcpy(s, s1, s1Len);
@@ -528,12 +528,12 @@ char* Join(Allocator* allocator, const char* s1, const char* s2, const char* s3,
     return res;
 }
 
-char* Join(Allocator* allocator, const char* s1, const char* s2, const char* s3) {
+char* Join(Arena* allocator, const char* s1, const char* s2, const char* s3) {
     size_t s1Len = str::Len(s1);
     size_t s2Len = str::Len(s2);
     size_t s3Len = str::Len(s3);
     size_t len = s1Len + s2Len + s3Len + 1;
-    char* res = (char*)Allocator::Alloc(allocator, len);
+    char* res = (char*)Alloc(allocator, len);
 
     char* s = res;
     memcpy(s, s1, s1Len);
@@ -555,12 +555,12 @@ char* Join(const char* s1, const char* s2, const char* s3) {
 
 /* Concatenate 2 strings. Any string can be nullptr.
    Caller needs to free() memory. */
-WCHAR* Join(Allocator* allocator, const WCHAR* s1, const WCHAR* s2, const WCHAR* s3) {
+WCHAR* Join(Arena* allocator, const WCHAR* s1, const WCHAR* s2, const WCHAR* s3) {
     // don't use str::Format(L"%s%s%s", s1, s2, s3) since the strings
     // might contain non-characters which str::Format fails to handle
     size_t s1Len = str::Len(s1), s2Len = str::Len(s2), s3Len = str::Len(s3);
     size_t len = s1Len + s2Len + s3Len + 1;
-    WCHAR* res = (WCHAR*)Allocator::Alloc(allocator, len * sizeof(WCHAR));
+    WCHAR* res = (WCHAR*)Alloc(allocator, len * sizeof(WCHAR));
     memcpy(res, s1, s1Len * sizeof(WCHAR));
     memcpy(res + s1Len, s2, s2Len * sizeof(WCHAR));
     memcpy(res + s1Len + s2Len, s3, s3Len * sizeof(WCHAR));
@@ -685,7 +685,7 @@ bool BufFmt(char* buf, size_t bufCchSize, const char* fmt, ...) {
 }
 
 // TODO: need to finish StrFormat and use it instead.
-char* FmtVWithAllocator(Allocator* a, const char* fmt, va_list args) {
+char* FmtVWithAllocator(Arena* a, const char* fmt, va_list args) {
     char message[512]{};
     int bufCchSize = dimofi(message);
     char* buf = message;
@@ -705,10 +705,10 @@ char* FmtVWithAllocator(Allocator* a, const char* fmt, va_list args) {
         /* we have to make the buffer bigger. The algorithm used to calculate
            the new size is arbitrary (aka. educated guess) */
         if (buf != message) {
-            Allocator::Free(a, buf);
+            Free(a, buf);
         }
         bufCchSize = count + 2; // +2 just in case
-        buf = Allocator::AllocArray<char>(a, bufCchSize);
+        buf = AllocArray<char>(a, bufCchSize);
         if (!buf) {
             break;
         }
@@ -1344,12 +1344,12 @@ static char* EnsureCap(StrBuilder* s, size_t needed) {
     size_t allocSize = newElCount;
     char* newEls;
     if (s->buf == s->els) {
-        newEls = (char*)Allocator::Alloc(s->allocator, allocSize);
+        newEls = (char*)Alloc(s->allocator, allocSize);
         if (newEls) {
             memcpy(newEls, s->buf, s->len + 1);
         }
     } else {
-        newEls = (char*)Allocator::Realloc(s->allocator, s->els, allocSize);
+        newEls = (char*)Realloc(s->allocator, s->els, allocSize);
     }
     if (!newEls) {
         ReportIf(InterlockedExchangeAdd(&gAllowAllocFailure, 0) == 0);
@@ -1384,7 +1384,7 @@ static void StrBuilderFree(StrBuilder* s) {
     if (!s->els || (s->els == s->buf)) {
         return;
     }
-    Allocator::Free(s->allocator, s->els);
+    Free(s->allocator, s->els);
     s->els = nullptr;
 }
 
@@ -1406,7 +1406,7 @@ void StrBuilder::Reset() {
 }
 
 // allocator is not owned by Vec and must outlive it
-StrBuilder::StrBuilder(size_t capHint, Allocator* a) {
+StrBuilder::StrBuilder(size_t capHint, Arena* a) {
     allocator = a;
     Reset();
     cap = (u32)(capHint + kPadding); // + kPadding for terminating 0
@@ -1548,15 +1548,15 @@ char& StrBuilder::Last() const {
 // without duplicate allocation. Note: since Vec over-allocates, this
 // is likely to use more memory than strictly necessary, but in most cases
 // it doesn't matter
-char* StrBuilder::StealData(Allocator* a) {
+char* StrBuilder::StealData(Arena* a) {
     char* res = els;
     if (a) {
         // if allocator is specified, have to duplicate
-        res = (char*)Allocator::MemDup(a, els, len + kPadding);
+        res = (char*)MemDup(a, els, len + kPadding);
     } else {
         if (els == buf) {
             a = (a != nullptr) ? a : this->allocator;
-            res = (char*)Allocator::MemDup(a, els, len + kPadding);
+            res = (char*)MemDup(a, els, len + kPadding);
         } else {
             // we're returning els, so reset to small buf
             els = buf;
@@ -1701,12 +1701,12 @@ static WCHAR* EnsureCap(WStrBuilder* s, size_t needed) {
     size_t allocSize = newElCount * WStrBuilder::kElSize;
     WCHAR* newEls;
     if (s->buf == s->els) {
-        newEls = (WCHAR*)Allocator::Alloc(s->allocator, allocSize);
+        newEls = (WCHAR*)Alloc(s->allocator, allocSize);
         if (newEls) {
             memcpy(newEls, s->buf, WStrBuilder::kElSize * (s->len + 1));
         }
     } else {
-        newEls = (WCHAR*)Allocator::Realloc(s->allocator, s->els, allocSize);
+        newEls = (WCHAR*)Realloc(s->allocator, s->els, allocSize);
     }
 
     if (!newEls) {
@@ -1740,7 +1740,7 @@ static void WStrBuilderFree(WStrBuilder* s) {
     if (!s->els || (s->els == s->buf)) {
         return;
     }
-    Allocator::Free(s->allocator, s->els);
+    Free(s->allocator, s->els);
     s->els = nullptr;
 }
 
@@ -1762,7 +1762,7 @@ void WStrBuilder::Reset() {
 }
 
 // allocator is not owned by Vec and must outlive it
-WStrBuilder::WStrBuilder(size_t capHint, Allocator* a) {
+WStrBuilder::WStrBuilder(size_t capHint, Arena* a) {
     allocator = a;
     Reset();
     cap = (u32)(capHint + kPadding); // + kPadding for terminating 0
@@ -1905,7 +1905,7 @@ WCHAR& WStrBuilder::Last() const {
 WCHAR* WStrBuilder::StealData() {
     WCHAR* res = els;
     if (els == buf) {
-        res = (WCHAR*)Allocator::MemDup(allocator, buf, (len + kPadding) * kElSize);
+        res = (WCHAR*)MemDup(allocator, buf, (len + kPadding) * kElSize);
     }
     els = buf;
     Reset();
@@ -2682,7 +2682,7 @@ bool IsTextRtl(const WCHAR* s) {
     len = len > 40 ? 40 : len;
     int nRtl = 0;
     int nLtr = 0;
-    WORD* charTypes = Allocator::AllocArray<WORD>(GetTempAllocator(), len + 1);
+    WORD* charTypes = AllocArray<WORD>(GetTempAllocator(), len + 1);
     if (!GetStringTypeExW(LOCALE_INVARIANT, CT_CTYPE2, s, len, charTypes)) {
         return false; // API failure
     }

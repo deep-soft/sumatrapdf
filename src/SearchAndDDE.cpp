@@ -1271,7 +1271,7 @@ LRESULT OnDDERequest(HWND hwnd, WPARAM wp, LPARAM lp) {
     }
 
     int cbDdeData = sizeof(DDEDATA);
-    u8* res = (u8*)Allocator::AllocZero(GetTempAllocator(), cbDdeData + cbData);
+    u8* res = (u8*)AllocZero(GetTempAllocator(), cbDdeData + cbData);
     DDEDATA* ddeData = (DDEDATA*)res;
     ddeData->fRelease = 1; // tell client to free HGLOBAL
     ddeData->cfFormat = fmt;

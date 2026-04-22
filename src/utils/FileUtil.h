@@ -14,7 +14,7 @@ TempWStr GetDirTemp(const WCHAR* path);
 
 TempStr GetNonVirtualTemp(const char* virtualPath);
 
-char* Join(Allocator* allocator, const char* path, const char* fileName);
+char* Join(Arena* allocator, const char* path, const char* fileName);
 char* Join(const char* path, const char* fileName);
 WCHAR* Join(const WCHAR* path, const WCHAR* fileName, const WCHAR* fileName2 = nullptr);
 TempStr JoinTemp(const char* path, const char* fileName, const char* fileName2 = nullptr);
@@ -53,7 +53,7 @@ bool Exists(const char* path);
 
 FILE* OpenFILE(const char* path);
 HANDLE OpenReadOnly(const char*);
-ByteSlice ReadFileWithAllocator(const char* path, Allocator*);
+ByteSlice ReadFileWithAllocator(const char* path, Arena*);
 ByteSlice ReadFile(const char* path);
 int ReadN(const char* path, char* buf, size_t toRead);
 bool WriteFile(const char* path, const ByteSlice&);

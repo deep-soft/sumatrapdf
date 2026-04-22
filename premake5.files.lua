@@ -1302,7 +1302,13 @@ end
 
 function test_util_files()
   files_in_dir("src/common", {
+    "arena.cpp",
     "base.cpp",
+    "dir_scan.cpp",
+    "file_util.cpp",
+    "log.cpp",
+    "str_util.cpp",
+    "win_util.cpp",
   })
   files_in_dir("src/utils", {
     "BaseUtil.*",

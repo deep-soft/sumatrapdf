@@ -3,7 +3,7 @@
 
 // note: include BaseUtil.h instead of including directly
 
-Allocator* GetTempAllocator();
+Arena* GetTempAllocator();
 void DestroyTempAllocator();
 void ResetTempAllocator();
 
@@ -13,7 +13,7 @@ FORCEINLINE T* AllocArrayTemp(size_t n) {
         return nullptr;
     }
     auto a = GetTempAllocator();
-    return (T*)Allocator::AllocZero(a, n);
+    return (T*)AllocZero(a, n);
 }
 
 namespace str {

@@ -116,7 +116,7 @@ void FreePtr(char** s);
 void FreePtr(const WCHAR** s);
 void FreePtr(WCHAR** s);
 
-char* Dup(Allocator*, const char* str, size_t cch = (size_t)-1);
+char* Dup(Arena*, const char* str, size_t cch = (size_t)-1);
 char* Dup(const char* s, size_t cch = (size_t)-1);
 char* Dup(const ByteSlice&);
 
@@ -127,8 +127,8 @@ void ReplaceWithCopy(const char** s, const char* snew);
 void ReplaceWithCopy(const char** s, const ByteSlice&);
 void ReplaceWithCopy(char** s, const char* snew);
 
-char* Join(Allocator*, const char*, const char*, const char*);
-char* Join(Allocator*, const char*, const char*, const char*, const char*, const char*);
+char* Join(Arena*, const char*, const char*, const char*);
+char* Join(Arena*, const char*, const char*, const char*, const char*, const char*);
 char* Join(const char* s1, const char* s2, const char* s3 = nullptr);
 
 bool Eq(const char* s1, const char* s2);
@@ -172,7 +172,7 @@ bool ContainsI(const char* s, const char* txt);
 
 bool BufFmtV(char* buf, size_t bufCchSize, const char* fmt, va_list args);
 bool BufFmt(char* buf, size_t bufCchSize, const char* fmt, ...);
-char* FmtVWithAllocator(Allocator* a, const char* fmt, va_list args);
+char* FmtVWithAllocator(Arena* a, const char* fmt, va_list args);
 char* FmtV(const char* fmt, va_list args);
 char* Format(const char* fmt, ...);
 
@@ -207,10 +207,10 @@ bool IsEmptyOrWhiteSpace(const char*);
 bool Skip(const char*& s, const char* toSkip);
 const char* SkipChar(const char* s, char toSkip);
 
-WCHAR* Dup(Allocator*, const WCHAR* str, size_t cch = (size_t)-1);
+WCHAR* Dup(Arena*, const WCHAR* str, size_t cch = (size_t)-1);
 WCHAR* Dup(const WCHAR* s, size_t cch = (size_t)-1);
 WCHAR* Join(const WCHAR*, const WCHAR*, const WCHAR* s3 = nullptr);
-WCHAR* Join(Allocator*, const WCHAR*, const WCHAR*, const WCHAR* s3);
+WCHAR* Join(Arena*, const WCHAR*, const WCHAR*, const WCHAR* s3);
 bool Eq(const WCHAR*, const WCHAR*);
 bool EqI(const WCHAR*, const WCHAR*);
 bool EqN(const WCHAR*, const WCHAR*, size_t);
@@ -263,7 +263,7 @@ const char* IdxToStr(SeqStrings strs, int idx);
 
 struct StrBuilder {
     // allocator is not owned by Vec and must outlive it
-    Allocator* allocator = nullptr;
+    Arena* allocator = nullptr;
     // TODO: to save space (8 bytes), combine els and buf?
     char* els = nullptr;
     u32 len = 0;
@@ -274,7 +274,7 @@ struct StrBuilder {
 
     static constexpr size_t kBufChars = dimof(buf);
 
-    explicit StrBuilder(size_t capHint = 0, Allocator* allocator = nullptr);
+    explicit StrBuilder(size_t capHint = 0, Arena* allocator = nullptr);
     StrBuilder(const StrBuilder& that);
     StrBuilder& operator=(const StrBuilder& that);
     StrBuilder(const char*); // NOLINT
@@ -301,7 +301,7 @@ struct StrBuilder {
     char RemoveAt(size_t idx, size_t count = 1);
     char RemoveLast();
     char& Last() const;
-    char* StealData(Allocator* a = nullptr);
+    char* StealData(Arena* a = nullptr);
     char* LendData() const;
     bool Contains(const char* s, size_t sLen = 0);
     bool IsEmpty() const;
@@ -325,7 +325,7 @@ struct StrBuilder {
 
 struct WStrBuilder {
     // allocator is not owned by Vec and must outlive it
-    Allocator* allocator = nullptr;
+    Arena* allocator = nullptr;
     WCHAR* els = nullptr;
     u32 len = 0;
     u32 cap = 0;
@@ -334,7 +334,7 @@ struct WStrBuilder {
     static constexpr size_t kBufChars = dimof(buf);
     static constexpr size_t kElSize = sizeof(WCHAR);
 
-    explicit WStrBuilder(size_t capHint = 0, Allocator* allocator = nullptr);
+    explicit WStrBuilder(size_t capHint = 0, Arena* allocator = nullptr);
     WStrBuilder(const WStrBuilder&);
     WStrBuilder(const WCHAR*); // NOLINT
     WStrBuilder& operator=(const WStrBuilder& that);
