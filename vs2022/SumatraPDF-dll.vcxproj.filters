@@ -34,6 +34,9 @@
     <Filter Include="src">
       <UniqueIdentifier>{2DAB880B-99B4-887C-2230-9F7C8E38947C}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\common">
+      <UniqueIdentifier>{E5D74254-D18F-84A1-3A97-5DFD266E1F92}</UniqueIdentifier>
+    </Filter>
     <Filter Include="src\mui">
       <UniqueIdentifier>{A71E30A9-13FE-AE44-1C16-3A1B887415A6}</UniqueIdentifier>
     </Filter>
@@ -308,6 +311,9 @@
     </ClInclude>
     <ClInclude Include="..\src\WindowTab.h">
       <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\common\common.h">
+      <Filter>src\common</Filter>
     </ClInclude>
     <ClInclude Include="..\src\mui\Mui.h">
       <Filter>src\mui</Filter>
@@ -646,6 +652,30 @@
     </ClCompile>
     <ClCompile Include="..\src\WindowTab.cpp">
       <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\common\allocator.cpp">
+      <Filter>src\common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\common\arena.cpp">
+      <Filter>src\common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\common\base.cpp">
+      <Filter>src\common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\common\dir_scan.cpp">
+      <Filter>src\common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\common\file_util.cpp">
+      <Filter>src\common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\common\log.cpp">
+      <Filter>src\common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\common\str_util.cpp">
+      <Filter>src\common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\common\win_util.cpp">
+      <Filter>src\common</Filter>
     </ClCompile>
     <ClCompile Include="..\src\mui\Mui.cpp">
       <Filter>src\mui</Filter>
@@ -1163,6 +1193,7 @@
     <None Include="..\premake5.files.lua" />
     <None Include="..\premake5.lua" />
     <None Include="..\readme.md" />
+    <None Include="..\sumlog.txt" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="..\src\SumatraPDF.rc">

@@ -33,17 +33,6 @@ struct StrSpan : Span<char> {
     bool IsEmpty() const { return !d || size == 0; }
 };
 
-struct Str {
-    char* s = nullptr;
-    int len = 0;
-
-    Str();
-    explicit Str(char* s);
-    explicit Str(char* s, int len);
-};
-
-#define StrL(s) Str{(char*)(s), (int)sizeof(s) - 1}
-
 struct ByteSlice {
     u8* d = nullptr;
     size_t sz = 0;

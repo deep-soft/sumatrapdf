@@ -1,0 +1,278 @@
+#include "common.h"
+
+#include <algorithm>
+#include <assert.h>
+
+u64 arena_default_reserve_size = 64ull * 1024ull * 1024ull;
+u64 arena_default_commit_size = 64ull * 1024ull;
+ArenaFlags arena_default_flags = 0;
+
+static u64 ArenaAlignPow2(u64 value, u64 align) {
+    if (align <= 1) {
+        return value;
+    }
+    assert((align & (align - 1)) == 0);
+    return (value + align - 1) & ~(align - 1);
+}
+
+static u64 ArenaMin(u64 a, u64 b) {
+    return (a < b) ? a : b;
+}
+
+static u64 ArenaMax(u64 a, u64 b) {
+    return (a > b) ? a : b;
+}
+
+static u64 ArenaClampTop(u64 value, u64 maxValue) {
+    return (value < maxValue) ? value : maxValue;
+}
+
+static u64 ArenaClampBot(u64 minValue, u64 value) {
+    return (value > minValue) ? value : minValue;
+}
+
+static u64 ArenaPageSize() {
+    static u64 pageSize = 0;
+    if (pageSize == 0) {
+        SYSTEM_INFO info = {};
+        GetSystemInfo(&info);
+        pageSize = info.dwPageSize;
+    }
+    return pageSize;
+}
+
+static u64 ArenaLargePageSize() {
+    static u64 largePageSize = 0;
+    if (largePageSize == 0) {
+        SIZE_T size = GetLargePageMinimum();
+        largePageSize = size ? (u64)size : ArenaPageSize();
+    }
+    return largePageSize;
+}
+
+static bool ArenaCommit(void* base, u64 size, bool largePages) {
+    if (size == 0) {
+        return true;
+    }
+    DWORD flags = MEM_COMMIT;
+    if (largePages) {
+        flags |= MEM_LARGE_PAGES;
+    }
+    return VirtualAlloc(base, (SIZE_T)size, flags, PAGE_READWRITE) != nullptr;
+}
+
+ArenaParams ArenaDefaultParams() {
+    ArenaParams params = {};
+    params.flags = arena_default_flags;
+    params.reserve_size = arena_default_reserve_size;
+    params.commit_size = arena_default_commit_size;
+    return params;
+}
+
+Arena* arena_alloc(const ArenaParams& srcParams) {
+    ArenaParams params = srcParams;
+    if (params.reserve_size == 0) {
+        params.reserve_size = arena_default_reserve_size;
+    }
+    if (params.commit_size == 0) {
+        params.commit_size = arena_default_commit_size;
+    }
+
+    bool useLargePages = (params.flags & ArenaFlag_LargePages) != 0;
+    const u64 pageSize = useLargePages ? ArenaLargePageSize() : ArenaPageSize();
+    u64 reserveSize = ArenaAlignPow2(ArenaMax(params.reserve_size, ARENA_HEADER_SIZE), pageSize);
+    u64 commitSize = ArenaAlignPow2(ArenaMax(params.commit_size, ARENA_HEADER_SIZE), pageSize);
+    commitSize = ArenaClampTop(commitSize, reserveSize);
+
+    void* base = params.optional_backing_buffer;
+    bool usesExternalBuffer = (base != nullptr);
+    ArenaFlags actualFlags = params.flags;
+
+    if (!usesExternalBuffer) {
+        if (useLargePages) {
+            base = VirtualAlloc(nullptr, (SIZE_T)reserveSize, MEM_RESERVE | MEM_COMMIT | MEM_LARGE_PAGES, PAGE_READWRITE);
+            if (base) {
+                commitSize = reserveSize;
+            } else {
+                actualFlags &= ~ArenaFlag_LargePages;
+                useLargePages = false;
+                reserveSize = ArenaAlignPow2(reserveSize, ArenaPageSize());
+                commitSize = ArenaAlignPow2(commitSize, ArenaPageSize());
+            }
+        }
+
+        if (!base) {
+            base = VirtualAlloc(nullptr, (SIZE_T)reserveSize, MEM_RESERVE, PAGE_READWRITE);
+            if (base && !ArenaCommit(base, commitSize, false)) {
+                VirtualFree(base, 0, MEM_RELEASE);
+                base = nullptr;
+            }
+        }
+    } else {
+        commitSize = reserveSize;
+    }
+
+    if (!base) {
+        return nullptr;
+    }
+
+    memset(base, 0, (size_t)std::min<u64>(commitSize, ARENA_HEADER_SIZE));
+    Arena* arena = (Arena*)base;
+    arena->prev = nullptr;
+    arena->current = arena;
+    arena->flags = actualFlags;
+    arena->cmt_size = useLargePages ? reserveSize : commitSize;
+    arena->res_size = reserveSize;
+    arena->base_pos = 0;
+    arena->pos = ARENA_HEADER_SIZE;
+    arena->cmt = commitSize;
+    arena->res = reserveSize;
+    arena->allocation_site_file = params.allocation_site_file;
+    arena->allocation_site_line = params.allocation_site_line;
+    arena->name = params.name;
+    arena->uses_external_buffer = usesExternalBuffer;
+    return arena;
+}
+
+void arena_release(Arena* arena) {
+    if (!arena) {
+        return;
+    }
+
+    Arena* node = arena->current;
+    while (node) {
+        Arena* prev = node->prev;
+        if (!node->uses_external_buffer) {
+            VirtualFree(node, 0, MEM_RELEASE);
+        }
+        node = prev;
+    }
+}
+
+void* arena_push(Arena* arena, u64 size, u64 align, bool zero) {
+    if (!arena) {
+        return nullptr;
+    }
+    if (align == 0) {
+        align = 1;
+    }
+
+    Arena* current = arena->current;
+    u64 posPre = ArenaAlignPow2(current->pos, align);
+    u64 posPost = posPre + size;
+
+    u64 sizeToZero = 0;
+    if (zero && current->cmt > posPre) {
+        sizeToZero = ArenaMin(current->cmt, posPost) - posPre;
+    }
+
+    if (current->res < posPost && !(arena->flags & ArenaFlag_NoChain)) {
+        u64 resSize = current->res_size;
+        u64 cmtSize = current->cmt_size;
+        if (size + ARENA_HEADER_SIZE > resSize) {
+            resSize = ArenaAlignPow2(size + ARENA_HEADER_SIZE, ArenaMax(align, ArenaPageSize()));
+            cmtSize = resSize;
+        }
+
+        ArenaParams newParams = {};
+        newParams.flags = current->flags;
+        newParams.reserve_size = resSize;
+        newParams.commit_size = cmtSize;
+        newParams.allocation_site_file = current->allocation_site_file;
+        newParams.allocation_site_line = current->allocation_site_line;
+        newParams.name = current->name;
+
+        Arena* newBlock = arena_alloc(newParams);
+        if (!newBlock) {
+            return nullptr;
+        }
+
+        newBlock->base_pos = current->base_pos + current->res;
+        newBlock->prev = current;
+        arena->current = newBlock;
+        current = newBlock;
+        posPre = ArenaAlignPow2(current->pos, align);
+        posPost = posPre + size;
+        sizeToZero = 0;
+    }
+
+    if (current->cmt < posPost) {
+        if (current->flags & ArenaFlag_LargePages) {
+            return nullptr;
+        }
+
+        u64 commitEnd = ArenaAlignPow2(posPost, current->cmt_size);
+        u64 commitClamped = ArenaClampTop(commitEnd, current->res);
+        u64 commitSize = commitClamped - current->cmt;
+        void* commitPtr = (char*)current + current->cmt;
+        if (!ArenaCommit(commitPtr, commitSize, false)) {
+            return nullptr;
+        }
+        current->cmt = commitClamped;
+    }
+
+    if (current->cmt < posPost) {
+        return nullptr;
+    }
+
+    void* result = (char*)current + posPre;
+    current->pos = posPost;
+    if (sizeToZero) {
+        memset(result, 0, (size_t)sizeToZero);
+    }
+    return result;
+}
+
+u64 arena_pos(Arena* arena) {
+    if (!arena) {
+        return 0;
+    }
+    Arena* current = arena->current;
+    return current->base_pos + current->pos;
+}
+
+void arena_pop_to(Arena* arena, u64 pos) {
+    if (!arena) {
+        return;
+    }
+
+    u64 bigPos = ArenaClampBot(ARENA_HEADER_SIZE, pos);
+    Arena* current = arena->current;
+    while (current && current->base_pos >= bigPos) {
+        Arena* prev = current->prev;
+        if (!current->uses_external_buffer) {
+            VirtualFree(current, 0, MEM_RELEASE);
+        } else {
+            current->pos = ARENA_HEADER_SIZE;
+        }
+        current = prev;
+    }
+
+    if (!current) {
+        return;
+    }
+
+    arena->current = current;
+    u64 newPos = bigPos - current->base_pos;
+    assert(newPos <= current->pos);
+    current->pos = newPos;
+}
+
+void arena_clear(Arena* arena) {
+    arena_pop_to(arena, 0);
+}
+
+void arena_pop(Arena* arena, u64 amt) {
+    u64 posOld = arena_pos(arena);
+    u64 posNew = (amt < posOld) ? (posOld - amt) : 0;
+    arena_pop_to(arena, posNew);
+}
+
+Temp temp_begin(Arena* arena) {
+    Temp temp = {arena, arena_pos(arena)};
+    return temp;
+}
+
+void temp_end(Temp temp) {
+    arena_pop_to(temp.arena, temp.pos);
+}
