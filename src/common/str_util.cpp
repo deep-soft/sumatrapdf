@@ -65,6 +65,8 @@ int StrLastIndexOfChar(Str s, char c) {
 }
 
 static wchar_t emptyWideStr[1] = {0};
+
+#if 0
 // Convert UTF-8 to UTF-16 (wide string), allocate with gTempAllocator
 WStr ToWStrTemp(const char* utf8) {
     if (!utf8 || !utf8[0]) {
@@ -75,6 +77,7 @@ WStr ToWStrTemp(const char* utf8) {
     MultiByteToWideChar(CP_UTF8, 0, utf8, -1, wide, len);
     return WStr(wide, len - 1); // Exclude null terminator from length
 }
+#endif
 
 // Convert UTF-16 to UTF-8
 Str ToUtf8(Arena* arena, WStr wide) {
@@ -496,7 +499,7 @@ static bool IsWhitespace(char c) {
     return c == ' ' || c == '\t' || c == '\r' || c == '\n';
 }
 
-void SplitStrByWhitespace(Arena* arena, const Str& s, StrVec& vecOut) {
+void SplitStrByWhitespace(Arena* arena, const Str& s, VecStr& vecOut) {
     vecOut.len = 0;
     vecOut.cap = 0;
     vecOut.els = nullptr;

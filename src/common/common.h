@@ -18,8 +18,9 @@
 #include <utility> // for std::forward
 
 typedef unsigned __int64 u64;
-typedef LONG AtomicBool;
-typedef LONG AtomicInt;
+
+using AtomicBool = volatile LONG;
+using AtomicInt = volatile LONG;
 
 // Atomic bool operations (base.cpp)
 bool AtomicBoolGet(AtomicBool* p);
@@ -230,7 +231,6 @@ wchar_t ToLowerW(wchar_t c);
 int WStrFindSubstr(WStr str, WStr substr);
 int WStrCmpNoCase(WStr a, WStr b);
 
-WStr ToWStrTemp(const char* utf8);
 WStr ToWStrTemp(Str s);
 Str ToUtf8(Arena* arena, WStr wide);
 Str ToUtf8Temp(WStr wide);
@@ -261,13 +261,13 @@ Str StrTrimSuffixWhitespace(Str s);
 extern AtomicInt gStrFmtFirstAlloc;  // Formatted into available space
 extern AtomicInt gStrFmtSecondAlloc; // Needed separate allocation
 
-struct StrVec {
+struct VecStr {
     int len;
     int cap;
     Str* els;
 };
 
-void SplitStrByWhitespace(Arena* arena, const Str& s, StrVec& vecOut);
+void SplitStrByWhitespace(Arena* arena, const Str& s, VecStr& vecOut);
 
 // file_util.cpp
 bool FileSystemEntryExists(Str s);
@@ -365,7 +365,7 @@ DWORD WINAPI DirScanThread(LPVOID param);
 
 // Allocate a DirEntries with fullDir set
 DirEntries* AllocDirEntries(Arena* arena, Str fullDir);
-void ReadDirectory(Arena* arena, DirEntries* dv, LONG* shouldExit);
+void ReadDirectory(Arena* arena, DirEntries* dv, AtomicBool* shouldExit);
 
 // win_util.cpp
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -385,12 +385,3 @@ void SetHwndText(HWND hwnd, Str s);
 Str GetLastErrorAsStr(Arena* arena);
 bool WasLaunchedByPowershellWithPipeRedirect();
 Str GetAppLocalDataDirTemp();
-
-// log.cpp
-void LogInit(Str logFilePath);
-void LogDestroy();
-void logStr(Str s);
-#define logf(fmt, ...) logStr(StrFmtTemp(fmt, __VA_ARGS__))
-void logConsole(const char* fmt, ...);
-void WaitForConsoleClose();
-void SendEnterIfLoggedToConsole();

@@ -929,10 +929,19 @@ function utils_files()
     "WinUtil.*",
     "ZipUtil.*",
   })
-  filter { "configurations:Debug or DebugFull" }
-  files_in_dir("src/utils", {
-    "windrawlib.*",
+  files_in_dir("src/common", {
+    "arena.cpp",
+    "base.cpp",
+    "dir_scan.cpp",
+    "file_util.cpp",
+    "str_util.cpp",
+    "win_util.cpp",
+    "common.h",
   })
+  filter { "configurations:Debug or DebugFull" }
+      files_in_dir("src/utils", {
+        "windrawlib.*",
+      })
   filter {}
 end
 
@@ -940,13 +949,6 @@ function wingui_files()
   files_in_dir("src/wingui", {
     "*.h",
     "*.cpp",
-  })
-end
-
-function common_files()
-  files_in_dir("src/common", {
-    "*.cpp",
-    "*.h",
   })
 end
 
@@ -1299,6 +1301,9 @@ function efi_files()
 end
 
 function test_util_files()
+  files_in_dir("src/common", {
+    "base.cpp",
+  })
   files_in_dir("src/utils", {
     "BaseUtil.*",
     "BitManip.*",

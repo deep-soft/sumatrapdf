@@ -893,7 +893,6 @@ workspace "SumatraPDF"
     wingui_files()
     uia_files()
     engines_files()
-    common_files()
     sumatrapdf_files()
 
     debugdir(".")
@@ -957,7 +956,6 @@ workspace "SumatraPDF"
     wingui_files()
     uia_files()
     engines_files()
-    common_files()
     sumatrapdf_files()
 
     webview_conf()

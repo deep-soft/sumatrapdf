@@ -142,6 +142,8 @@
 #include <array>
 #include <limits>
 
+#include "../common/common.h"
+
 using i8 = int8_t;
 using u8 = uint8_t;
 using i16 = int16_t;
@@ -444,18 +446,6 @@ struct Allocator {
     static void* Realloc(Allocator* a, void* mem, size_t size);
     static void* MemDup(Allocator* a, const void* mem, size_t size, size_t extraBytes = 0);
 };
-
-using AtomicBool = volatile LONG;
-bool AtomicBoolGet(AtomicBool* v);
-bool AtomicBoolSet(AtomicBool* v, bool newValue);
-
-using AtomicInt = volatile LONG;
-int AtomicIntSet(AtomicInt* v, int n);
-int AtomicIntInc(AtomicInt* v);
-int AtomicIntDec(AtomicInt* v);
-int AtomicIntAdd(AtomicInt* v, int n);
-int AtomicIntSub(AtomicInt* v, int n);
-int AtomicIntGet(AtomicInt* v);
 
 using AtomicRefCount = volatile LONG;
 int AtomicRefCountAdd(AtomicRefCount* v);

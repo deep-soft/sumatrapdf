@@ -1,4 +1,5 @@
 #include "common.h"
+#include "log.h"
 
 static char* gLogFilePath = nullptr;
 static bool gAllocatedConsole = false;

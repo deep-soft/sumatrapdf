@@ -11,45 +11,6 @@ Kind kindNone = "none";
 // if > 1 we won't crash when memory allocation fails
 LONG gAllowAllocFailure = 0;
 
-// returns previous value
-int AtomicIntSet(AtomicInt* v, int n) {
-    return (int)InterlockedExchange(v, n);
-}
-
-// returns value after increment
-int AtomicIntInc(AtomicInt* v) {
-    return (int)InterlockedIncrement(v);
-}
-
-// returns value after decrement
-int AtomicIntDec(AtomicInt* v) {
-    return (int)InterlockedDecrement(v);
-}
-
-// returns value after adding
-int AtomicIntAdd(AtomicInt* v, int n) {
-    return (int)InterlockedAdd(v, n);
-}
-
-// returns value after subtracting
-int AtomicIntSub(AtomicInt* v, int n) {
-    return (int)InterlockedAdd(v, -n);
-}
-
-int AtomicIntGet(AtomicInt* v) {
-    return (int)InterlockedCompareExchange(v, 0, 0);
-}
-
-bool AtomicBoolGet(AtomicBool* v) {
-    return InterlockedCompareExchange(v, 0, 0) != 0;
-}
-
-// returns previous value
-bool AtomicBoolSet(AtomicBool* v, bool newValue) {
-    auto res = InterlockedExchange(v, newValue ? 1 : 0);
-    return res != 0;
-}
-
 // returns count after adding
 int AtomicRefCountAdd(AtomicRefCount* v) {
     return (int)InterlockedIncrement(v);

@@ -1162,7 +1162,6 @@ cd ../out/rel64_prefast_asan &amp; ..\..\bin\MakeLZSA.exe InstallerData.dat libm
     <ClInclude Include="..\src\UpdateCheck.h" />
     <ClInclude Include="..\src\Version.h" />
     <ClInclude Include="..\src\WindowTab.h" />
-    <ClInclude Include="..\src\common\common.h" />
     <ClInclude Include="..\src\mui\Mui.h" />
     <ClInclude Include="..\src\mui\TextRender.h" />
     <ClInclude Include="..\src\resource.h" />
@@ -1304,13 +1303,6 @@ cd ../out/rel64_prefast_asan &amp; ..\..\bin\MakeLZSA.exe InstallerData.dat libm
     <ClCompile Include="..\src\Uninstaller.cpp" />
     <ClCompile Include="..\src\UpdateCheck.cpp" />
     <ClCompile Include="..\src\WindowTab.cpp" />
-    <ClCompile Include="..\src\common\arena.cpp" />
-    <ClCompile Include="..\src\common\base.cpp" />
-    <ClCompile Include="..\src\common\dir_scan.cpp" />
-    <ClCompile Include="..\src\common\file_util.cpp" />
-    <ClCompile Include="..\src\common\log.cpp" />
-    <ClCompile Include="..\src\common\str_util.cpp" />
-    <ClCompile Include="..\src\common\win_util.cpp" />
     <ClCompile Include="..\src\mui\Mui.cpp" />
     <ClCompile Include="..\src\mui\TextRender.cpp" />
     <ClCompile Include="..\src\regress\Regress.cpp">

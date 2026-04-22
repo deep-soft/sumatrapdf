@@ -33,7 +33,7 @@ static const WStr wdotdot = WStrL(L"..");
 
 // Read a directory into an existing DirEntries (dv->fullDir must be set)
 // If shouldExit is not null and becomes true, returns early
-void ReadDirectory(Arena* arena, DirEntries* dv, LONG* shouldExit) {
+void ReadDirectory(Arena* arena, DirEntries* dv, AtomicBool* shouldExit) {
     if (shouldExit && AtomicBoolGet(shouldExit)) {
         return;
     }
@@ -251,7 +251,6 @@ void QueueDirScan(DirScanCtx* ctx, DirEntries* dv, bool nonRecursive) {
 // Request a refresh of a directory (non-recursive scan)
 // Allocates a new DirEntries and queues it for scanning
 void RequestDirRescan(DirScanCtx* ctx, DirEntries* dv) {
-    logf("RequestDirRescan: '%s'\n", dv->fullDir.s);
     DirEntries* newDv = AllocDirEntries(ctx->a, dv->fullDir);
     QueueDirScan(ctx, newDv, true);
 }
