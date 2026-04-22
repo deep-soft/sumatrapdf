@@ -399,6 +399,8 @@ class EngineBase {
     // TODO: migrate other engines to use this
     AutoFreeStr fileNameBase;
 
+    EngineBase();
+
     // creates a clone of this engine (e.g. for printing on a different thread)
     virtual EngineBase* Clone() = 0;
 
@@ -438,6 +440,12 @@ class EngineBase {
     virtual PageText ExtractPageText(int pageNo) = 0;
     // UTF-8 variant of ExtractPageText. Default implementation returns empty.
     virtual PageTextUtf8 ExtractPageTextUtf8(int) { return {}; }
+
+    // cached per-page text. First call on a page extracts text and caches it,
+    // subsequent calls return the cached copy. The returned pointers are owned
+    // by EngineBase and remain valid for the lifetime of the engine.
+    bool HasTextForPage(int pageNo);
+    const WCHAR* GetTextForPage(int pageNo, int* lenOut = nullptr, Rect** coordsOut = nullptr);
     // pages where clipping doesn't help are rendered in larger tiles
     virtual bool HasClipOptimizations(int pageNo) = 0;
 
@@ -520,6 +528,10 @@ class EngineBase {
 
   protected:
     virtual ~EngineBase();
+
+    // cached text, one entry per page (lazily allocated)
+    PageText* pagesText = nullptr;
+    CRITICAL_SECTION textCacheLock;
 };
 
 struct PasswordUI {

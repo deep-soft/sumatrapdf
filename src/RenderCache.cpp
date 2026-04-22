@@ -781,15 +781,15 @@ static DWORD WINAPI RenderCacheThread(LPVOID data) {
             continue;
         }
 
+        ReportIf(req.abortCookie != nullptr);
+        EngineBase* engine = req.dm->GetEngine();
+
         // make sure that we have extracted page text for
         // all rendered pages to allow text selection and
         // searching without any further delays
-        if (!req.dm->textCache->HasTextForPage(req.pageNo)) {
-            req.dm->textCache->GetTextForPage(req.pageNo);
+        if (!engine->HasTextForPage(req.pageNo)) {
+            engine->GetTextForPage(req.pageNo);
         }
-
-        ReportIf(req.abortCookie != nullptr);
-        EngineBase* engine = req.dm->GetEngine();
         RenderPageArgs args(req.pageNo, req.zoom, req.rotation, &req.pageRect, RenderTarget::View, &req.abortCookie);
         auto timeStart = TimeGet();
         bmp = engine->RenderPage(args);

@@ -354,9 +354,8 @@ DisplayModel::DisplayModel(EngineBase* engine, DocControllerCallback* cb) : DocC
     pageSpacing.dy += 4;
 #endif
 
-    textCache = new DocumentTextCache(engine);
-    textSelection = new TextSelection(engine, textCache);
-    textSearch = new TextSearch(engine, textCache);
+    textSelection = new TextSelection(engine);
+    textSearch = new TextSearch(engine);
 }
 
 DisplayModel::~DisplayModel() {
@@ -369,7 +368,6 @@ DisplayModel::~DisplayModel() {
     delete pdfSync;
     delete textSearch;
     delete textSelection;
-    delete textCache;
     SafeEngineRelease(&engine);
     free(pagesInfo);
 }
@@ -1176,7 +1174,7 @@ bool DisplayModel::IsOverText(Point pt) {
     if (!Rect(Point(), viewPort.Size()).Contains(pt)) {
         return false;
     }
-    if (!textCache->HasTextForPage(pageNo)) {
+    if (!engine->HasTextForPage(pageNo)) {
         return false;
     }
 
@@ -1814,7 +1812,7 @@ void DisplayModel::RotateBy(int newRotation) {
  * into a newly allocated buffer (which the caller needs to free()). */
 char* DisplayModel::GetTextInRegion(int pageNo, RectF region) const {
     Rect* coords;
-    const WCHAR* pageText = textCache->GetTextForPage(pageNo, nullptr, &coords);
+    const WCHAR* pageText = engine->GetTextForPage(pageNo, nullptr, &coords);
     if (str::IsEmpty(pageText)) {
         return nullptr;
     }

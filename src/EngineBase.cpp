@@ -3,6 +3,7 @@
    License: GPLv3 */
 
 #include "utils/BaseUtil.h"
+#include "utils/ScopedWin.h"
 #include "utils/WinUtil.h"
 
 #include "wingui/UIModels.h"
@@ -327,9 +328,58 @@ bool EngineBase::Release() {
     return false;
 }
 
+EngineBase::EngineBase() {
+    InitializeCriticalSection(&textCacheLock);
+}
+
 EngineBase::~EngineBase() {
+    if (pagesText) {
+        for (int i = 0; i < pageCount; i++) {
+            PageText* pt = &pagesText[i];
+            free(pt->coords);
+            free(pt->text);
+        }
+        free(pagesText);
+    }
+    DeleteCriticalSection(&textCacheLock);
     str::Free(decryptionKey);
     str::Free(defaultExt);
+}
+
+bool EngineBase::HasTextForPage(int pageNo) {
+    ReportIf(pageNo < 1 || pageNo > pageCount);
+    ScopedCritSec scope(&textCacheLock);
+    if (!pagesText) {
+        return false;
+    }
+    PageText* pt = &pagesText[pageNo - 1];
+    return pt->text != nullptr;
+}
+
+const WCHAR* EngineBase::GetTextForPage(int pageNo, int* lenOut, Rect** coordsOut) {
+    ReportIf(pageNo < 1 || pageNo > pageCount);
+
+    ScopedCritSec scope(&textCacheLock);
+    if (!pagesText) {
+        pagesText = AllocArray<PageText>(pageCount);
+    }
+    PageText* pt = &pagesText[pageNo - 1];
+
+    if (!pt->text) {
+        *pt = ExtractPageText(pageNo);
+        if (!pt->text) {
+            pt->text = str::Dup(L"");
+            pt->len = 0;
+        }
+    }
+
+    if (lenOut) {
+        *lenOut = pt->len;
+    }
+    if (coordsOut) {
+        *coordsOut = pt->coords;
+    }
+    return pt->text;
 }
 
 int EngineBase::PageCount() const {
