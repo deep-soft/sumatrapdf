@@ -73,7 +73,7 @@ TempStr GumboTextContentTemp(const GumboNode* node) {
     if (!node || node->type != GUMBO_NODE_ELEMENT) {
         return nullptr;
     }
-    str::Str sb;
+    StrBuilder sb;
     const GumboVector* children = &node->v.element.children;
     for (unsigned int i = 0; i < children->length; i++) {
         const GumboNode* child = (const GumboNode*)children->data[i];

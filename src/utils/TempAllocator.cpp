@@ -93,7 +93,7 @@ TempStr ReplaceTemp(const char* s, const char* toReplace, const char* replaceWit
     }
     // heuristic: allow 6 replacements without reallocating
     size_t capHint = str::Len(s) + 1 + (lenDiff * 6);
-    str::Str result(capHint);
+    StrBuilder result(capHint);
     bool ok;
     while (end != nullptr) {
         ok = result.Append(curr, end - curr);
@@ -146,7 +146,7 @@ TempWStr ToWStrTemp(const char* s, size_t cb) {
 }
 
 // handles embedded 0 in the string
-TempWStr ToWStrTemp(const str::Str& str) {
+TempWStr ToWStrTemp(const StrBuilder& str) {
     if (str.IsEmpty()) {
         return nullptr;
     }

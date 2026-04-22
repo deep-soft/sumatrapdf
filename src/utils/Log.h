@@ -2,7 +2,7 @@
    License: Simplified BSD (see COPYING.BSD) */
 
 extern HeapAllocator* gLogAllocator;
-extern str::Str* gLogBuf;
+extern StrBuilder* gLogBuf;
 extern bool gLogToConsole;
 extern bool gLogToDebugger;
 extern bool gReducedLogging;

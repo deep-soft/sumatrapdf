@@ -1308,14 +1308,12 @@ const char* IdxToStr(SeqStrings strs, int idx) {
 
 } // namespace seqstrings
 
-namespace str {
-
 // for compatibility with C string, the last character is always 0
 // kPadding is number of characters needed for terminating character
 static constexpr size_t kPadding = 1;
 
-static char* EnsureCap(Str* s, size_t needed) {
-    if (needed + kPadding <= Str::kBufChars) {
+static char* EnsureCap(StrBuilder* s, size_t needed) {
+    if (needed + kPadding <= StrBuilder::kBufChars) {
         s->els = s->buf; // TODO: not needed?
         return s->buf;
     }
@@ -1362,7 +1360,7 @@ static char* EnsureCap(Str* s, size_t needed) {
     return newEls;
 }
 
-static char* MakeSpaceAt(Str* s, size_t idx, size_t count) {
+static char* MakeSpaceAt(StrBuilder* s, size_t idx, size_t count) {
     ReportIf(count == 0);
     u32 newLen = std::max(s->len, (u32)idx) + (u32)count;
     char* buf = EnsureCap(s, newLen);
@@ -1382,7 +1380,7 @@ static char* MakeSpaceAt(Str* s, size_t idx, size_t count) {
     return res;
 }
 
-static void Free(Str* s) {
+static void StrBuilderFree(StrBuilder* s) {
     if (!s->els || (s->els == s->buf)) {
         return;
     }
@@ -1390,8 +1388,8 @@ static void Free(Str* s) {
     s->els = nullptr;
 }
 
-void Str::Reset() {
-    Free(this);
+void StrBuilder::Reset() {
+    StrBuilderFree(this);
     len = 0;
     cap = 0;
     els = buf;
@@ -1400,7 +1398,7 @@ void Str::Reset() {
 #define kFillerStr "01234567890123456789012345678901"
     // to catch mistakes earlier, fill the buffer with a known string
     constexpr size_t nFiller = sizeof(kFillerStr) - 1;
-    static_assert(nFiller == Str::kBufChars);
+    static_assert(nFiller == StrBuilder::kBufChars);
     memcpy(buf, kFillerStr, kBufChars);
 #endif
 
@@ -1408,7 +1406,7 @@ void Str::Reset() {
 }
 
 // allocator is not owned by Vec and must outlive it
-Str::Str(size_t capHint, Allocator* a) {
+StrBuilder::StrBuilder(size_t capHint, Allocator* a) {
     allocator = a;
     Reset();
     cap = (u32)(capHint + kPadding); // + kPadding for terminating 0
@@ -1416,7 +1414,7 @@ Str::Str(size_t capHint, Allocator* a) {
 
 // ensure that a Vec never shares its els buffer with another after a clone/copy
 // note: we don't inherit allocator as it's not needed for our use cases
-Str::Str(const Str& that) {
+StrBuilder::StrBuilder(const StrBuilder& that) {
     Reset();
     char* s = EnsureCap(this, that.len);
     char* sOrig = that.Get();
@@ -1425,12 +1423,12 @@ Str::Str(const Str& that) {
     memcpy(s, sOrig, n);
 }
 
-Str::Str(const char* s) {
+StrBuilder::StrBuilder(const char* s) {
     Reset();
     Append(s);
 }
 
-Str& Str::operator=(const Str& that) {
+StrBuilder& StrBuilder::operator=(const StrBuilder& that) {
     if (this == &that) {
         return *this;
     }
@@ -1443,49 +1441,49 @@ Str& Str::operator=(const Str& that) {
     return *this;
 }
 
-Str::~Str() {
-    Free(this);
+StrBuilder::~StrBuilder() {
+    StrBuilderFree(this);
 }
 
-char& Str::at(size_t idx) const {
+char& StrBuilder::at(size_t idx) const {
     ReportIf(idx >= (u32)len);
     return els[idx];
 }
 
-char& Str::at(int idx) const {
+char& StrBuilder::at(int idx) const {
     ReportIf(idx < 0);
     return at((size_t)idx);
 }
 
-char& Str::operator[](long idx) const {
+char& StrBuilder::operator[](long idx) const {
     ReportIf(idx < 0);
     return at((size_t)idx);
 }
 
-char& Str::operator[](int idx) const {
+char& StrBuilder::operator[](int idx) const {
     ReportIf(idx < 0);
     return at((size_t)idx);
 }
 
 #if defined(_WIN64)
-char& Str::at(u32 idx) const {
+char& StrBuilder::at(u32 idx) const {
     return at((size_t)idx);
 }
 
-char& Str::operator[](u32 idx) const {
+char& StrBuilder::operator[](u32 idx) const {
     return at((size_t)idx);
 }
 #endif
 
-size_t Str::size() const {
+size_t StrBuilder::size() const {
     return len;
 }
 
-int Str::Size() const {
+int StrBuilder::Size() const {
     return (int)len;
 }
 
-bool Str::InsertAt(size_t idx, char el) {
+bool StrBuilder::InsertAt(size_t idx, char el) {
     char* p = MakeSpaceAt(this, idx, 1);
     if (!p) {
         return false;
@@ -1494,15 +1492,15 @@ bool Str::InsertAt(size_t idx, char el) {
     return true;
 }
 
-bool Str::AppendChar(char c) {
+bool StrBuilder::AppendChar(char c) {
     return InsertAt(len, c);
 }
 
-bool Str::Append(const StrSpan& s) {
+bool StrBuilder::Append(const StrSpan& s) {
     return Append(s.CStr(), (size_t)s.Len());
 }
 
-bool Str::Append(const char* src, size_t count) {
+bool StrBuilder::Append(const char* src, size_t count) {
     if (-1 == count) {
         count = str::Len(src);
     }
@@ -1517,11 +1515,11 @@ bool Str::Append(const char* src, size_t count) {
     return true;
 }
 
-bool Str::Append(const Str& s) {
+bool StrBuilder::Append(const StrBuilder& s) {
     return Append(s.LendData(), s.size());
 }
 
-char Str::RemoveAt(size_t idx, size_t count) {
+char StrBuilder::RemoveAt(size_t idx, size_t count) {
     char res = at(idx);
     if (len > idx + count) {
         char* dst = els + idx;
@@ -1534,14 +1532,14 @@ char Str::RemoveAt(size_t idx, size_t count) {
     return res;
 }
 
-char Str::RemoveLast() {
+char StrBuilder::RemoveLast() {
     if (len == 0) {
         return 0;
     }
     return RemoveAt(len - 1);
 }
 
-char& Str::Last() const {
+char& StrBuilder::Last() const {
     ReportIf(0 == len);
     return at(len - 1);
 }
@@ -1550,7 +1548,7 @@ char& Str::Last() const {
 // without duplicate allocation. Note: since Vec over-allocates, this
 // is likely to use more memory than strictly necessary, but in most cases
 // it doesn't matter
-char* Str::StealData(Allocator* a) {
+char* StrBuilder::StealData(Allocator* a) {
     char* res = els;
     if (a) {
         // if allocator is specified, have to duplicate
@@ -1569,12 +1567,12 @@ char* Str::StealData(Allocator* a) {
     return res;
 }
 
-char* Str::LendData() const {
+char* StrBuilder::LendData() const {
     return els;
 }
 
 // TODO: rewrite as size_t Find(const char* s, size_t sLen, size_t start);
-bool Str::Contains(const char* s, size_t sLen) {
+bool StrBuilder::Contains(const char* s, size_t sLen) {
     if (str::IsEmpty(s)) {
         return false;
     }
@@ -1602,35 +1600,35 @@ bool Str::Contains(const char* s, size_t sLen) {
     return false;
 }
 
-bool Str::IsEmpty() const {
+bool StrBuilder::IsEmpty() const {
     return len == 0;
 }
 
-ByteSlice Str::AsByteSlice() const {
+ByteSlice StrBuilder::AsByteSlice() const {
     return {(u8*)Get(), size()};
 }
 
-ByteSlice Str::StealAsByteSlice() {
+ByteSlice StrBuilder::StealAsByteSlice() {
     size_t n = size();
     char* d = StealData();
     return {(u8*)d, n};
 }
 
-bool Str::Append(const u8* src, size_t size) {
+bool StrBuilder::Append(const u8* src, size_t size) {
     return this->Append((const char*)src, size);
 }
 
-bool Str::AppendSlice(const ByteSlice& d) {
+bool StrBuilder::AppendSlice(const ByteSlice& d) {
     if (d.empty()) {
         return true;
     }
     return this->Append(d.data(), d.size());
 }
 
-void Str::AppendFmt(const char* fmt, ...) {
+void StrBuilder::AppendFmt(const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
-    char* res = FmtV(fmt, args);
+    char* res = str::FmtV(fmt, args);
     if (res) {
         Append(res);
         str::Free(res);
@@ -1652,20 +1650,20 @@ bool Replace(Str& s, const char* toReplace, const char* replaceWith) {
 }
 #endif
 
-void Str::Set(const char* s) {
+void StrBuilder::Set(const char* s) {
     Reset();
     Append(s);
 }
 
-char* Str::Get() const {
+char* StrBuilder::Get() const {
     return els;
 }
 
-char* Str::CStr() const {
+char* StrBuilder::CStr() const {
     return els;
 }
 
-char Str::LastChar() const {
+char StrBuilder::LastChar() const {
     auto n = this->len;
     if (n == 0) {
         return 0;
@@ -1673,10 +1671,11 @@ char Str::LastChar() const {
     return at(n - 1);
 }
 
+namespace str {
 // WStr
 
 static WCHAR* EnsureCap(WStr* s, size_t needed) {
-    if (needed + kPadding <= Str::kBufChars) {
+    if (needed + kPadding <= StrBuilder::kBufChars) {
         s->els = s->buf; // TODO: not needed?
         return s->buf;
     }
@@ -1758,7 +1757,7 @@ void WStr::Reset() {
 #define kFillerWStr L"01234567890123456789012345678901"
     // to catch mistakes earlier, fill the buffer with a known string
     constexpr size_t nFiller = sizeof(kFillerStr) - 1;
-    static_assert(nFiller == Str::kBufChars);
+    static_assert(nFiller == StrBuilder::kBufChars);
     memcpy(buf, kFillerWStr, nFiller * kElSize);
 #endif
 
@@ -2336,7 +2335,7 @@ TempStr FormatRomanNumeralTemp(int n) {
     } romandata[] = {{1000, "M"}, {900, "CM"}, {500, "D"}, {400, "CD"}, {100, "C"}, {90, "XC"}, {50, "L"},
                      {40, "XL"},  {10, "X"},   {9, "IX"},  {5, "V"},    {4, "IV"},  {1, "I"}};
 
-    str::Str roman;
+    StrBuilder roman;
     for (int i = 0; i < dimof(romandata); i++) {
         auto&& el = romandata[i];
         for (; n >= el.value; n -= el.value) {

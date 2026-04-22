@@ -17,7 +17,7 @@ Mutex gLogMutex;
 // where we want to avoid allocator deadlocks by calling malloc()
 HeapAllocator* gLogAllocator = nullptr;
 
-str::Str* gLogBuf = nullptr;
+StrBuilder* gLogBuf = nullptr;
 bool gLogToConsole = false;
 // we always log if IsDebuggerPresent()
 // this forces logging to debuger always
@@ -187,7 +187,7 @@ static void log2(const char* s, bool always) {
 
     if (!gLogBuf) {
         gLogAllocator = new HeapAllocator();
-        gLogBuf = new str::Str(32 * 1024, gLogAllocator);
+        gLogBuf = new StrBuilder(32 * 1024, gLogAllocator);
     } else {
         if (gLogBuf->Size() > kMaxLogBuf) {
             // TODO: use gLogBuf->Clear(), which doesn't free the allocated space

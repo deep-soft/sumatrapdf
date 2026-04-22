@@ -36,7 +36,7 @@ TempStr QuoteCmdLineArgTemp(char* arg) {
     if (!needsQuote) {
         return arg;
     }
-    str::Str res;
+    StrBuilder res;
     // TODO: can't do it because PoolAllocator doesn't support Realloc()
     // res.allocator = GetTempAllocator();
     res.AppendChar('"');

@@ -121,7 +121,7 @@ static_assert(kMobiHeaderLen == sizeof(MobiHeader), "wrong size of MobiHeader st
 // Uncompress source data compressed with PalmDoc compression into a buffer.
 // http://wiki.mobileread.com/wiki/PalmDOC#Format
 // Returns false on decoding errors
-static bool PalmdocUncompress(const u8* src, size_t srcLen, str::Str& dst) {
+static bool PalmdocUncompress(const u8* src, size_t srcLen, StrBuilder& dst) {
     const u8* srcEnd = src + srcLen;
     while (src < srcEnd) {
         u8 c = *src++;
@@ -209,13 +209,13 @@ class HuffDicDecompressor {
 
     bool SetHuffData(u8* huffData, size_t huffDataLen);
     bool AddCdicData(u8* cdicData, u32 cdicDataLen);
-    bool Decompress(u8* src, size_t srcSize, str::Str& dst);
-    bool DecodeOne(u32 code, str::Str& dst);
+    bool Decompress(u8* src, size_t srcSize, StrBuilder& dst);
+    bool DecodeOne(u32 code, StrBuilder& dst);
 };
 
 HuffDicDecompressor::HuffDicDecompressor() {}
 
-bool HuffDicDecompressor::DecodeOne(u32 code, str::Str& dst) {
+bool HuffDicDecompressor::DecodeOne(u32 code, StrBuilder& dst) {
     u16 dict = (u16)(code >> codeLength);
     if (dict >= dictsCount) {
         logf("invalid dict value\n");
@@ -257,7 +257,7 @@ bool HuffDicDecompressor::DecodeOne(u32 code, str::Str& dst) {
     return true;
 }
 
-bool HuffDicDecompressor::Decompress(u8* src, size_t srcSize, str::Str& dst) {
+bool HuffDicDecompressor::Decompress(u8* src, size_t srcSize, StrBuilder& dst) {
     u32 bitsConsumed = 0;
     u32 bits = 0;
 
@@ -815,7 +815,7 @@ static size_t GetRealRecordSize(const u8* recData, size_t recLen, size_t trailer
 
 // Load a given record of a document into strOut, uncompressing if necessary.
 // Returns false if error.
-bool MobiDoc::LoadDocRecordIntoBuffer(size_t recNo, str::Str& strOut) {
+bool MobiDoc::LoadDocRecordIntoBuffer(size_t recNo, StrBuilder& strOut) {
     auto rec = pdbReader->GetRecord(recNo);
     u8* recData = rec.data();
     if (nullptr == recData) {
@@ -863,7 +863,7 @@ bool MobiDoc::LoadForPdbReader(PdbReader* pdbReader) {
     }
 
     ReportIf(doc != nullptr);
-    doc = new str::Str(docUncompressedSize);
+    doc = new StrBuilder(docUncompressedSize);
     size_t nFailed = 0;
     for (size_t i = 1; i <= docRecCount; i++) {
         if (!LoadDocRecordIntoBuffer(i, *doc)) {
@@ -965,7 +965,7 @@ bool MobiDoc::HasToc() {
     return docTocIndex < doc->size();
 }
 
-static void AppendDeepText(const GumboNode* node, str::Str& sb) {
+static void AppendDeepText(const GumboNode* node, StrBuilder& sb) {
     if (!node) {
         return;
     }
@@ -1018,7 +1018,7 @@ void MobiTocWalker::Walk(const GumboNode* node) {
             attr = gumbo_get_attribute(&node->v.element.attributes, "href");
         }
         if (attr) {
-            str::Str text;
+            StrBuilder text;
             AppendDeepText(node, text);
             if (!text.IsEmpty()) {
                 visitor->Visit(text.LendData(), attr->value, itemLevel);

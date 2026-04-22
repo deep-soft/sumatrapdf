@@ -123,7 +123,7 @@ static TempStr ResolveLinkCmdTemp(const char* cmd) {
 }
 
 static void ParseTip(ParsedTip& tip, const char* s) {
-    str::Str expanded;
+    StrBuilder expanded;
     // first pass: expand (Key/CmdXxx) to shortcut strings
     while (*s) {
         if (*s == '(' && str::StartsWith(s + 1, "Key/")) {
@@ -665,7 +665,7 @@ static void OnSizeAbout(HWND hwnd) {
 }
 
 static void CopyAboutInfoToClipboard() {
-    str::Str info(512);
+    StrBuilder info(512);
     TempStr ver = GetAppVersionTemp();
     info.AppendFmt("%s %s\r\n", kAppName, ver);
     for (int i = info.Size() - 2; i > 0; i--) {

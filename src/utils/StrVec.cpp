@@ -833,7 +833,7 @@ static int CalcCapForJoin(const StrVec* v, const char* joint) {
     return cap + 32; // +32 arbitrary buffer
 }
 
-static char* JoinInner(const StrVec* v, const char* joint, str::Str& res) {
+static char* JoinInner(const StrVec* v, const char* joint, StrBuilder& res) {
     int len = v->Size();
     int jointLen = str::Leni(joint);
     // TODO: possibly not handling null values in the middle. need to add more tests and fix
@@ -857,12 +857,12 @@ static char* JoinInner(const StrVec* v, const char* joint, str::Str& res) {
 
 char* Join(StrVec* v, const char* joint) {
     int capHint = CalcCapForJoin(v, joint);
-    str::Str tmp(capHint);
+    StrBuilder tmp(capHint);
     return JoinInner(v, joint, tmp);
 }
 
 TempStr JoinTemp(StrVec* v, const char* joint) {
     int capHint = CalcCapForJoin(v, joint);
-    str::Str tmp(capHint, GetTempAllocator());
+    StrBuilder tmp(capHint, GetTempAllocator());
     return JoinInner(v, joint, tmp);
 }

@@ -304,7 +304,7 @@ class EngineDjVu : public EngineBase {
 
     RenderedBitmap* CreateRenderedBitmap(const char* bmpData, Size size, bool grayscale) const;
     bool ExtractPageText(miniexp_t item, str::WStr& extracted, Vec<Rect>& coords);
-    bool ExtractPageTextUtf8(miniexp_t item, str::Str& extracted, Vec<Rect>& coords);
+    bool ExtractPageTextUtf8(miniexp_t item, StrBuilder& extracted, Vec<Rect>& coords);
     TempStr ResolveNamedDestTemp(const char* name);
     TocItem* BuildTocTree(TocItem* parent, miniexp_t entry, int& idCounter);
     bool FinishLoading();
@@ -972,7 +972,7 @@ PageText EngineDjVu::ExtractPageText(int pageNo) {
     return res;
 }
 
-static void AppendNewlineUtf8(str::Str& extracted, Vec<Rect>& coords, const char* lineSep) {
+static void AppendNewlineUtf8(StrBuilder& extracted, Vec<Rect>& coords, const char* lineSep) {
     if (extracted.size() > 0 && ' ' == extracted.Last()) {
         extracted.RemoveLast();
         coords.RemoveLast();
@@ -981,7 +981,7 @@ static void AppendNewlineUtf8(str::Str& extracted, Vec<Rect>& coords, const char
     coords.AppendBlanks(str::Len(lineSep));
 }
 
-bool EngineDjVu::ExtractPageTextUtf8(miniexp_t item, str::Str& extracted, Vec<Rect>& coords) {
+bool EngineDjVu::ExtractPageTextUtf8(miniexp_t item, StrBuilder& extracted, Vec<Rect>& coords) {
     const char* lineSep = "\n";
     miniexp_t type = miniexp_car(item);
     if (!miniexp_symbolp(type)) {
@@ -1052,7 +1052,7 @@ PageTextUtf8 EngineDjVu::ExtractPageTextUtf8(int pageNo) {
         return {};
     }
 
-    str::Str extracted;
+    StrBuilder extracted;
     Vec<Rect> coords;
     bool success = ExtractPageTextUtf8(pagetext, extracted, coords);
     ddjvu_miniexp_release(doc, pagetext);

@@ -261,8 +261,7 @@ const char* IdxToStr(SeqStrings strs, int idx);
 #define _MemToHex(ptr) str::MemToHex((const u8*)(ptr), sizeof(*ptr))
 #define _HexToMem(txt, ptr) str::HexToMem(txt, (u8*)(ptr), sizeof(*ptr))
 
-namespace str {
-struct Str {
+struct StrBuilder {
     // allocator is not owned by Vec and must outlive it
     Allocator* allocator = nullptr;
     // TODO: to save space (8 bytes), combine els and buf?
@@ -275,12 +274,12 @@ struct Str {
 
     static constexpr size_t kBufChars = dimof(buf);
 
-    explicit Str(size_t capHint = 0, Allocator* allocator = nullptr);
-    Str(const Str& that);
-    Str& operator=(const Str& that);
-    Str(const char*); // NOLINT
+    explicit StrBuilder(size_t capHint = 0, Allocator* allocator = nullptr);
+    StrBuilder(const StrBuilder& that);
+    StrBuilder& operator=(const StrBuilder& that);
+    StrBuilder(const char*); // NOLINT
 
-    ~Str();
+    ~StrBuilder();
 
     void Reset();
     char& at(size_t idx) const;
@@ -298,7 +297,7 @@ struct Str {
     bool AppendChar(char c);
     bool Append(const char* src, size_t count = -1);
     bool Append(const StrSpan&);
-    bool Append(const Str& s);
+    bool Append(const StrBuilder& s);
     char RemoveAt(size_t idx, size_t count = 1);
     char RemoveLast();
     char& Last() const;
@@ -324,6 +323,7 @@ struct Str {
     iterator end() const { return &(els[len]); }
 };
 
+namespace str {
 // bool Replace(Str& s, const char* toReplace, const char* replaceWith);
 
 struct WStr {

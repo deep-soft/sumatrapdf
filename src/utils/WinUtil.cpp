@@ -3306,7 +3306,7 @@ static HWND CreateTextViewWindow(const WCHAR* className, const char* title, cons
     SendMessageW(hwndEdit, EM_SETTABSTOPS, 1, (LPARAM)&tabStop);
 
     // edit control needs \r\n line endings
-    str::Str crlfText;
+    StrBuilder crlfText;
     for (const char* s = text; *s; s++) {
         if (*s == '\n' && (s == text || *(s - 1) != '\r')) {
             crlfText.AppendChar('\r');

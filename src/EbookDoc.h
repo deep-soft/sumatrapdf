@@ -22,7 +22,7 @@ class EpubDoc {
     // access to them must be serialized for multi-threaded users
     CRITICAL_SECTION zipAccess;
 
-    str::Str htmlData;
+    StrBuilder htmlData;
     Vec<ImageData> images;
     AutoFreeStr tocPath;
     AutoFreeStr fileName;
@@ -67,7 +67,7 @@ class Fb2Doc {
     AutoFreeStr fileName;
     IStream* stream = nullptr;
 
-    str::Str xmlData;
+    StrBuilder xmlData;
     Vec<ImageData> images;
     AutoFree coverImage;
     Props props;
@@ -105,7 +105,7 @@ class PdbReader;
 
 class PalmDoc {
     AutoFreeStr fileName;
-    str::Str htmlData;
+    StrBuilder htmlData;
     StrVec tocEntries;
 
     bool Load();
@@ -158,7 +158,7 @@ class HtmlDoc {
 
 class TxtDoc {
     AutoFreeStr fileName;
-    str::Str htmlData;
+    StrBuilder htmlData;
     bool isRFC = false;
 
     bool Load();

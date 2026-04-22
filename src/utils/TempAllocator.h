@@ -33,4 +33,4 @@ TempStr FormatTemp(const char* fmt, ...);
 
 TempStr ToUtf8Temp(const WCHAR* s, size_t cch = (size_t)-1);
 TempWStr ToWStrTemp(const char* s, size_t cb = (size_t)-1);
-TempWStr ToWStrTemp(const str::Str& s);
+TempWStr ToWStrTemp(const StrBuilder& s);

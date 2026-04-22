@@ -161,7 +161,7 @@ static void SendMyselfDDE(const char* cmdA, HWND targetHwnd) {
 static void OpenUsingDDE(HWND targetHwnd, const char* path, Flags& i, bool isFirstWin) {
     char* fullPath = path::NormalizeTemp(path);
 
-    str::Str cmd;
+    StrBuilder cmd;
     int newWindow = 0;
     if (i.inNewWindow) {
         // 2 forces opening a new window

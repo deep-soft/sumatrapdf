@@ -1096,7 +1096,7 @@ Returns:
 error: <error message>
 if file doesn't exist or no opened file
 */
-static const char* HandleGetFileStateCmd(HWND hwnd, const char* cmd, bool* ack, str::Str& res) {
+static const char* HandleGetFileStateCmd(HWND hwnd, const char* cmd, bool* ack, StrBuilder& res) {
     AutoFreeStr filePath;
     const char* next = str::Parse(cmd, "[GetFileState(\"%s\")]", &filePath);
     if (!next) {
@@ -1213,7 +1213,7 @@ static bool HandleExecuteCmds(HWND hwnd, const char* cmd) {
     return didHandle;
 }
 
-static bool HandleRequestCmds(HWND hwnd, const char* cmd, str::Str& rsp) {
+static bool HandleRequestCmds(HWND hwnd, const char* cmd, StrBuilder& rsp) {
     bool didHandle = false;
     while (!str::IsEmpty(cmd)) {
         {
@@ -1250,7 +1250,7 @@ LRESULT OnDDERequest(HWND hwnd, WPARAM wp, LPARAM lp) {
         return 0;
     }
 
-    str::Str str;
+    StrBuilder str;
     bool didHandle = HandleRequestCmds(hwnd, cmd, str);
     if (!didHandle) {
         str.Set("error: unknoqn command");

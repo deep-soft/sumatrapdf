@@ -514,7 +514,7 @@ static TempStr appendAccelKeyToMenuStringTemp(TempStr menuStr, const ACCEL& a) {
     bool isGerman = str::Eq(lang, "de");
     bool isAscii = false;
 
-    str::Str str;
+    StrBuilder str;
     str.Append("\t"); // marks start of an accelerator in menu item
     BYTE virt = a.fVirt;
     if (virt & FALT) {

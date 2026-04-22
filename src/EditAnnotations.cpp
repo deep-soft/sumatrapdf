@@ -148,9 +148,9 @@ struct EditAnnotationsWindow : Wnd {
 
     bool skipGoToPage = false;
 
-    str::Str currTextColor;
-    str::Str currCustomColor;
-    str::Str currCustomInteriorColor;
+    StrBuilder currTextColor;
+    StrBuilder currCustomColor;
+    StrBuilder currCustomInteriorColor;
 
     void OnSize(UINT msg, UINT type, SIZE size) override;
     void OnFocus() override;
@@ -354,7 +354,7 @@ static void RebuildAnnotationsListBox(EditAnnotationsWindow* ew) {
     int n = 0;
     n = ew->annotations.Size();
 
-    str::Str s;
+    StrBuilder s;
     for (int i = 0; i < n; i++) {
         auto annot = ew->annotations.at(i);
         s.Reset();
@@ -495,7 +495,7 @@ static void ItemsFromSeqstrings(StrVec& items, const char* strings) {
     }
 }
 
-static void DropDownFillColors(DropDown* w, PdfColor col, str::Str& customColor) {
+static void DropDownFillColors(DropDown* w, PdfColor col, StrBuilder& customColor) {
     StrVec items;
     ItemsFromSeqstrings(items, gColors);
     const char* colorName = GetKnownColorName(col);
@@ -533,7 +533,7 @@ static void DoRect(EditAnnotationsWindow* ew, Annotation* annot) {
     if (!gShowRect) {
         return;
     }
-    str::Str s;
+    StrBuilder s;
     RectF rect = GetBounds(annot);
     int x = (int)rect.x;
     int y = (int)rect.y;
@@ -550,13 +550,13 @@ static void DoAuthor(EditAnnotationsWindow* ew, Annotation* annot) {
     if (!isVisible) {
         return;
     }
-    str::Str s;
+    StrBuilder s;
     s.AppendFmt(_TRA("Author: %s"), author);
     ew->staticAuthor->SetText(s.Get());
     ew->staticAuthor->SetIsVisible(true);
 }
 
-static void AppendPdfDate(str::Str& s, time_t secs) {
+static void AppendPdfDate(StrBuilder& s, time_t secs) {
     struct tm tm;
     gmtime_s(&tm, &secs);
     char buf[100];
@@ -569,7 +569,7 @@ static void DoModificationDate(EditAnnotationsWindow* ew, Annotation* annot) {
     if (!isVisible) {
         return;
     }
-    str::Str s;
+    StrBuilder s;
     s.Append(_TRA("Date:"));
     s.Append(" "); // apptranslator doesn't handle spaces at the end of translated string
     AppendPdfDate(s, ModificationDate(annot));
@@ -582,7 +582,7 @@ static void DoPopup(EditAnnotationsWindow* ew, Annotation* annot) {
     if (popupId < 0) {
         return;
     }
-    str::Str s;
+    StrBuilder s;
     s.AppendFmt(_TRA("Popup: %d 0 R"), popupId);
     ew->staticPopup->SetText(s.Get());
     ew->staticPopup->SetIsVisible(true);

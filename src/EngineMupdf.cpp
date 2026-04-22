@@ -622,7 +622,7 @@ static void AddLineSep(str::WStr& s, Vec<Rect>& rects, const WCHAR* lineSep, siz
 
 // UTF-8 variant: append `c` as up to 4 UTF-8 bytes to `s` and the same
 // rect `r` for each byte, so rects.size() == s.size() holds.
-static void AddCharUtf8(fz_stext_line*, fz_stext_char* c, str::Str& s, Vec<Rect>& rects) {
+static void AddCharUtf8(fz_stext_line*, fz_stext_char* c, StrBuilder& s, Vec<Rect>& rects) {
     fz_rect bbox = fz_rect_from_quad(c->quad);
     Rect r = ToRectF(bbox).Round();
 
@@ -652,7 +652,7 @@ static void AddCharUtf8(fz_stext_line*, fz_stext_char* c, str::Str& s, Vec<Rect>
     }
 }
 
-static void AddLineSepUtf8(str::Str& s, Vec<Rect>& rects, const char* lineSep) {
+static void AddLineSepUtf8(StrBuilder& s, Vec<Rect>& rects, const char* lineSep) {
     size_t lineSepLen = str::Len(lineSep);
     if (lineSepLen == 0) {
         return;
@@ -670,7 +670,7 @@ static void AddLineSepUtf8(str::Str& s, Vec<Rect>& rects, const char* lineSep) {
 
 static char* FzTextPageToUtf8(fz_stext_page* text, Rect** coordsOut) {
     const char* lineSep = "\n";
-    str::Str content;
+    StrBuilder content;
     Vec<Rect> rects;
 
     fz_stext_block* block = text->first_block;
@@ -1558,7 +1558,7 @@ static TempStr FormatPageLabelTemp(const char* type, int pageNo, const char* pre
     }
     if (str::EqI(type, "A")) {
         // alphabetic numbering style (A..Z, AA..ZZ, AAA..ZZZ, ...)
-        str::Str number;
+        StrBuilder number;
         number.AppendChar('A' + (pageNo - 1) % 26);
         for (int i = 0; i < (pageNo - 1) / 26; i++) {
             number.AppendChar(number.at(0));
@@ -2044,7 +2044,7 @@ static ByteSlice TxtFileToHTML(const char* path) {
         return {};
     }
 
-    str::Str d;
+    StrBuilder d;
     d.Append(R"(<html>
     <head>
 <style>
@@ -3674,7 +3674,7 @@ TempStr EngineMupdf::ExtractFontListTemp() {
         }
         ReportIf(!name || !type || !encoding);
 
-        str::Str info;
+        StrBuilder info;
         if (name[0] < 0 && MultiByteToWideChar(936, MB_ERR_INVALID_CHARS, name, -1, nullptr, 0)) {
             TempStr s = strconv::ToMultiByteTemp(name, 936, CP_UTF8);
             info.Append(s);
@@ -3852,7 +3852,7 @@ void EngineMupdf::GetProperties(StrVec& keyValOut) {
     if (path && str::EndsWithI(path, ".epub")) {
         MultiFormatArchive* zip = OpenZipArchive(path, false);
         if (zip) {
-            str::Str filesStr;
+            StrBuilder filesStr;
             auto& fileInfos = zip->GetFileInfos();
             size_t n = fileInfos.size();
             for (size_t i = 0; i < n; i++) {
