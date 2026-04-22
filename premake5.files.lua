@@ -945,15 +945,8 @@ end
 
 function common_files()
   files_in_dir("src/common", {
-    "allocator.cpp",
-    "arena.cpp",
-    "base.cpp",
-    "common.h",
-    "dir_scan.cpp",
-    "file_util.cpp",
-    "log.cpp",
-    "str_util.cpp",
-    "win_util.cpp",
+    "*.cpp",
+    "*.h",
   })
 end
 

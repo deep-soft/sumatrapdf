@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <assert.h>
+#include <stdlib.h>
+#include <string.h>
 
 u64 arena_default_reserve_size = 64ull * 1024ull * 1024ull;
 u64 arena_default_commit_size = 64ull * 1024ull;
@@ -61,6 +63,105 @@ static bool ArenaCommit(void* base, u64 size, bool largePages) {
     return VirtualAlloc(base, (SIZE_T)size, flags, PAGE_READWRITE) != nullptr;
 }
 
+static void* ArenaGetAvailableSpaceLocked(Arena* arena, int* bufSizeOut) {
+    if (!bufSizeOut) {
+        return nullptr;
+    }
+
+    Arena* current = arena ? arena->current : nullptr;
+    if (!current) {
+        *bufSizeOut = 0;
+        return nullptr;
+    }
+
+    u64 pos = ArenaAlignPow2(current->pos, 8);
+    if (pos >= current->cmt) {
+        *bufSizeOut = 0;
+        return nullptr;
+    }
+
+    u64 available = current->cmt - pos;
+    if (available > 0x7fffffff) {
+        available = 0x7fffffff;
+    }
+    *bufSizeOut = (int)available;
+    return (char*)current + pos;
+}
+
+static void* ArenaPushLocked(Arena* arena, u64 size, u64 align, bool zero) {
+    if (!arena) {
+        return nullptr;
+    }
+    if (align == 0) {
+        align = 1;
+    }
+
+    Arena* current = arena->current;
+    u64 posPre = ArenaAlignPow2(current->pos, align);
+    u64 posPost = posPre + size;
+
+    u64 sizeToZero = 0;
+    if (zero && current->cmt > posPre) {
+        sizeToZero = ArenaMin(current->cmt, posPost) - posPre;
+    }
+
+    if (current->res < posPost && !(arena->flags & ArenaFlag_NoChain)) {
+        u64 resSize = current->res_size;
+        u64 cmtSize = current->cmt_size;
+        if (size + ARENA_HEADER_SIZE > resSize) {
+            resSize = ArenaAlignPow2(size + ARENA_HEADER_SIZE, ArenaMax(align, ArenaPageSize()));
+            cmtSize = resSize;
+        }
+
+        ArenaParams newParams = {};
+        newParams.flags = current->flags;
+        newParams.reserve_size = resSize;
+        newParams.commit_size = cmtSize;
+        newParams.allocation_site_file = current->allocation_site_file;
+        newParams.allocation_site_line = current->allocation_site_line;
+        newParams.name = current->name;
+
+        Arena* newBlock = ArenaNew(newParams);
+        if (!newBlock) {
+            return nullptr;
+        }
+
+        newBlock->base_pos = current->base_pos + current->res;
+        newBlock->prev = current;
+        arena->current = newBlock;
+        current = newBlock;
+        posPre = ArenaAlignPow2(current->pos, align);
+        posPost = posPre + size;
+        sizeToZero = 0;
+    }
+
+    if (current->cmt < posPost) {
+        if (current->flags & ArenaFlag_LargePages) {
+            return nullptr;
+        }
+
+        u64 commitEnd = ArenaAlignPow2(posPost, current->cmt_size);
+        u64 commitClamped = ArenaClampTop(commitEnd, current->res);
+        u64 commitSize = commitClamped - current->cmt;
+        void* commitPtr = (char*)current + current->cmt;
+        if (!ArenaCommit(commitPtr, commitSize, false)) {
+            return nullptr;
+        }
+        current->cmt = commitClamped;
+    }
+
+    if (current->cmt < posPost) {
+        return nullptr;
+    }
+
+    void* result = (char*)current + posPre;
+    current->pos = posPost;
+    if (sizeToZero) {
+        memset(result, 0, (size_t)sizeToZero);
+    }
+    return result;
+}
+
 ArenaParams ArenaDefaultParams() {
     ArenaParams params = {};
     params.flags = arena_default_flags;
@@ -69,7 +170,7 @@ ArenaParams ArenaDefaultParams() {
     return params;
 }
 
-Arena* arena_alloc(const ArenaParams& srcParams) {
+Arena* ArenaNew(const ArenaParams& srcParams) {
     ArenaParams params = srcParams;
     if (params.reserve_size == 0) {
         params.reserve_size = arena_default_reserve_size;
@@ -131,10 +232,11 @@ Arena* arena_alloc(const ArenaParams& srcParams) {
     arena->allocation_site_line = params.allocation_site_line;
     arena->name = params.name;
     arena->uses_external_buffer = usesExternalBuffer;
+    arena->lock = SRWLOCK_INIT;
     return arena;
 }
 
-void arena_release(Arena* arena) {
+void ArenaDelete(Arena* arena) {
     if (!arena) {
         return;
     }
@@ -149,81 +251,18 @@ void arena_release(Arena* arena) {
     }
 }
 
-void* arena_push(Arena* arena, u64 size, u64 align, bool zero) {
-    if (!arena) {
+void* Arena::Push(u64 size, u64 align, bool zero) {
+    if (!this) {
         return nullptr;
     }
-    if (align == 0) {
-        align = 1;
-    }
-
-    Arena* current = arena->current;
-    u64 posPre = ArenaAlignPow2(current->pos, align);
-    u64 posPost = posPre + size;
-
-    u64 sizeToZero = 0;
-    if (zero && current->cmt > posPre) {
-        sizeToZero = ArenaMin(current->cmt, posPost) - posPre;
-    }
-
-    if (current->res < posPost && !(arena->flags & ArenaFlag_NoChain)) {
-        u64 resSize = current->res_size;
-        u64 cmtSize = current->cmt_size;
-        if (size + ARENA_HEADER_SIZE > resSize) {
-            resSize = ArenaAlignPow2(size + ARENA_HEADER_SIZE, ArenaMax(align, ArenaPageSize()));
-            cmtSize = resSize;
-        }
-
-        ArenaParams newParams = {};
-        newParams.flags = current->flags;
-        newParams.reserve_size = resSize;
-        newParams.commit_size = cmtSize;
-        newParams.allocation_site_file = current->allocation_site_file;
-        newParams.allocation_site_line = current->allocation_site_line;
-        newParams.name = current->name;
-
-        Arena* newBlock = arena_alloc(newParams);
-        if (!newBlock) {
-            return nullptr;
-        }
-
-        newBlock->base_pos = current->base_pos + current->res;
-        newBlock->prev = current;
-        arena->current = newBlock;
-        current = newBlock;
-        posPre = ArenaAlignPow2(current->pos, align);
-        posPost = posPre + size;
-        sizeToZero = 0;
-    }
-
-    if (current->cmt < posPost) {
-        if (current->flags & ArenaFlag_LargePages) {
-            return nullptr;
-        }
-
-        u64 commitEnd = ArenaAlignPow2(posPost, current->cmt_size);
-        u64 commitClamped = ArenaClampTop(commitEnd, current->res);
-        u64 commitSize = commitClamped - current->cmt;
-        void* commitPtr = (char*)current + current->cmt;
-        if (!ArenaCommit(commitPtr, commitSize, false)) {
-            return nullptr;
-        }
-        current->cmt = commitClamped;
-    }
-
-    if (current->cmt < posPost) {
-        return nullptr;
-    }
-
-    void* result = (char*)current + posPre;
-    current->pos = posPost;
-    if (sizeToZero) {
-        memset(result, 0, (size_t)sizeToZero);
-    }
-    return result;
+    AcquireSRWLockExclusive(&lock);
+    void* mem = ArenaPushLocked(this, size, align, zero);
+    ReleaseSRWLockExclusive(&lock);
+    return mem;
 }
 
-u64 arena_pos(Arena* arena) {
+u64 Arena::Pos() {
+    Arena* arena = this;
     if (!arena) {
         return 0;
     }
@@ -231,10 +270,13 @@ u64 arena_pos(Arena* arena) {
     return current->base_pos + current->pos;
 }
 
-void arena_pop_to(Arena* arena, u64 pos) {
+void Arena::PopTo(u64 pos) {
+    Arena* arena = this;
     if (!arena) {
         return;
     }
+
+    AcquireSRWLockExclusive(&lock);
 
     u64 bigPos = ArenaClampBot(ARENA_HEADER_SIZE, pos);
     Arena* current = arena->current;
@@ -249,6 +291,7 @@ void arena_pop_to(Arena* arena, u64 pos) {
     }
 
     if (!current) {
+        ReleaseSRWLockExclusive(&lock);
         return;
     }
 
@@ -256,23 +299,160 @@ void arena_pop_to(Arena* arena, u64 pos) {
     u64 newPos = bigPos - current->base_pos;
     assert(newPos <= current->pos);
     current->pos = newPos;
+    ReleaseSRWLockExclusive(&lock);
 }
 
-void arena_clear(Arena* arena) {
-    arena_pop_to(arena, 0);
-}
-
-void arena_pop(Arena* arena, u64 amt) {
-    u64 posOld = arena_pos(arena);
+void Arena::Pop(u64 amt) {
+    u64 posOld = Pos();
     u64 posNew = (amt < posOld) ? (posOld - amt) : 0;
-    arena_pop_to(arena, posNew);
+    PopTo(posNew);
 }
 
-Temp temp_begin(Arena* arena) {
-    Temp temp = {arena, arena_pos(arena)};
+ArenaSavepoint ArenaGetSavepoint(Arena* arena) {
+    ArenaSavepoint temp = {arena, arena ? arena->Pos() : 0};
     return temp;
 }
 
-void temp_end(Temp temp) {
-    arena_pop_to(temp.arena, temp.pos);
+void ArenaRestoreSavepoint(ArenaSavepoint temp) {
+    if (temp.arena) {
+        temp.arena->PopTo(temp.pos);
+    }
+}
+
+void* Arena::Alloc(int size) {
+    if (size <= 0) {
+        return nullptr;
+    }
+    return Push((u64)size, 8, false);
+}
+
+void Arena::Free(void* ptr) {
+    (void)ptr;
+}
+
+void Arena::Reset() {
+    PopTo(0);
+}
+
+void* Arena::GetAvailableSpace(int* bufSizeOut) {
+    if (!this) {
+        if (bufSizeOut) {
+            *bufSizeOut = 0;
+        }
+        return nullptr;
+    }
+
+    AcquireSRWLockExclusive(&lock);
+    void* mem = ArenaGetAvailableSpaceLocked(this, bufSizeOut);
+    ReleaseSRWLockExclusive(&lock);
+    return mem;
+}
+
+void* Arena::CommitReserved(void* mem, int size) {
+    if (size <= 0) {
+        return nullptr;
+    }
+
+    AcquireSRWLockExclusive(&lock);
+
+    int availSize = 0;
+    void* availMem = ArenaGetAvailableSpaceLocked(this, &availSize);
+    if (mem == availMem && size <= availSize) {
+        void* committed = ArenaPushLocked(this, (u64)size, 8, false);
+        ReleaseSRWLockExclusive(&lock);
+        return committed;
+    }
+
+    void* dst = ArenaPushLocked(this, (u64)size, 8, false);
+    ReleaseSRWLockExclusive(&lock);
+    if (!dst) {
+        return nullptr;
+    }
+    if (mem) {
+        memcpy(dst, mem, (size_t)size);
+    }
+    return dst;
+}
+
+void* Alloc(Arena* arena, int size) {
+    if (size <= 0) {
+        return nullptr;
+    }
+    if (!arena) {
+        return malloc(size);
+    }
+    return arena->Alloc(size);
+}
+
+void Free(Arena* arena, void* mem) {
+    if (!mem) {
+        return;
+    }
+    if (!arena) {
+        free(mem);
+        return;
+    }
+    arena->Free(mem);
+}
+
+thread_local Arena* gTempArena = nullptr;
+
+Arena* GetTempArena() {
+    if (!gTempArena) {
+        gTempArena = ArenaNew();
+    }
+    return gTempArena;
+}
+
+void* AllocTemp(int size, u64 align) {
+    Arena* arena = GetTempArena();
+    return arena->Push((u64)size, align, false);
+}
+
+// allocate null-terminated string
+Str AllocStrTemp(int size) {
+    if (size == 0) {
+        return Str();
+    }
+    Arena* arena = GetTempArena();
+    char* res = (char*)arena->Push((u64)size+1, 1, false);
+    res[size] = 0;
+    return Str(res, size);
+}
+
+void* ReallocMem(Arena* arena, void* els, int* cap, int newCap, int elSize) {
+    if (newCap <= 0 || elSize <= 0) {
+        return els;
+    }
+
+    int newSize = newCap * elSize;
+    if (!arena) {
+        void* newEls = realloc(els, newSize);
+        if (!newEls) {
+            return els;
+        }
+        *cap = newCap;
+        return newEls;
+    }
+
+    void* newEls = arena->Alloc(newSize);
+    if (!newEls) {
+        return els;
+    }
+
+    if (els && *cap > 0) {
+        int oldSize = *cap * elSize;
+        memcpy(newEls, els, oldSize);
+    }
+
+    *cap = newCap;
+    return newEls;
+}
+
+void* ReallocToWantedSize(Arena* arena, void* els, int* cap, int wantedSize, int elSize) {
+    int newCap = (*cap == 0) ? 8 : *cap * 2;
+    while (newCap < wantedSize) {
+        newCap *= 2;
+    }
+    return ReallocMem(arena, els, cap, newCap, elSize);
 }

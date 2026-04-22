@@ -32,10 +32,10 @@ Str GetWindowTextTemp(HWND hwnd) {
     if (wideLen == 0) {
         return Str();
     }
-    wchar_t* wide = (wchar_t*)GetTempAllocator()->Alloc((wideLen + 1) * sizeof(wchar_t));
+    wchar_t* wide = (wchar_t*)AllocTemp((wideLen + 1) * sizeof(wchar_t));
     GetWindowTextW(hwnd, wide, wideLen + 1);
     int utf8Len = WideCharToMultiByte(CP_UTF8, 0, wide, -1, nullptr, 0, nullptr, nullptr);
-    char* utf8 = (char*)GetTempAllocator()->Alloc(utf8Len);
+    char* utf8 = (char*)AllocTemp(utf8Len);
     WideCharToMultiByte(CP_UTF8, 0, wide, -1, utf8, utf8Len, nullptr, nullptr);
     return Str(utf8, utf8Len - 1); // Exclude null terminator from length
 }
@@ -45,21 +45,21 @@ void SetHwndText(HWND hwnd, Str s) {
     SetWindowTextW(hwnd, wide.s);
 }
 
-Str GetLastErrorAsStr(IAllocator* a) {
+Str GetLastErrorAsStr(Arena* arena) {
     DWORD err = GetLastError();
     if (!err) {
-        return StrDup(a, StrL("no error"));
+        return StrDup(arena, StrL("no error"));
     }
     wchar_t* msgBuf = nullptr;
     FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr,
                    err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPWSTR)&msgBuf, 0, nullptr);
     if (!msgBuf) {
-        return StrDup(a, StrL("FormatMessageW() failed"));
+        return StrDup(arena, StrL("FormatMessageW() failed"));
     }
     auto ws = WStr(msgBuf);
-    Str temp = ToUtf8(GetTempAllocator(), WStr(msgBuf));
+    Str temp = ToUtf8(GetTempArena(), WStr(msgBuf));
     temp = StrTrimSuffixWhitespace(temp);
-    Str result = StrFmt(a, "0x%08lX '%s'", err, temp.s);
+    Str result = StrFmt(arena, "0x%08lX '%s'", err, temp.s);
     LocalFree(msgBuf);
     return result;
 }

@@ -14,10 +14,10 @@ DirEntry* FindEntryByName(DirEntries* dv, Str name) {
 }
 
 // Allocate a DirEntries with fullDir set
-DirEntries* AllocDirEntries(IAllocator* a, Str fullDir) {
-    DirEntries* dv = (DirEntries*)a->Alloc(sizeof(DirEntries));
+DirEntries* AllocDirEntries(Arena* arena, Str fullDir) {
+    DirEntries* dv = (DirEntries*)Alloc(arena, sizeof(DirEntries));
     *dv = {};
-    dv->fullDir = StrDup(a, fullDir);
+    dv->fullDir = StrDup(arena, fullDir);
     return dv;
 }
 
@@ -33,7 +33,7 @@ static const WStr wdotdot = WStrL(L"..");
 
 // Read a directory into an existing DirEntries (dv->fullDir must be set)
 // If shouldExit is not null and becomes true, returns early
-void ReadDirectory(IAllocator* a, DirEntries* dv, LONG* shouldExit) {
+void ReadDirectory(Arena* arena, DirEntries* dv, LONG* shouldExit) {
     if (shouldExit && AtomicBoolGet(shouldExit)) {
         return;
     }
@@ -46,7 +46,7 @@ void ReadDirectory(IAllocator* a, DirEntries* dv, LONG* shouldExit) {
     dotdot.name = StrL("..");
     dotdot.size = 0;
     dotdot.dv = kStillScanningDir;
-    VecPush(GetTempAllocator(), temp, dotdot);
+    VecPush(GetTempArena(), temp, dotdot);
 
     // Convert path to wide string for Win32 API
     WStr widePath = ToWStrTemp(dv->fullDir);
@@ -68,7 +68,7 @@ void ReadDirectory(IAllocator* a, DirEntries* dv, LONG* shouldExit) {
     HANDLE hFind =
         FindFirstFileExW(searchPath, FindExInfoBasic, &fd, FindExSearchNameMatch, nullptr, FIND_FIRST_EX_LARGE_FETCH);
     if (hFind == INVALID_HANDLE_VALUE) {
-        dv->err = GetLastErrorAsStr(a).s;
+        dv->err = GetLastErrorAsStr(arena).s;
         return;
     }
     do {
@@ -85,7 +85,7 @@ void ReadDirectory(IAllocator* a, DirEntries* dv, LONG* shouldExit) {
 
         // Convert filename to UTF-8
         int utf8Len = WideCharToMultiByte(CP_UTF8, 0, fd.cFileName, -1, nullptr, 0, nullptr, nullptr);
-        char* utf8Name = (char*)GetTempAllocator()->Alloc(utf8Len);
+        char* utf8Name = (char*)AllocTemp(utf8Len);
         WideCharToMultiByte(CP_UTF8, 0, fd.cFileName, -1, utf8Name, utf8Len, nullptr, nullptr);
         int nameLen = utf8Len - 1; // Exclude null terminator
 
@@ -104,16 +104,16 @@ void ReadDirectory(IAllocator* a, DirEntries* dv, LONG* shouldExit) {
             e.size = ((u64)fd.nFileSizeHigh << 32) | fd.nFileSizeLow;
             e.dv = nullptr;
         }
-        VecPush(GetTempAllocator(), temp, e);
+        VecPush(GetTempArena(), temp, e);
     } while (FindNextFileW(hFind, &fd));
 
     FindClose(hFind);
 
     // Allocate and fill array BEFORE setting len (for thread safety)
     // Main thread checks len first, so els must be valid before len is non-zero
-    DirEntry* els = (DirEntry*)a->Alloc(temp.len * sizeof(DirEntry));
+    DirEntry* els = (DirEntry*)Alloc(arena, temp.len * sizeof(DirEntry));
     for (int i = 0; i < temp.len; i++) {
-        els[i].name = StrDup(a, temp.els[i].name);
+        els[i].name = StrDup(arena, temp.els[i].name);
         els[i].size = temp.els[i].size;
         els[i].dv = temp.els[i].dv;
         els[i].createTime = temp.els[i].createTime;
@@ -148,8 +148,8 @@ static bool IsDirInList(DirEntriesNode* list, DirEntries* dv) {
 }
 
 // Allocate a DirEntriesNode using given allocator
-static DirEntriesNode* AllocDirEntriesNode(IAllocator* a, DirEntries* dv, bool nonRecursive = false) {
-    DirEntriesNode* node = (DirEntriesNode*)a->Alloc(sizeof(DirEntriesNode));
+static DirEntriesNode* AllocDirEntriesNode(Arena* arena, DirEntries* dv, bool nonRecursive = false) {
+    DirEntriesNode* node = (DirEntriesNode*)Alloc(arena, sizeof(DirEntriesNode));
     node->next = nullptr;
     node->dv = dv;
     node->nonRecursive = nonRecursive;
@@ -157,9 +157,9 @@ static DirEntriesNode* AllocDirEntriesNode(IAllocator* a, DirEntries* dv, bool n
 }
 
 // Create and initialize directory reader context
-DirScanCtx* CreateDirScanCtx(IAllocator* a, OnScannedDirCallback callback, void* userData) {
+DirScanCtx* CreateDirScanCtx(Arena* arena, OnScannedDirCallback callback, void* userData) {
     DirScanCtx* ctx = (DirScanCtx*)malloc(sizeof(DirScanCtx));
-    ctx->a = a;
+    ctx->a = arena;
     ctx->onScannedDir = callback;
     ctx->userData = userData;
     InitializeCriticalSection(&ctx->cs);
@@ -259,7 +259,7 @@ void RequestDirRescan(DirScanCtx* ctx, DirEntries* dv) {
 // Background thread function to read directories
 DWORD WINAPI DirScanThread(LPVOID param) {
     DirScanCtx* ctx = (DirScanCtx*)param;
-    auto* tempAlloc = GetTempAllocator();
+    auto* tempAlloc = GetTempArena();
 
     while (true) {
         WaitForSingleObject(ctx->hSemaphore, INFINITE);
@@ -327,9 +327,9 @@ DWORD WINAPI DirScanThread(LPVOID param) {
 
     SetEvent(ctx->hThreadExitedEvent);
 
-    if (gTempAllocator) {
-        delete gTempAllocator;
-        gTempAllocator = nullptr;
+    if (gTempArena) {
+        ArenaDelete(gTempArena);
+        gTempArena = nullptr;
     }
     return 0;
 }

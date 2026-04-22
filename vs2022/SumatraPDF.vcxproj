@@ -1287,7 +1287,6 @@
     <ClCompile Include="..\src\Uninstaller.cpp" />
     <ClCompile Include="..\src\UpdateCheck.cpp" />
     <ClCompile Include="..\src\WindowTab.cpp" />
-    <ClCompile Include="..\src\common\allocator.cpp" />
     <ClCompile Include="..\src\common\arena.cpp" />
     <ClCompile Include="..\src\common\base.cpp" />
     <ClCompile Include="..\src\common\dir_scan.cpp" />

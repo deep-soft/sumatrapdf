@@ -51,7 +51,7 @@ Str StrDupTemp(Str s) {
         return s;
     }
     int n = len(s) + 1;
-    char* buf = (char*)GetTempAllocator()->Alloc(n);
+    char* buf = (char*)AllocTemp(n);
     memcpy(buf, s.s, s.len);
     buf[s.len] = 0;
     return Str(buf, s.len);
@@ -64,34 +64,33 @@ int StrLastIndexOfChar(Str s, char c) {
     return -1;
 }
 
+static wchar_t emptyWideStr[1] = {0};
 // Convert UTF-8 to UTF-16 (wide string), allocate with gTempAllocator
 WStr ToWStrTemp(const char* utf8) {
     if (!utf8 || !utf8[0]) {
-        wchar_t* empty = (wchar_t*)GetTempAllocator()->Alloc(sizeof(wchar_t));
-        empty[0] = 0;
-        return WStr(empty, 0);
+        return WStr(&emptyWideStr[0], 0);
     }
     int len = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, nullptr, 0);
-    wchar_t* wide = (wchar_t*)GetTempAllocator()->Alloc(len * sizeof(wchar_t));
+    wchar_t* wide = (wchar_t*)AllocTemp(len * sizeof(wchar_t));
     MultiByteToWideChar(CP_UTF8, 0, utf8, -1, wide, len);
     return WStr(wide, len - 1); // Exclude null terminator from length
 }
 
 // Convert UTF-16 to UTF-8
-Str ToUtf8(IAllocator* a, WStr wide) {
+Str ToUtf8(Arena* arena, WStr wide) {
     if (!wide.s || wide.len == 0) {
         return Str();
     }
     // Use explicit length instead of -1 (null-terminated)
     int len = WideCharToMultiByte(CP_UTF8, 0, wide.s, wide.len, nullptr, 0, nullptr, nullptr);
-    char* utf8 = (char*)a->Alloc(len + 1);
+    char* utf8 = (char*)Alloc(arena, len + 1);
     WideCharToMultiByte(CP_UTF8, 0, wide.s, wide.len, utf8, len, nullptr, nullptr);
     utf8[len] = 0;
     return Str(utf8, len);
 }
 
 Str ToUtf8Temp(WStr wide) {
-    return ToUtf8(GetTempAllocator(), wide);
+    return ToUtf8(GetTempArena(), wide);
 }
 
 // Case-insensitive character for ASCII subset
@@ -103,22 +102,20 @@ static char ToLowerAscii(char c) {
 // Convert Str to wide string (optimized - uses known length)
 WStr ToWStrTemp(Str s) {
     if (!s.s || s.len == 0) {
-        wchar_t* empty = (wchar_t*)GetTempAllocator()->Alloc(sizeof(wchar_t));
-        empty[0] = 0;
-        return WStr(empty, 0);
+        return WStr(&emptyWideStr[0], 0);
     }
     // Use explicit length instead of -1 (null-terminated)
     int wideLen = MultiByteToWideChar(CP_UTF8, 0, s.s, s.len, nullptr, 0);
-    wchar_t* wide = (wchar_t*)GetTempAllocator()->Alloc((wideLen + 1) * sizeof(wchar_t));
+    wchar_t* wide = (wchar_t*)AllocTemp((wideLen + 1) * sizeof(wchar_t));
     MultiByteToWideChar(CP_UTF8, 0, s.s, s.len, wide, wideLen);
     wide[wideLen] = 0;
     return WStr(wide, wideLen);
 }
 
 // Duplicate string with known length (internal helper)
-static Str StrDupInternal(IAllocator* a, const char* src, int len) {
+static Str StrDupInternal(Arena* arena, const char* src, int len) {
     if (!src || len <= 0) return Str();
-    char* dst = (char*)a->Alloc(len + 1);
+    char* dst = (char*)Alloc(arena, len + 1);
     for (int i = 0; i < len; i++) {
         dst[i] = src[i];
     }
@@ -127,8 +124,8 @@ static Str StrDupInternal(IAllocator* a, const char* src, int len) {
 }
 
 // Duplicate Str
-Str StrDup(IAllocator* a, Str s) {
-    return StrDupInternal(a, s.s, s.len);
+Str StrDup(Arena* arena, Str s) {
+    return StrDupInternal(arena, s.s, s.len);
 }
 
 // Str equality - compare characters using pointers
@@ -241,11 +238,11 @@ Str StrTrimSuffixWhitespace(Str s) {
 }
 
 // Format file size with comma separators, returns Str
-Str FormatFileSize(IAllocator* a, u64 size) {
+Str FormatFileSize(Arena* arena, u64 size) {
     char buf[32];
 
     if (size == 0) {
-        return StrDup(a, StrL("0"));
+        return StrDup(arena, StrL("0"));
     }
 
     // Convert to string (reversed)
@@ -274,7 +271,7 @@ Str FormatFileSize(IAllocator* a, u64 size) {
         }
     }
 
-    return StrDup(a, Str(buf, j));
+    return StrDup(arena, Str(buf, j));
 }
 
 // Format file size with comma separators directly into wide string buffer
@@ -378,7 +375,7 @@ void FormatSizeHumanIntoWBuf(u64 size, WStr wbuf) {
 Str PathJoinTemp(Str dir, Str name) {
     // Handle ".." - go up one directory
     if (StrEq(name, StrL(".."))) {
-        char* result = (char*)GetTempAllocator()->Alloc(dir.len + 1);
+        char* result = (char*)AllocTemp(dir.len + 1);
         for (int i = 0; i < dir.len; i++) {
             result[i] = dir.s[i];
         }
@@ -411,7 +408,7 @@ Str PathJoinTemp(Str dir, Str name) {
     int needsSlash = (dir.len > 0 && dir.s[dir.len - 1] != '\\') ? 1 : 0;
     int totalLen = dir.len + needsSlash + nameLen;
 
-    char* result = (char*)GetTempAllocator()->Alloc(totalLen + 1);
+    char* result = (char*)AllocTemp(totalLen + 1);
     int pos = 0;
 
     // Copy dir
@@ -444,14 +441,13 @@ void StrCopyUtf8(char* dst, const char* src, int maxBytes) {
 }
 
 // Format string with allocator
-Str StrFmt(IAllocator* a, const char* fmt, ...) {
+Str StrFmt(Arena* arena, const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
 
     // Try formatting into available space first (avoids double vsnprintf)
-    a->Lock();
     int availSize = 0;
-    char* availBuf = (char*)a->GetAvailableSpace(&availSize);
+    char* availBuf = arena ? (char*)arena->GetAvailableSpace(&availSize) : nullptr;
 
     if (availBuf && availSize > 0) {
         va_list args2;
@@ -461,23 +457,20 @@ Str StrFmt(IAllocator* a, const char* fmt, ...) {
 
         if (len >= 0 && len < availSize) {
             // Fits in available space - commit the allocation
-            a->Alloc(len + 1);
-            a->Unlock();
+            char* buf = (char*)arena->CommitReserved(availBuf, len + 1);
             AtomicIntInc(&gStrFmtFirstAlloc);
             va_end(args);
-            return Str(availBuf, len);
+            return Str(buf ? buf : availBuf, len);
         }
         // Doesn't fit - fall through to normal allocation with known length
         if (len >= 0) {
-            char* buf = (char*)a->Alloc(len + 1);
-            a->Unlock();
+            char* buf = (char*)Alloc(arena, len + 1);
             AtomicIntInc(&gStrFmtSecondAlloc);
             vsnprintf(buf, len + 1, fmt, args);
             va_end(args);
             return Str(buf, len);
         }
     }
-    a->Unlock();
 
     // Fallback: determine required size first
     va_list args2;
@@ -492,7 +485,7 @@ Str StrFmt(IAllocator* a, const char* fmt, ...) {
 
     // Allocate and format
     AtomicIntInc(&gStrFmtSecondAlloc);
-    char* buf = (char*)a->Alloc(len + 1);
+    char* buf = (char*)Alloc(arena, len + 1);
     vsnprintf(buf, len + 1, fmt, args);
     va_end(args);
 
@@ -503,7 +496,7 @@ static bool IsWhitespace(char c) {
     return c == ' ' || c == '\t' || c == '\r' || c == '\n';
 }
 
-void SplitStrByWhitespace(IAllocator* a, const Str& s, StrVec& vecOut) {
+void SplitStrByWhitespace(Arena* arena, const Str& s, StrVec& vecOut) {
     vecOut.len = 0;
     vecOut.cap = 0;
     vecOut.els = nullptr;
@@ -524,6 +517,6 @@ void SplitStrByWhitespace(IAllocator* a, const Str& s, StrVec& vecOut) {
 
         // Add token (points into original string, no allocation)
         Str token(s.s + start, i - start);
-        VecPush(a, vecOut, token);
+        VecPush(arena, vecOut, token);
     }
 }

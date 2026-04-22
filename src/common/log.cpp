@@ -97,7 +97,7 @@ void logConsole(const char* fmt, ...) {
         WriteFile(gOriginalStdout, buf, len, &written, nullptr);
         BOOL ok = WriteFile(gOriginalStdout, buf, len, &written, nullptr);
         if (!ok) {
-            logf("error: %s\n", GetLastErrorAsStr(GetTempAllocator()).s);
+            logf("error: %s\n", GetLastErrorAsStr(GetTempArena()).s);
         }
     } else {
         // Writing to console

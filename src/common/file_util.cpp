@@ -103,10 +103,10 @@ bool FileExists(Str s) {
 Str SmartResolveDirectory(Str dir) {
     if (IsEmpty(dir)) return dir;
 
-    auto* ta = GetTempAllocator();
+    auto* ta = GetTempArena();
 
     // Replace / with backslash
-    char* normalized = (char*)ta->Alloc(dir.len + 1);
+    char* normalized = (char*)Alloc(ta, dir.len + 1);
     for (int i = 0; i < dir.len; i++) {
         normalized[i] = (dir.s[i] == '/') ? '\\' : dir.s[i];
     }
@@ -123,7 +123,7 @@ Str SmartResolveDirectory(Str dir) {
         Str home = GetHomeDir();
         if (!IsEmpty(home)) {
             int newLen = home.len + result.len - 1;
-            char* expanded = (char*)ta->Alloc(newLen + 1);
+            char* expanded = (char*)Alloc(ta, newLen + 1);
             int pos = 0;
             for (int i = 0; i < home.len; i++) {
                 expanded[pos++] = home.s[i];
@@ -142,7 +142,7 @@ Str SmartResolveDirectory(Str dir) {
 
     // Expand environment variables: $FOO and %FOO%
     // Look for $VAR or %VAR% patterns
-    char* expanded = (char*)ta->Alloc(MAX_PATH);
+    char* expanded = (char*)Alloc(ta, MAX_PATH);
     int outPos = 0;
     int i = 0;
     while (i < result.len && outPos < MAX_PATH - 1) {

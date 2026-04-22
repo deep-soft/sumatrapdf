@@ -653,9 +653,6 @@
     <ClCompile Include="..\src\WindowTab.cpp">
       <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="..\src\common\allocator.cpp">
-      <Filter>src\common</Filter>
-    </ClCompile>
     <ClCompile Include="..\src\common\arena.cpp">
       <Filter>src\common</Filter>
     </ClCompile>

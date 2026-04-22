@@ -32,79 +32,8 @@ int AtomicIntAdd(AtomicInt* p, int v);
 int AtomicIntInc(AtomicInt* p);
 int AtomicIntDec(AtomicInt* p);
 
-// allocator.cpp
-struct ArenaPage;
 
-class IAllocator {
-  public:
-    virtual ~IAllocator();
-    virtual void* Alloc(int size) = 0;
-    virtual void Free(void* ptr) = 0;
-
-    // For optimized formatting - default implementations do nothing
-    virtual void Lock() {}
-    virtual void Unlock() {}
-    virtual void* GetAvailableSpace(int* bufSizeOut) {
-        *bufSizeOut = 0;
-        return nullptr;
-    }
-};
-
-void* Alloc(IAllocator* a, int size);
-void Free(IAllocator* a, void* mem);
-
-void* ReallocMem(IAllocator* a, void* els, int* cap, int newCap, int elSize);
-void* ReallocToWantedSize(IAllocator* a, void* els, int* cap, int wantedSize, int elSize);
-
-// Allocate and construct object using placement new (supports constructor args)
-template <typename T, typename... Args>
-T* New(IAllocator* a, Args&&... args) {
-    void* mem = a->Alloc((int)sizeof(T));
-    return new (mem) T(std::forward<Args>(args)...);
-}
-
-
-// Arena allocator - allocates from pages, Free() does nothing
-class ArenaAllocator : public IAllocator {
-  public:
-    ArenaAllocator();
-    ~ArenaAllocator();
-
-    void* Alloc(int size) override;
-    void Free(void* ptr) override;
-
-    void Reset();        // Free all pages except the first
-    void FreeAllPages(); // Free all pages
-
-    // Lock/Unlock for multi-step operations (e.g., GetAvailableSpace + Alloc)
-    void Lock() override;
-    void Unlock() override;
-
-    // Get pointer to available space in current page and its size
-    // MUST be called while locked (asserts if not)
-    void* GetAvailableSpace(int* bufSizeOut) override;
-
-    // Statistics (atomic for thread safety)
-    AtomicInt totalAllocations;       // Total allocations ever
-    AtomicInt totalAllocatedBytes;    // Total bytes ever allocated
-    AtomicInt currentAllocations;     // Allocations since last Reset()
-    AtomicInt currentAllocatedBytes;  // Bytes allocated since last Reset()
-    AtomicInt maxAllocationsPerReset; // Max allocations between Resets
-    AtomicInt maxBytesPerReset;       // Max bytes between Resets
-
-  private:
-    ArenaPage* AllocPage(int minDataSize);
-
-    CRITICAL_SECTION cs;
-    ArenaPage* firstPage;
-    ArenaPage* currentPage;
-    int nextPageSize;
-    bool isLocked; // For debug assertion
-};
-
-// Thread-local temporary allocator, reset after each message loop iteration
-extern thread_local ArenaAllocator* gTempAllocator;
-ArenaAllocator* GetTempAllocator();
+// arena.cpp
 
 // Standalone reserve/commit arena
 static const u64 ARENA_HEADER_SIZE = 128;
@@ -125,6 +54,13 @@ struct ArenaParams {
     const char* name = nullptr;
 };
 
+struct Arena;
+
+struct ArenaSavepoint {
+    Arena* arena;
+    u64 pos;
+};
+
 struct Arena {
     Arena* prev;    // Previous arena in chain
     Arena* current; // Current arena in chain
@@ -139,37 +75,44 @@ struct Arena {
     int allocation_site_line;
     const char* name;
     bool uses_external_buffer;
-};
-static_assert(sizeof(Arena) <= ARENA_HEADER_SIZE, "Arena header must fit in reserved header bytes");
+    SRWLOCK lock;
 
-struct Temp {
-    Arena* arena;
-    u64 pos;
+    void* Alloc(int size);
+    void Free(void* ptr);
+    void Reset();
+    void* Push(u64 size, u64 align = 8, bool zero = true);
+    u64 Pos();
+    void PopTo(u64 pos);
+    void Pop(u64 amt);
+    void* GetAvailableSpace(int* bufSizeOut);
+    void* CommitReserved(void* mem, int size);
 };
+
+static_assert(sizeof(Arena) <= ARENA_HEADER_SIZE, "Arena header must fit in reserved header bytes");
 
 extern u64 arena_default_reserve_size;
 extern u64 arena_default_commit_size;
 extern ArenaFlags arena_default_flags;
 
 ArenaParams ArenaDefaultParams();
-Arena* arena_alloc(const ArenaParams& params = ArenaDefaultParams());
-void arena_release(Arena* arena);
-void* arena_push(Arena* arena, u64 size, u64 align = 8, bool zero = true);
-u64 arena_pos(Arena* arena);
-void arena_pop_to(Arena* arena, u64 pos);
-void arena_clear(Arena* arena);
-void arena_pop(Arena* arena, u64 amt);
-Temp temp_begin(Arena* arena);
-void temp_end(Temp temp);
+Arena* ArenaNew(const ArenaParams& params = ArenaDefaultParams());
+void ArenaDelete(Arena* arena);
+
+ArenaSavepoint ArenaGetSavepoint(Arena* arena);
+void ArenaRestoreSavepoint(ArenaSavepoint temp);
+
+// Thread-local temporary arena, reset after each message loop iteration
+extern thread_local Arena* gTempArena;
+Arena* GetTempArena();
 
 template <typename T>
 inline T* push_array_no_zero_aligned(Arena* arena, u64 count, u64 align) {
-    return (T*)arena_push(arena, sizeof(T) * count, align, false);
+    return (T*)arena->Push(sizeof(T) * count, align, false);
 }
 
 template <typename T>
 inline T* push_array_aligned(Arena* arena, u64 count, u64 align) {
-    return (T*)arena_push(arena, sizeof(T) * count, align, true);
+    return (T*)arena->Push(sizeof(T) * count, align, true);
 }
 
 template <typename T>
@@ -181,6 +124,22 @@ template <typename T>
 inline T* push_array(Arena* arena, u64 count) {
     return push_array_aligned<T>(arena, count, (alignof(T) > 8) ? alignof(T) : 8);
 }
+
+void* Alloc(struct Arena* arena, int size);
+void Free(struct Arena* arena, void* mem);
+
+void* AllocTemp(int size, u64 align = 8);
+
+void* ReallocMem(struct Arena* arena, void* els, int* cap, int newCap, int elSize);
+void* ReallocToWantedSize(struct Arena* arena, void* els, int* cap, int wantedSize, int elSize);
+
+// Allocate and construct object using placement new (supports constructor args)
+template <typename T, typename... Args>
+T* New(Arena* arena, Args&&... args) {
+    void* mem = Alloc(arena, (int)sizeof(T));
+    return new (mem) T(std::forward<Args>(args)...);
+}
+
 // works on any struct with len member (Str, WStr, *Vec)
 template <typename T>
 int len(const T& v) {
@@ -192,22 +151,22 @@ int len(const T* v) {
 }
 
 template<typename T>
-void VecExpandTo(IAllocator* a, T& v, int wantedSize) {
+void VecExpandTo(Arena* arena, T& v, int wantedSize) {
     if (wantedSize <= v.cap) {
         return;
     }
-    v.els = (decltype(v.els))ReallocToWantedSize(a, v.els, &v.cap, wantedSize, (int)sizeof(*v.els));
+    v.els = (decltype(v.els))ReallocToWantedSize(arena, v.els, &v.cap, wantedSize, (int)sizeof(*v.els));
 }
 
 template <typename T>
-void VecExpand(IAllocator* a, T& v, int n) {
+void VecExpand(Arena* arena, T& v, int n) {
     int wantedSize = v.len + n;
-    VecExpandTo(a, v, wantedSize);
+    VecExpandTo(arena, v, wantedSize);
 }
 
 template <typename T, typename E>
-void VecPush(IAllocator* a, T& v, E el) {
-    VecExpand(a, v, 1);
+void VecPush(Arena* arena, T& v, E el) {
+    VecExpand(arena, v, 1);
     v.els[v.len] = el;
     v.len++;
 }
@@ -241,7 +200,7 @@ struct Str {
 
     Str() : s(nullptr), len(0) {}
     explicit Str(char* s_) : s(s_), len(0) {
-        while (s && s[len]) len++;
+        len = (int)strlen(s);
     }
     explicit Str(char* s_, int len_) : s(s_), len(len_) {}
 };
@@ -249,13 +208,7 @@ struct Str {
 // Create Str from string literal with compile-time length
 #define StrL(lit) Str((char*)(lit), (int)(sizeof(lit) - 1))
 
-struct StrVec {
-    int len;
-    int cap;
-    Str* els;
-};
-
-void SplitStrByWhitespace(IAllocator* a, const Str& s, StrVec& vecOut);
+Str AllocStrTemp(int size);
 
 struct WStr {
     wchar_t* s;
@@ -279,30 +232,42 @@ int WStrCmpNoCase(WStr a, WStr b);
 
 WStr ToWStrTemp(const char* utf8);
 WStr ToWStrTemp(Str s);
-Str ToUtf8(IAllocator* a, WStr wide);
+Str ToUtf8(Arena* arena, WStr wide);
 Str ToUtf8Temp(WStr wide);
 
 // Str utilities
-Str StrDup(IAllocator* a, Str s);
+Str StrDup(Arena* arena, Str s);
+Str StrDupTemp(Str s);
 bool StrEq(Str a, Str b);
 bool StrContains(Str str, Str substr);
 bool StrHasPrefix(Str s, Str prefix);
 bool StrHasSuffix(Str s, Str suffix);
 Str StrTrimSuffix(Str s, Str suffix);
 bool StrHasPrefixNoCase(Str s, Str prefix);
-Str FormatFileSize(IAllocator* a, u64 size);
+Str FormatFileSize(Arena* arena, u64 size);
 void FormatFileSizeToWstrBuf(u64 size, WStr buf);
 int FormatSizeHumanIntoBuf(u64 size, Str buf);
 void FormatSizeHumanIntoWBuf(u64 size, WStr wbuf);
 Str PathJoinTemp(Str dir, Str name);
-Str StrFmt(IAllocator* a, const char* fmt, ...);
-#define StrFmtTemp(fmt, ...) StrFmt(GetTempAllocator(), fmt, __VA_ARGS__)
-Str StrDupTemp(Str s);
+Str StrFmt(Arena* arena, const char* fmt, ...);
+#define StrFmtTemp(fmt, ...) StrFmt(GetTempArena(), fmt, __VA_ARGS__)
 int StrLastIndexOfChar(Str s, char c);
+
+// UTF-8 string utilities (legacy, for null-terminated strings)
+void StrCopyUtf8(char* dst, const char* src, int maxBytes);
+Str StrTrimSuffixWhitespace(Str s);
 
 // Counters for StrFmt optimization tracking
 extern AtomicInt gStrFmtFirstAlloc;  // Formatted into available space
 extern AtomicInt gStrFmtSecondAlloc; // Needed separate allocation
+
+struct StrVec {
+    int len;
+    int cap;
+    Str* els;
+};
+
+void SplitStrByWhitespace(Arena* arena, const Str& s, StrVec& vecOut);
 
 // file_util.cpp
 bool FileSystemEntryExists(Str s);
@@ -312,10 +277,6 @@ Str FindFirstValidParentDir(Str path);
 Str PathGetDirTemp(Str path);
 Str PathGetNameTemp(Str path);
 Str SmartResolveDirectory(Str dir);
-
-// UTF-8 string utilities (legacy, for null-terminated strings)
-void StrCopyUtf8(char* dst, const char* src, int maxBytes);
-Str StrTrimSuffixWhitespace(Str s);
 
 // Works for any struct with int len member (Str, WStr, *Vec, etc.)
 template <typename T>
@@ -380,7 +341,7 @@ typedef void (*OnScannedDirCallback)(DirEntries* dv, void* userData);
 
 // Background directory reader thread context
 struct DirScanCtx {
-    IAllocator* a; // Thread-safe arena allocator for permanent data
+    Arena* a; // Permanent data arena
     OnScannedDirCallback onScannedDir;
     void* userData;
     CRITICAL_SECTION cs;         // Protect queue access
@@ -392,7 +353,7 @@ struct DirScanCtx {
     AtomicInt inFlightCount;     // Number of directories currently being processed
 };
 
-DirScanCtx* CreateDirScanCtx(IAllocator* a, OnScannedDirCallback callback, void* userData);
+DirScanCtx* CreateDirScanCtx(Arena* arena, OnScannedDirCallback callback, void* userData);
 void AskDirScanThreadToQuit(DirScanCtx* ctx);
 DirEntries* RequestDirScan(DirScanCtx* ctx, Str dir);
 void QueueDirScan(DirScanCtx* ctx, DirEntries* dv, bool nonRecursive = false);
@@ -403,8 +364,8 @@ DirEntry* FindEntryByName(DirEntries* dv, Str name);
 DWORD WINAPI DirScanThread(LPVOID param);
 
 // Allocate a DirEntries with fullDir set
-DirEntries* AllocDirEntries(IAllocator* a, Str fullDir);
-void ReadDirectory(IAllocator* a, DirEntries* dv, LONG* shouldExit);
+DirEntries* AllocDirEntries(Arena* arena, Str fullDir);
+void ReadDirectory(Arena* arena, DirEntries* dv, LONG* shouldExit);
 
 // win_util.cpp
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -421,7 +382,7 @@ void RestoreDCState(SavedDCState* state);
 int MeasureStringWidth(HDC hdc, const wchar_t* str);
 Str GetWindowTextTemp(HWND hwnd);
 void SetHwndText(HWND hwnd, Str s);
-Str GetLastErrorAsStr(IAllocator* a);
+Str GetLastErrorAsStr(Arena* arena);
 bool WasLaunchedByPowershellWithPipeRedirect();
 Str GetAppLocalDataDirTemp();
 
@@ -433,4 +394,3 @@ void logStr(Str s);
 void logConsole(const char* fmt, ...);
 void WaitForConsoleClose();
 void SendEnterIfLoggedToConsole();
-
