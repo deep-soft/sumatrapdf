@@ -120,7 +120,11 @@ static bool RegisterForDefaultPrograms(HKEY hkey) {
 
     auto ext = gSupportedExts;
     while (ext) {
-        ok &= LoggedWriteRegStr(hkey, keyAssoc, ext, kAppName);
+        // must match the per-extension ProgID created by RegisterForOpenWith
+        // (e.g. "SumatraPDF.pdf"); Default Apps UI hides the app if the
+        // FileAssociations ProgID can't be resolved under HKCR
+        char* progIDName = str::JoinTemp(kAppName, ext);
+        ok &= LoggedWriteRegStr(hkey, keyAssoc, ext, progIDName);
         seqstrings::Next(ext);
     }
 
