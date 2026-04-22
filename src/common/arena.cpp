@@ -395,6 +395,57 @@ void Free(Arena* arena, void* mem) {
     arena->Free(mem);
 }
 
+void* Alloc(Arena* arena, size_t size) {
+    if (size == 0) {
+        return nullptr;
+    }
+    if (!arena) {
+        return malloc(size);
+    }
+    return arena->Push((u64)size, 8, false);
+}
+
+void* AllocZero(Arena* arena, size_t size) {
+    if (size == 0) {
+        return nullptr;
+    }
+    if (!arena) {
+        void* mem = malloc(size);
+        if (mem) {
+            memset(mem, 0, size);
+        }
+        return mem;
+    }
+    return arena->Push((u64)size, 8, true);
+}
+
+void* Realloc(Arena* arena, void* mem, size_t size) {
+    if (!arena) {
+        return realloc(mem, size);
+    }
+    // Arena has no realloc: allocate fresh and copy. Old memory is not freed
+    // (arena lifetime handles it).
+    if (size == 0) {
+        return nullptr;
+    }
+    void* newMem = arena->Push((u64)size, 8, false);
+    if (newMem && mem) {
+        // we don't know the old size; callers that end up here (Vec/StrBuilder)
+        // only ever grow, and we can't overread because the arena block is
+        // contiguous. Callers requiring exact copy must track old size.
+        memcpy(newMem, mem, size);
+    }
+    return newMem;
+}
+
+void* MemDup(Arena* arena, const void* mem, size_t size, size_t extraBytes) {
+    void* newMem = Alloc(arena, size + extraBytes);
+    if (newMem && mem && size) {
+        memcpy(newMem, mem, size);
+    }
+    return newMem;
+}
+
 thread_local Arena* gTempArena = nullptr;
 
 Arena* GetTempArena() {

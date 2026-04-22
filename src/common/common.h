@@ -133,6 +133,18 @@ inline T* push_array(Arena* arena, u64 count) {
 void* Alloc(struct Arena* arena, int size);
 void Free(struct Arena* arena, void* mem);
 
+// size_t overloads that match the legacy Allocator::* static helper API
+// and fall back to malloc/free when arena is nullptr.
+void* Alloc(struct Arena* arena, size_t size);
+void* AllocZero(struct Arena* arena, size_t size);
+void* Realloc(struct Arena* arena, void* mem, size_t size);
+void* MemDup(struct Arena* arena, const void* mem, size_t size, size_t extraBytes = 0);
+
+template <typename T>
+inline T* AllocArray(struct Arena* arena, size_t n = 1) {
+    return (T*)AllocZero(arena, n * sizeof(T));
+}
+
 void* AllocTemp(int size, u64 align = 8);
 
 void* ReallocMem(struct Arena* arena, void* els, int* cap, int newCap, int elSize);
