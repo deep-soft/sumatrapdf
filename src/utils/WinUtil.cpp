@@ -2574,28 +2574,6 @@ void VariantInitBstr(VARIANT& urlVar, const WCHAR* s) {
     urlVar.bstrVal = SysAllocString(s);
 }
 
-StrSpan LoadDataResource(int resId) {
-    HRSRC resSrc = FindResourceW(nullptr, MAKEINTRESOURCE(resId), RT_RCDATA);
-    ReportIf(!resSrc);
-    if (!resSrc) {
-        return {};
-    }
-    HGLOBAL res = LoadResource(nullptr, resSrc);
-    ReportIf(!res);
-    if (!res) {
-        return {};
-    }
-    DWORD size = SizeofResource(nullptr, resSrc);
-    const char* resData = (const char*)LockResource(res);
-    ReportIf(!resData);
-    if (!resData) {
-        return {};
-    }
-    char* s = str::Dup(resData, size);
-    UnlockResource(res);
-    return {s, (int)size};
-}
-
 static HDDEDATA CALLBACK DdeCallback(UINT, UINT, HCONV, HSZ, HSZ, HDDEDATA, ULONG_PTR, ULONG_PTR) {
     return nullptr;
 }
