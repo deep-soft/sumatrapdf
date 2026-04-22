@@ -8,6 +8,10 @@
 #include <ole2.h>
 #include <tlhelp32.h>
 
+// shlwapi.h defines StrDup as a macro that aliases to StrDupW when UNICODE
+// is set, which collides with our StrDup(Arena*, Str) function.
+#undef StrDup
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>

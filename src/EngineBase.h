@@ -378,6 +378,8 @@ struct RenderPageArgs {
 class EngineBase {
   public:
     Kind kind = nullptr;
+
+    Arena* arena = nullptr;
     AtomicRefCount refCount = 1; // starts life as acquired
     // the default file extension for a document like
     // the currently loaded one (e.g. L".pdf")
@@ -397,7 +399,7 @@ class EngineBase {
     StrVec errors;
 
     // TODO: migrate other engines to use this
-    AutoFreeStr fileNameBase;
+    Str fileNameBase;
 
     EngineBase();
 

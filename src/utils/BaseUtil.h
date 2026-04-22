@@ -557,34 +557,6 @@ struct HeapAllocator : Allocator {
     HeapAllocator& operator=(const HeapAllocator&) = delete;
 };
 
-// A helper for allocating an array of elements of type T
-// either on stack (if they fit within StackBufInBytes)
-// or in memory. Allocating on stack is a perf optimization
-// note: not the best name
-template <typename T, int StackBufInBytes>
-class FixedArray {
-    T stackBuf[StackBufInBytes / sizeof(T)];
-    T* memBuf;
-
-  public:
-    explicit FixedArray(size_t elCount) {
-        memBuf = nullptr;
-        size_t stackEls = StackBufInBytes / sizeof(T);
-        if (elCount > stackEls) {
-            memBuf = (T*)malloc(elCount * sizeof(T));
-        }
-    }
-
-    ~FixedArray() { free(memBuf); }
-
-    T* Get() {
-        if (memBuf) {
-            return memBuf;
-        }
-        return &(stackBuf[0]);
-    }
-};
-
 /*
 Poor-man's manual dynamic typing.
 Identity of an object is an address of a unique, global string.

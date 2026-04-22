@@ -330,6 +330,7 @@ bool EngineBase::Release() {
 
 EngineBase::EngineBase() {
     InitializeCriticalSection(&textCacheLock);
+    arena = ArenaNew();
 }
 
 EngineBase::~EngineBase() {
@@ -344,6 +345,7 @@ EngineBase::~EngineBase() {
     DeleteCriticalSection(&textCacheLock);
     str::Free(decryptionKey);
     str::Free(defaultExt);
+    ArenaDelete(arena);
 }
 
 bool EngineBase::HasTextForPage(int pageNo) {
@@ -458,7 +460,7 @@ char* EngineBase::GetDecryptionKey() const {
 }
 
 const char* EngineBase::FilePath() const {
-    return fileNameBase;
+    return fileNameBase.s;
 }
 
 RenderedBitmap* EngineBase::GetImageForPageElement(IPageElement*) {
@@ -467,7 +469,7 @@ RenderedBitmap* EngineBase::GetImageForPageElement(IPageElement*) {
 }
 
 void EngineBase::SetFilePath(const char* s) {
-    fileNameBase.SetCopy(s);
+    fileNameBase = s ? StrDup(arena, Str((char*)s)) : Str();
 }
 
 PointF EngineBase::Transform(PointF pt, int pageNo, float zoom, int rotation, bool inverse) {
