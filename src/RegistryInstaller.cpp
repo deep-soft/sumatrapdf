@@ -104,7 +104,7 @@ bool WriteUninstallerRegistryInfo(HKEY hkey, bool allUsers, const char* installD
 
 // https://msdn.microsoft.com/en-us/library/windows/desktop/cc144154(v=vs.85).aspx
 // http://www.tenforums.com/software-apps/23509-how-add-my-own-program-list-default-programs.html#post407794
-static bool RegisterForDefaultPrograms(HKEY hkey) {
+static bool RegisterForDefaultPrograms(HKEY hkey, const char* installedExePath) {
     bool ok = true;
 
     // L"SOFTWARE\\SumatraPDF\\Capabilities"
@@ -114,6 +114,9 @@ static bool RegisterForDefaultPrograms(HKEY hkey) {
     ok &= LoggedWriteRegStr(hkey, appCapabilityPath, "ApplicationDescription", desc);
     const char* appLongName = "SumatraPDF Reader";
     ok &= LoggedWriteRegStr(hkey, appCapabilityPath, "ApplicationName", appLongName);
+    // icon shown next to the app in Settings > Default Apps
+    char* appIcon = str::JoinTemp("\"", installedExePath, "\",0");
+    ok &= LoggedWriteRegStr(hkey, appCapabilityPath, "ApplicationIcon", appIcon);
 
     // L"SOFTWARE\\SumatraPDF\\Capabilities\\FileAssociations"
     char* keyAssoc = str::JoinTemp(appCapabilityPath, "\\FileAssociations");
@@ -482,7 +485,7 @@ bool WriteExtendedFileExtensionInfo(HKEY hkey, const char* installedExePath) {
     // ok &= OldWriteFileAssoc(hkey);
 
     if (IsWindows10OrGreater()) {
-        ok &= RegisterForDefaultPrograms(hkey);
+        ok &= RegisterForDefaultPrograms(hkey, installedExePath);
     }
     ok &= RegisterForOpenWith(hkey, installedExePath);
 
