@@ -1819,7 +1819,7 @@ char* DisplayModel::GetTextInRegion(int pageNo, RectF region) const {
         return nullptr;
     }
 
-    str::WStr result;
+    WStrBuilder result;
     Rect regionI = region.Round();
     for (const WCHAR* src = pageText; *src; src++) {
         if (*src != '\n') {

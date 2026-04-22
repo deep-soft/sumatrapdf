@@ -303,7 +303,7 @@ class EngineDjVu : public EngineBase {
     Vec<ddjvu_fileinfo_t> fileInfos;
 
     RenderedBitmap* CreateRenderedBitmap(const char* bmpData, Size size, bool grayscale) const;
-    bool ExtractPageText(miniexp_t item, str::WStr& extracted, Vec<Rect>& coords);
+    bool ExtractPageText(miniexp_t item, WStrBuilder& extracted, Vec<Rect>& coords);
     bool ExtractPageTextUtf8(miniexp_t item, StrBuilder& extracted, Vec<Rect>& coords);
     TempStr ResolveNamedDestTemp(const char* name);
     TocItem* BuildTocTree(TocItem* parent, miniexp_t entry, int& idCounter);
@@ -844,7 +844,7 @@ bool EngineDjVu::SaveFileAs(const char* dstPath) {
     return file::Copy(dstPath, srcPath, false);
 }
 
-static void AppendNewline(str::WStr& extracted, Vec<Rect>& coords, const WCHAR* lineSep) {
+static void AppendNewline(WStrBuilder& extracted, Vec<Rect>& coords, const WCHAR* lineSep) {
     if (extracted.size() > 0 && ' ' == extracted.Last()) {
         extracted.RemoveLast();
         coords.RemoveLast();
@@ -853,7 +853,7 @@ static void AppendNewline(str::WStr& extracted, Vec<Rect>& coords, const WCHAR* 
     coords.AppendBlanks(str::Len(lineSep));
 }
 
-bool EngineDjVu::ExtractPageText(miniexp_t item, str::WStr& extracted, Vec<Rect>& coords) {
+bool EngineDjVu::ExtractPageText(miniexp_t item, WStrBuilder& extracted, Vec<Rect>& coords) {
     const WCHAR* lineSep = L"\n";
     miniexp_t type = miniexp_car(item);
     if (!miniexp_symbolp(type)) {
@@ -925,7 +925,7 @@ PageText EngineDjVu::ExtractPageText(int pageNo) {
         return {};
     }
 
-    str::WStr extracted;
+    WStrBuilder extracted;
     Vec<Rect> coords;
     bool success = ExtractPageText(pagetext, extracted, coords);
     ddjvu_miniexp_release(doc, pagetext);

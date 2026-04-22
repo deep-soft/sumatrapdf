@@ -567,7 +567,7 @@ static inline int WcharsPerRune(int rune) {
     return 1;
 }
 
-static void AddChar(fz_stext_line* line, fz_stext_char* c, str::WStr& s, Vec<Rect>& rects) {
+static void AddChar(fz_stext_line* line, fz_stext_char* c, WStrBuilder& s, Vec<Rect>& rects) {
     fz_rect bbox = fz_rect_from_quad(c->quad);
     Rect r = ToRectF(bbox).Round();
 
@@ -604,7 +604,7 @@ static void AddChar(fz_stext_line* line, fz_stext_char* c, str::WStr& s, Vec<Rec
     }
 }
 
-static void AddLineSep(str::WStr& s, Vec<Rect>& rects, const WCHAR* lineSep, size_t lineSepLen) {
+static void AddLineSep(WStrBuilder& s, Vec<Rect>& rects, const WCHAR* lineSep, size_t lineSepLen) {
     if (lineSepLen == 0) {
         return;
     }
@@ -704,7 +704,7 @@ static WCHAR* FzTextPageToStr(fz_stext_page* text, Rect** coordsOut) {
     const WCHAR* lineSep = L"\n";
 
     size_t lineSepLen = str::Len(lineSep);
-    str::WStr content;
+    WStrBuilder content;
     // coordsOut is optional but we ask for it by default so we simplify the code
     // by always calculating it
     Vec<Rect> rects;

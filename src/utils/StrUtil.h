@@ -323,10 +323,7 @@ struct StrBuilder {
     iterator end() const { return &(els[len]); }
 };
 
-namespace str {
-// bool Replace(Str& s, const char* toReplace, const char* replaceWith);
-
-struct WStr {
+struct WStrBuilder {
     // allocator is not owned by Vec and must outlive it
     Allocator* allocator = nullptr;
     WCHAR* els = nullptr;
@@ -337,11 +334,11 @@ struct WStr {
     static constexpr size_t kBufChars = dimof(buf);
     static constexpr size_t kElSize = sizeof(WCHAR);
 
-    explicit WStr(size_t capHint = 0, Allocator* allocator = nullptr);
-    WStr(const WStr&);
-    WStr(const WCHAR*); // NOLINT
-    WStr& operator=(const WStr& that);
-    ~WStr();
+    explicit WStrBuilder(size_t capHint = 0, Allocator* allocator = nullptr);
+    WStrBuilder(const WStrBuilder&);
+    WStrBuilder(const WCHAR*); // NOLINT
+    WStrBuilder& operator=(const WStrBuilder& that);
+    ~WStrBuilder();
     void Reset();
     WCHAR& at(size_t idx) const;
     WCHAR& at(int idx) const;
@@ -379,7 +376,9 @@ struct WStr {
     iterator end() const { return &(els[len]); }
 };
 
-bool Replace(WStr& s, const WCHAR* toReplace, const WCHAR* replaceWith);
+namespace str {
+
+bool Replace(WStrBuilder& s, const WCHAR* toReplace, const WCHAR* replaceWith);
 
 } // namespace str
 

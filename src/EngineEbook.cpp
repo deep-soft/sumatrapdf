@@ -380,7 +380,7 @@ PageText EngineEbook::ExtractPageText(int pageNo) {
         InterlockedDecrement(&gAllowAllocFailure);
     };
 
-    str::WStr content;
+    WStrBuilder content;
     Vec<Rect> coords;
     bool insertSpace = false;
 
