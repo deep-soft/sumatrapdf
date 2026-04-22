@@ -440,8 +440,18 @@ void* Realloc(Arena* arena, void* mem, size_t size) {
 
 void* MemDup(Arena* arena, const void* mem, size_t size, size_t extraBytes) {
     void* newMem = Alloc(arena, size + extraBytes);
-    if (newMem && mem && size) {
+    if (!newMem) {
+        return nullptr;
+    }
+    if (mem && size) {
         memcpy(newMem, mem, size);
+    }
+    // zero the tail so callers using extraBytes to append a null terminator
+    // (e.g. str::Dup with extraBytes = sizeof(char)) don't read uninitialized
+    // memory. When allocated from an arena via Push(..., zero=false) or from
+    // malloc() the bytes past `size` aren't otherwise zeroed.
+    if (extraBytes > 0) {
+        memset((char*)newMem + size, 0, extraBytes);
     }
     return newMem;
 }
