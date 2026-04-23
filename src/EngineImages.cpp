@@ -2387,7 +2387,18 @@ EngineBase* EngineCbx::CreateFromFile(const char* path, const char* password, Mu
     // opening a full archive just for type detection
     MultiFormatArchive* archive = new MultiFormatArchive();
     archive->password = str::Dup(password);
-    if (!archive->Open(path, hintKind)) {
+
+    // for small archives, eagerly decompress everything up front so we
+    // don't have to re-open the file for each page's image data.
+    constexpr i64 kMaxEagerLoadSize = 32 * 1024 * 1024;
+    i64 fileSize = file::GetSize(path);
+    ArchiveExtractProgressCb emptyCb;
+    const ArchiveExtractProgressCb* cbProgress = nullptr;
+    if (fileSize > 0 && fileSize < kMaxEagerLoadSize) {
+        cbProgress = &emptyCb;
+    }
+
+    if (!archive->Open(path, hintKind, cbProgress)) {
         delete archive;
         return nullptr;
     }
