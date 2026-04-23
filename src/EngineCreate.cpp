@@ -60,7 +60,8 @@ bool IsSupportedFileType(Kind kind, bool enableEngineEbooks) {
     return false;
 }
 
-static EngineBase* CreateEngineForKind(Kind kind, const char* path, PasswordUI* pwdUI, bool enableChmEngine) {
+static EngineBase* CreateEngineForKind(Kind kind, Kind contentHintKind, const char* path, PasswordUI* pwdUI,
+                                       bool enableChmEngine) {
     if (!kind) {
         return nullptr;
     }
@@ -91,7 +92,7 @@ static EngineBase* CreateEngineForKind(Kind kind, const char* path, PasswordUI* 
     }
 
     if (IsEngineCbxSupportedFileType(kind)) {
-        engine = CreateEngineCbxFromFile(path, pwdUI);
+        engine = CreateEngineCbxFromFile(path, pwdUI, contentHintKind);
         return engine;
     }
     if (IsEnginePsSupportedFileType(kind)) {
@@ -144,21 +145,33 @@ static EngineBase* CreateEngineForKind(Kind kind, const char* path, PasswordUI* 
 EngineBase* CreateEngineFromFile(const char* path, PasswordUI* pwdUI, bool enableChmEngine) {
     ReportIf(!path);
 
-    // try to open with the engine guess from file name
-    // if that fails, try to guess the file type based on content
+    // try to open with the engine guess from file name; if that fails,
+    // guess the file type from content (one disk read inside
+    // GuessFileTypeFromContent) and retry.
     Kind kind = GuessFileTypeFromName(path);
-    EngineBase* engine = CreateEngineForKind(kind, path, pwdUI, enableChmEngine);
+
+    // For archive-backed engines (cbx), pre-sniff the content upfront so
+    // MultiFormatArchive::Open can skip its own 2 KiB read. For all other
+    // engines the hint is unused.
+    Kind contentHint = nullptr;
+    if (IsEngineCbxSupportedFileType(kind)) {
+        contentHint = GuessFileTypeFromContent(path);
+    }
+
+    EngineBase* engine = CreateEngineForKind(kind, contentHint, path, pwdUI, enableChmEngine);
     if (engine) {
         engine->disableAntiAlias = gGlobalPrefs->disableAntiAlias;
         return engine;
     }
 
-    Kind newKind = GuessFileTypeFromContent(path);
+    if (!contentHint) {
+        contentHint = GuessFileTypeFromContent(path);
+    }
     // avoid trying the same engine type twice (e.g. kindFileCbz vs kindFileZip
     // both use the cbx engine, causing duplicate password prompts)
-    bool sameCbx = IsEngineCbxSupportedFileType(kind) && IsEngineCbxSupportedFileType(newKind);
-    if (kind != newKind && !sameCbx) {
-        engine = CreateEngineForKind(newKind, path, pwdUI, enableChmEngine);
+    bool sameCbx = IsEngineCbxSupportedFileType(kind) && IsEngineCbxSupportedFileType(contentHint);
+    if (kind != contentHint && !sameCbx) {
+        engine = CreateEngineForKind(contentHint, contentHint, path, pwdUI, enableChmEngine);
     }
     if (engine) {
         engine->disableAntiAlias = gGlobalPrefs->disableAntiAlias;

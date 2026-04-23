@@ -2005,7 +2005,8 @@ class EngineCbx : public EngineImages {
     TocTree* GetToc() override;
 
     static EngineBase* CreateFromFile(const char* path, const char* password = nullptr,
-                                      MultiFormatArchive::Format* formatOut = nullptr, bool* isEncryptedOut = nullptr);
+                                      MultiFormatArchive::Format* formatOut = nullptr, bool* isEncryptedOut = nullptr,
+                                      Kind hintKind = nullptr);
     static EngineBase* CreateFromStream(IStream* stream);
 
   protected:
@@ -2360,7 +2361,7 @@ RectF EngineCbx::LoadMediabox(int pageNo) {
 }
 
 EngineBase* EngineCbx::CreateFromFile(const char* path, const char* password, MultiFormatArchive::Format* formatOut,
-                                      bool* isEncryptedOut) {
+                                      bool* isEncryptedOut, Kind hintKind) {
     auto timeStart = TimeGet();
     // we sniff the type from content first because the
     // files can be mis-named e.g. .cbr archive with .cbz ext
@@ -2369,7 +2370,7 @@ EngineBase* EngineCbx::CreateFromFile(const char* path, const char* password, Mu
     // opening a full archive just for type detection
     MultiFormatArchive* archive = new MultiFormatArchive();
     archive->password = str::Dup(password);
-    if (!archive->Open(path)) {
+    if (!archive->Open(path, hintKind)) {
         delete archive;
         return nullptr;
     }
@@ -2438,10 +2439,10 @@ bool IsEngineCbxSupportedFileType(Kind kind) {
     return KindIndexOf(cbxKinds, n, kind) >= 0;
 }
 
-EngineBase* CreateEngineCbxFromFile(const char* path, PasswordUI* pwdUI) {
+EngineBase* CreateEngineCbxFromFile(const char* path, PasswordUI* pwdUI, Kind hintKind) {
     MultiFormatArchive::Format fmt = MultiFormatArchive::Format::Unknown;
     bool isEncrypted = false;
-    EngineBase* engine = EngineCbx::CreateFromFile(path, nullptr, &fmt, &isEncrypted);
+    EngineBase* engine = EngineCbx::CreateFromFile(path, nullptr, &fmt, &isEncrypted, hintKind);
     if (engine || !pwdUI) {
         return engine;
     }
@@ -2461,7 +2462,7 @@ EngineBase* CreateEngineCbxFromFile(const char* path, PasswordUI* pwdUI) {
         if (!pwd) {
             return nullptr; // user cancelled
         }
-        engine = EngineCbx::CreateFromFile(path, pwd);
+        engine = EngineCbx::CreateFromFile(path, pwd, nullptr, nullptr, hintKind);
         str::Free(pwd);
         if (engine) {
             return engine;

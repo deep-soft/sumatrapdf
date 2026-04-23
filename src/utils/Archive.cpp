@@ -102,16 +102,20 @@ bool MultiFormatArchive::ParseEntries(struct archive* a) {
 // unfortunately libarchive's rar support is weak
 static bool gUnrarFirst = true;
 
-bool MultiFormatArchive::Open(const char* path) {
+bool MultiFormatArchive::Open(const char* path, Kind hintKind) {
     if (!path) {
         return false;
     }
-    char buf[2048 + 1]{};
-    int n = file::ReadN(path, buf, dimof(buf) - 1);
-    Kind kind = nullptr;
-    if (n > 0) {
-        ByteSlice d = {(u8*)buf, (size_t)n};
-        kind = GuessFileTypeFromContent(d);
+    Kind kind = hintKind;
+    if (!kind) {
+        // No pre-sniffed hint: peek at the first 2 KiB ourselves so we can
+        // route RAR files through unrar.dll instead of libarchive.
+        char buf[2048 + 1]{};
+        int n = file::ReadN(path, buf, dimof(buf) - 1);
+        if (n > 0) {
+            ByteSlice d = {(u8*)buf, (size_t)n};
+            kind = GuessFileTypeFromContent(d);
+        }
     }
 
     bool isRar = kind == kindFileRar;

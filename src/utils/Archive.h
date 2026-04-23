@@ -33,7 +33,10 @@ class MultiFormatArchive {
 
     Format format = Format::Unknown;
 
-    bool Open(const char* path);
+    // hintKind is the result of a prior GuessFileTypeFromContent() done
+    // by the caller. When non-null we skip the internal 2 KiB sniff and
+    // use it to drive rar-first vs. libarchive routing.
+    bool Open(const char* path, Kind hintKind = nullptr);
     bool Open(IStream* stream);
 
     Vec<FileInfo*> const& GetFileInfos();

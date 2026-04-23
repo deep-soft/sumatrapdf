@@ -38,7 +38,7 @@ bool IsEngineImageDirSupportedFile(const char* fileName, bool sniff = false);
 EngineBase* CreateEngineImageDirFromFile(const char* fileName);
 
 bool IsEngineCbxSupportedFileType(Kind kind);
-EngineBase* CreateEngineCbxFromFile(const char* path, PasswordUI* pwdUI = nullptr);
+EngineBase* CreateEngineCbxFromFile(const char* path, PasswordUI* pwdUI = nullptr, Kind hintKind = nullptr);
 EngineBase* CreateEngineCbxFromStream(IStream* stream);
 
 bool IsEngineImages(EngineBase*);
