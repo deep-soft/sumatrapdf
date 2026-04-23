@@ -66,6 +66,85 @@ static DWORD get_signer_count(HCRYPTMSG hMsg) {
     return count;
 }
 
+// Windows crypto error codes we give symbolic names to. Names are stored as
+// a double-NUL terminated SeqStrings blob; gleCodes[i] pairs with the i-th
+// name in gleNames. Keep the two tables in the same order.
+// clang-format off
+static const char gleNames[] =
+    "NTE_BAD_SIGNATURE\0"
+    "NTE_BAD_HASH\0"
+    "NTE_BAD_KEY\0"
+    "NTE_BAD_LEN\0"
+    "NTE_BAD_ALGID\0"
+    "NTE_BAD_TYPE\0"
+    "NTE_BAD_DATA\0"
+    "NTE_NO_MEMORY\0"
+    "CRYPT_E_HASH_VALUE\0"
+    "CRYPT_E_INVALID_MSG_TYPE\0"
+    "CRYPT_E_UNEXPECTED_MSG_TYPE\0"
+    "CRYPT_E_NO_SIGNER\0"
+    "CRYPT_E_SIGNER_NOT_FOUND\0"
+    "CRYPT_E_NO_MATCH\0"
+    "CRYPT_E_BAD_ENCODE\0"
+    "CRYPT_E_UNKNOWN_ALGO\0"
+    "CRYPT_E_OSS_ERROR\0"
+    "CRYPT_E_ASN1_ERROR\0"
+    "CRYPT_E_ASN1_BADTAG\0"
+    "CRYPT_E_NOT_FOUND\0"
+    "ERROR_INVALID_PARAMETER\0"
+    "ERROR_MORE_DATA\0";
+
+static const DWORD gleCodes[] = {
+    (DWORD)NTE_BAD_SIGNATURE,
+    (DWORD)NTE_BAD_HASH,
+    (DWORD)NTE_BAD_KEY,
+    (DWORD)NTE_BAD_LEN,
+    (DWORD)NTE_BAD_ALGID,
+    (DWORD)NTE_BAD_TYPE,
+    (DWORD)NTE_BAD_DATA,
+    (DWORD)NTE_NO_MEMORY,
+    (DWORD)CRYPT_E_HASH_VALUE,
+    (DWORD)CRYPT_E_INVALID_MSG_TYPE,
+    (DWORD)CRYPT_E_UNEXPECTED_MSG_TYPE,
+    (DWORD)CRYPT_E_NO_SIGNER,
+    (DWORD)CRYPT_E_SIGNER_NOT_FOUND,
+    (DWORD)CRYPT_E_NO_MATCH,
+    (DWORD)CRYPT_E_BAD_ENCODE,
+    (DWORD)CRYPT_E_UNKNOWN_ALGO,
+    (DWORD)CRYPT_E_OSS_ERROR,
+    (DWORD)CRYPT_E_ASN1_ERROR,
+    (DWORD)CRYPT_E_ASN1_BADTAG,
+    (DWORD)CRYPT_E_NOT_FOUND,
+    (DWORD)ERROR_INVALID_PARAMETER,
+    (DWORD)ERROR_MORE_DATA,
+};
+// clang-format on
+
+// Returns symbolic name for known Windows crypto error codes, or NULL if
+// unknown. Walks gleNames / gleCodes in parallel; stops at the SeqStrings
+// terminator so the two tables can't walk past each other.
+static const char* gle_name(DWORD err) {
+    const char* s = gleNames;
+    size_t i = 0;
+    while (*s && i < sizeof(gleCodes) / sizeof(gleCodes[0])) {
+        if (gleCodes[i] == err) {
+            return s;
+        }
+        s += strlen(s) + 1;
+        i++;
+    }
+    return NULL;
+}
+
+static void warn_gle(fz_context* ctx, const char* where, DWORD err) {
+    const char* name = gle_name(err);
+    if (name) {
+        fz_warn(ctx, "pkcs7-windows %s: %s (0x%08lX)", where, name, err);
+    } else {
+        fz_warn(ctx, "pkcs7-windows %s: gle=0x%08lX", where, err);
+    }
+}
+
 // Locate the signer's certificate inside the envelope's embedded cert set.
 static PCCERT_CONTEXT find_signer_cert(HCERTSTORE hStore, PCMSG_SIGNER_INFO si) {
     CERT_INFO ci;
@@ -91,6 +170,7 @@ static pdf_signature_error windows_check_certificate(fz_context* ctx, pdf_pkcs7_
 
     hMsg = open_msg_for_metadata(sig, sig_len);
     if (!hMsg) {
+        warn_gle(ctx, "check_certificate parse envelope", GetLastError());
         goto done;
     }
     if (get_signer_count(hMsg) == 0) {
@@ -99,10 +179,12 @@ static pdf_signature_error windows_check_certificate(fz_context* ctx, pdf_pkcs7_
     }
     hStore = CertOpenStore(CERT_STORE_PROV_MSG, 0, 0, 0, hMsg);
     if (!hStore) {
+        warn_gle(ctx, "check_certificate CertOpenStore", GetLastError());
         goto done;
     }
     si = get_signer_info(hMsg, 0);
     if (!si) {
+        warn_gle(ctx, "check_certificate get_signer_info", GetLastError());
         goto done;
     }
     cert = find_signer_cert(hStore, si);
@@ -116,6 +198,7 @@ static pdf_signature_error windows_check_certificate(fz_context* ctx, pdf_pkcs7_
     chainPara.cbSize = sizeof(chainPara);
     // No revocation check: matches openssl helper behavior (and Adobe)
     if (!CertGetCertificateChain(NULL, cert, NULL, hStore, &chainPara, 0, NULL, &chain)) {
+        warn_gle(ctx, "check_certificate CertGetCertificateChain", GetLastError());
         goto done;
     }
 
@@ -167,11 +250,13 @@ static pdf_signature_error windows_check_digest(fz_context* ctx, pdf_pkcs7_verif
 
     hMsg = CryptMsgOpenToDecode(PKCS_7_ASN_ENCODING | X509_ASN_ENCODING, CMSG_DETACHED_FLAG, 0, 0, NULL, NULL);
     if (!hMsg) {
+        warn_gle(ctx, "check_digest CryptMsgOpenToDecode", GetLastError());
         goto done;
     }
 
     // Feed envelope first; detached content chunks follow.
     if (!CryptMsgUpdate(hMsg, sig, (DWORD)sig_len, FALSE)) {
+        warn_gle(ctx, "check_digest CryptMsgUpdate(envelope)", GetLastError());
         goto done;
     }
 
@@ -185,12 +270,14 @@ static pdf_signature_error windows_check_digest(fz_context* ctx, pdf_pkcs7_verif
                 break;
             }
             if (!CryptMsgUpdate(hMsg, buf, (DWORD)n, FALSE)) {
+                warn_gle(ctx, "check_digest CryptMsgUpdate(content)", GetLastError());
                 streamFailed = TRUE;
                 break;
             }
         }
     }
     fz_catch(ctx) {
+        fz_warn(ctx, "pkcs7-windows check_digest: fz_read failed: %s", fz_caught_message(ctx));
         streamFailed = TRUE;
     }
     if (streamFailed) {
@@ -199,6 +286,7 @@ static pdf_signature_error windows_check_digest(fz_context* ctx, pdf_pkcs7_verif
 
     // Finalize with an empty chunk.
     if (!CryptMsgUpdate(hMsg, NULL, 0, TRUE)) {
+        warn_gle(ctx, "check_digest CryptMsgUpdate(final)", GetLastError());
         goto done;
     }
 
@@ -208,10 +296,12 @@ static pdf_signature_error windows_check_digest(fz_context* ctx, pdf_pkcs7_verif
     }
     hStore = CertOpenStore(CERT_STORE_PROV_MSG, 0, 0, 0, hMsg);
     if (!hStore) {
+        warn_gle(ctx, "check_digest CertOpenStore", GetLastError());
         goto done;
     }
     si = get_signer_info(hMsg, 0);
     if (!si) {
+        warn_gle(ctx, "check_digest get_signer_info", GetLastError());
         goto done;
     }
     cert = find_signer_cert(hStore, si);
@@ -224,10 +314,15 @@ static pdf_signature_error windows_check_digest(fz_context* ctx, pdf_pkcs7_verif
         rc = PDF_SIGNATURE_ERROR_OKAY;
     } else {
         DWORD err = GetLastError();
-        // NTE_BAD_SIGNATURE / CRYPT_E_HASH_VALUE — integrity failure
+        // NTE_BAD_SIGNATURE / CRYPT_E_HASH_VALUE — integrity failure (content
+        // doesn't match the signed digest)
         if (err == (DWORD)NTE_BAD_SIGNATURE || err == (DWORD)CRYPT_E_HASH_VALUE) {
             rc = PDF_SIGNATURE_ERROR_DIGEST_FAILURE;
+        } else if (err == (DWORD)CRYPT_E_NO_SIGNER) {
+            rc = PDF_SIGNATURE_ERROR_NO_SIGNATURES;
         }
+        // Always log so callers can see why we returned DIGEST_FAILURE / UNKNOWN.
+        warn_gle(ctx, "check_digest CryptMsgControl(VERIFY_SIGNATURE)", err);
     }
 
 done:
@@ -271,6 +366,7 @@ static pdf_pkcs7_distinguished_name* windows_get_signatory(fz_context* ctx, pdf_
 
     hMsg = open_msg_for_metadata(sig, sig_len);
     if (!hMsg) {
+        warn_gle(ctx, "get_signatory parse envelope", GetLastError());
         goto done;
     }
     if (get_signer_count(hMsg) == 0) {
@@ -278,10 +374,12 @@ static pdf_pkcs7_distinguished_name* windows_get_signatory(fz_context* ctx, pdf_
     }
     hStore = CertOpenStore(CERT_STORE_PROV_MSG, 0, 0, 0, hMsg);
     if (!hStore) {
+        warn_gle(ctx, "get_signatory CertOpenStore", GetLastError());
         goto done;
     }
     si = get_signer_info(hMsg, 0);
     if (!si) {
+        warn_gle(ctx, "get_signatory get_signer_info", GetLastError());
         goto done;
     }
     cert = find_signer_cert(hStore, si);
