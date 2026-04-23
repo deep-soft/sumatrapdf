@@ -349,6 +349,9 @@ EngineBase::~EngineBase() {
 
 bool EngineBase::HasTextForPage(int pageNo) {
     ReportIf(pageNo < 1 || pageNo > pageCount);
+    if (pageNo < 1 || pageNo > pageCount) {
+        return false;
+    }
     ScopedCritSec scope(&textCacheLock);
     if (!pagesText) {
         return false;
@@ -359,6 +362,15 @@ bool EngineBase::HasTextForPage(int pageNo) {
 
 const WCHAR* EngineBase::GetTextForPage(int pageNo, int* lenOut, Rect** coordsOut) {
     ReportIf(pageNo < 1 || pageNo > pageCount);
+    if (pageNo < 1 || pageNo > pageCount) {
+        if (lenOut) {
+            *lenOut = 0;
+        }
+        if (coordsOut) {
+            *coordsOut = nullptr;
+        }
+        return L"";
+    }
 
     ScopedCritSec scope(&textCacheLock);
     if (!pagesText) {
