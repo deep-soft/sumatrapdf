@@ -1830,6 +1830,10 @@ EngineMupdf::EngineMupdf() {
     defaultExt = str::Dup(".pdf");
     fileDPI = 72.0f;
 
+    // pages Vec + its FzPageInfo elements live for the lifetime of the
+    // engine, so bump-allocate them out of EngineBase::arena
+    pages.allocator = arena;
+
     for (size_t i = 0; i < dimof(fz_locks); i++) {
         InitializeCriticalSection(&fz_locks[i]);
     }
@@ -1870,6 +1874,10 @@ EngineMupdf::~EngineMupdf() {
         if (pi->page) {
             fz_drop_page(ctx, pi->page);
         }
+        // storage is arena-owned; run the destructor in place so the inner
+        // Vec<>s free their heap-allocated els buffers, then leave the
+        // memory to the arena.
+        pi->~FzPageInfo();
     }
 
     fz_drop_outline(ctx, outline);
@@ -1890,7 +1898,6 @@ EngineMupdf::~EngineMupdf() {
     str::Free(pdfPassword);
     delete pageLabels;
     delete tocTree;
-    DeleteVecMembers(pages);
 
     for (size_t i = 0; i < dimof(fz_locks); i++) {
         DeleteCriticalSection(&fz_locks[i]);
@@ -2487,7 +2494,7 @@ bool EngineMupdf::FinishLoading() {
     allowsCopyingText = fz_has_permission(ctx, _doc, FZ_PERMISSION_COPY);
 
     for (int i = 0; i < pageCount; i++) {
-        auto pi = new FzPageInfo();
+        auto pi = New<FzPageInfo>(arena);
         pages.Append(pi);
     }
     if (!pdfdoc) {
