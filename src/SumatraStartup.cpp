@@ -1059,7 +1059,7 @@ static MutoolFunc toolFuncs[] = {
 #endif
 };
 
-static SeqStrings toolNames =
+static SeqStrings gToolNames =
 #if FZ_ENABLE_JS
     "run\0"
 #endif
@@ -1087,7 +1087,7 @@ static SeqStrings toolNames =
 #endif
     "\0";
 
-static SeqStrings toolDescs =
+static SeqStrings gToolDescs =
 #if FZ_ENABLE_JS
     "run javascript\0"
 #endif
@@ -1145,7 +1145,7 @@ static int MaybeRunMutool() {
     argv = fz_argv_from_wargv(argc, wargv);
     {
         const char* toolName = argv[0];
-        int idx = seqstrings::StrToIdxIS(toolNames, toolName);
+        int idx = seqstrings::StrToIdxIS(gToolNames, toolName);
         if (idx >= 0) {
             fz_redirect_io_to_existing_console();
             res = toolFuncs[idx](argc, argv);
@@ -1223,7 +1223,7 @@ int APIENTRY WinMain(_In_ HINSTANCE /*hInstance*/, _In_opt_ HINSTANCE, _In_ LPST
         return RunInstaller();
     }
 
-    ParseFlags(GetCommandLineW(), flags, toolNames);
+    ParseFlags(GetCommandLineW(), flags, gToolNames);
     gCli = &flags;
     bool isInstaller = flags.install || flags.runInstallNow || flags.fastInstall || IsInstallerAndNamedAsSuch();
     bool isUninstaller = flags.uninstall;
