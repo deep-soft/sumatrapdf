@@ -929,8 +929,9 @@ bool EngineImage::LoadSingleFile(const char* path) {
     // if no extension?
     const char* fileExt = GfxFileExtFromData(data);
     if (fileExt == nullptr) {
-        Kind kind = GuessFileTypeFromName(path);
-        fileExt = GfxFileExtFromKind(kind);
+        // imageFormat already holds the Kind we resolved above; skip the
+        // redundant GuessFileTypeFromName call.
+        fileExt = GfxFileExtFromKind(imageFormat);
     }
     if (fileExt == nullptr) {
         fileExt = path::GetExtTemp(path);
