@@ -22,6 +22,52 @@
 
 // ---- envelope parsing helpers --------------------------------------------
 
+// Return the exact length of the outer ASN.1 SEQUENCE at `data`, so callers
+// can strip trailing zero padding from a PDF /Contents signature placeholder
+// before feeding it to CryptMsg (CryptoAPI rejects the envelope with
+// CRYPT_E_MSG_ERROR if bytes follow the top-level SEQUENCE).
+//
+// Returns 0 if the header is malformed or uses BER indefinite-length
+// encoding (0x80); in that case the caller should feed the full buffer.
+static size_t asn1_outer_seq_len(const unsigned char* data, size_t max_len) {
+    if (max_len < 2 || data[0] != 0x30) {
+        return 0;
+    }
+    unsigned char b = data[1];
+    size_t hdr;
+    size_t content;
+    if (b < 0x80) {
+        hdr = 2;
+        content = b;
+    } else if (b == 0x80) {
+        // indefinite length; don't try to find the 00 00 terminator
+        return 0;
+    } else {
+        size_t n = b & 0x7F;
+        if (n == 0 || n > sizeof(size_t) || max_len < 2 + n) {
+            return 0;
+        }
+        content = 0;
+        for (size_t i = 0; i < n; i++) {
+            content = (content << 8) | data[2 + i];
+        }
+        hdr = 2 + n;
+    }
+    size_t total = hdr + content;
+    if (total > max_len) {
+        return 0;
+    }
+    return total;
+}
+
+// Trim a /Contents-style signature buffer down to its outer ASN.1
+// SEQUENCE length, stripping the trailing zero padding that PDF writers
+// leave when the actual PKCS#7 blob is shorter than the reserved placeholder.
+static size_t trim_sig(unsigned char* sig, size_t sig_len) {
+    size_t trimmed = asn1_outer_seq_len(sig, sig_len);
+    return trimmed ? trimmed : sig_len;
+}
+
 // Parse a PKCS#7 envelope for metadata queries only (signer info + certs).
 // We deliberately don't use CMSG_DETACHED_FLAG here: the envelope itself is
 // self-describing (SignedData with an optional encapsulated content that's
@@ -29,6 +75,7 @@
 // to make CMSG_SIGNER_COUNT_PARAM / CMSG_SIGNER_INFO_PARAM / CertOpenStore
 // work. This path cannot verify the digest; see windows_check_digest.
 static HCRYPTMSG open_msg_for_metadata(unsigned char* sig, size_t sig_len) {
+    sig_len = trim_sig(sig, sig_len);
     HCRYPTMSG hMsg = CryptMsgOpenToDecode(PKCS_7_ASN_ENCODING | X509_ASN_ENCODING, 0, 0, 0, NULL, NULL);
     if (!hMsg) {
         return NULL;
@@ -264,102 +311,51 @@ static pdf_signature_error windows_check_digest(fz_context* ctx, pdf_pkcs7_verif
                                                 unsigned char* sig, size_t sig_len) {
     (void)vf;
     pdf_signature_error rc = PDF_SIGNATURE_ERROR_UNKNOWN;
-    HCRYPTMSG hMsg = NULL;
-    HCERTSTORE hStore = NULL;
-    PCMSG_SIGNER_INFO si = NULL;
-    PCCERT_CONTEXT cert = NULL;
-    BOOL streamFailed = FALSE;
+    fz_buffer* content = NULL;
+    PCCERT_CONTEXT signerCert = NULL;
 
-    hMsg = CryptMsgOpenToDecode(PKCS_7_ASN_ENCODING | X509_ASN_ENCODING, CMSG_DETACHED_FLAG, 0, 0, NULL, NULL);
-    if (!hMsg) {
-        warn_gle(ctx, "check_digest CryptMsgOpenToDecode", GetLastError());
-        goto done;
-    }
-
-    // Feed envelope first; detached content chunks follow.
-    if (!CryptMsgUpdate(hMsg, sig, (DWORD)sig_len, FALSE)) {
-        warn_gle(ctx, "check_digest CryptMsgUpdate(envelope)", GetLastError());
-        goto done;
-    }
-
-    // Stream the detached content (the signed byte range of the PDF;
-    // callers hand us pdf_signature_hash_bytes).
+    fz_var(content);
     fz_try(ctx) {
-        unsigned char buf[4096];
-        for (;;) {
-            size_t n = fz_read(ctx, stm, buf, sizeof(buf));
-            if (n == 0) {
-                break;
-            }
-            if (!CryptMsgUpdate(hMsg, buf, (DWORD)n, FALSE)) {
-                warn_gle(ctx, "check_digest CryptMsgUpdate(content)", GetLastError());
-                streamFailed = TRUE;
-                break;
-            }
-        }
+        content = fz_read_all(ctx, stm, 4096);
     }
     fz_catch(ctx) {
         fz_warn(ctx, "pkcs7-windows check_digest: fz_read failed: %s", fz_caught_message(ctx));
-        streamFailed = TRUE;
-    }
-    if (streamFailed) {
-        goto done;
+        return PDF_SIGNATURE_ERROR_UNKNOWN;
     }
 
-    // Finalize with an empty chunk.
-    if (!CryptMsgUpdate(hMsg, NULL, 0, TRUE)) {
-        warn_gle(ctx, "check_digest CryptMsgUpdate(final)", GetLastError());
-        goto done;
-    }
+    sig_len = trim_sig(sig, sig_len);
 
-    if (get_signer_count(hMsg) == 0) {
-        rc = PDF_SIGNATURE_ERROR_NO_SIGNATURES;
-        goto done;
-    }
-    hStore = CertOpenStore(CERT_STORE_PROV_MSG, 0, 0, 0, hMsg);
-    if (!hStore) {
-        warn_gle(ctx, "check_digest CertOpenStore", GetLastError());
-        goto done;
-    }
-    si = get_signer_info(hMsg, 0);
-    if (!si) {
-        warn_gle(ctx, "check_digest get_signer_info", GetLastError());
-        goto done;
-    }
-    cert = find_signer_cert(hStore, si);
-    if (!cert) {
-        rc = PDF_SIGNATURE_ERROR_NO_CERTIFICATE;
-        goto done;
-    }
+    CRYPT_VERIFY_MESSAGE_PARA para;
+    ZeroMemory(&para, sizeof(para));
+    para.cbSize = sizeof(para);
+    para.dwMsgAndCertEncodingType = PKCS_7_ASN_ENCODING | X509_ASN_ENCODING;
 
-    if (CryptMsgControl(hMsg, 0, CMSG_CTRL_VERIFY_SIGNATURE, cert->pCertInfo)) {
+    const BYTE* pbToBeSigned[1];
+    pbToBeSigned[0] = content->data;
+    DWORD cbToBeSigned[1];
+    cbToBeSigned[0] = (DWORD)content->len;
+
+    // CryptVerifyDetachedMessageSignature wraps up CryptMsgOpenToDecode +
+    // CryptMsgUpdate + CMSG_CTRL_VERIFY_SIGNATURE into one call and tends
+    // to be more tolerant of non-strict-DER envelopes that PDF writers
+    // occasionally produce (indefinite-length BER, extra-padded placeholders).
+    if (CryptVerifyDetachedMessageSignature(&para, 0, sig, (DWORD)sig_len, 1, pbToBeSigned, cbToBeSigned,
+                                            &signerCert)) {
         rc = PDF_SIGNATURE_ERROR_OKAY;
     } else {
         DWORD err = GetLastError();
-        // NTE_BAD_SIGNATURE / CRYPT_E_HASH_VALUE — integrity failure (content
-        // doesn't match the signed digest)
         if (err == (DWORD)NTE_BAD_SIGNATURE || err == (DWORD)CRYPT_E_HASH_VALUE) {
             rc = PDF_SIGNATURE_ERROR_DIGEST_FAILURE;
         } else if (err == (DWORD)CRYPT_E_NO_SIGNER) {
             rc = PDF_SIGNATURE_ERROR_NO_SIGNATURES;
         }
-        // Always log so callers can see why we returned DIGEST_FAILURE / UNKNOWN.
-        warn_gle(ctx, "check_digest CryptMsgControl(VERIFY_SIGNATURE)", err);
+        warn_gle(ctx, "check_digest CryptVerifyDetachedMessageSignature", err);
     }
 
-done:
-    if (cert) {
-        CertFreeCertificateContext(cert);
+    if (signerCert) {
+        CertFreeCertificateContext(signerCert);
     }
-    if (hStore) {
-        CertCloseStore(hStore, 0);
-    }
-    if (si) {
-        LocalFree(si);
-    }
-    if (hMsg) {
-        CryptMsgClose(hMsg);
-    }
+    fz_drop_buffer(ctx, content);
     return rc;
 }
 
