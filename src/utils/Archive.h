@@ -66,7 +66,6 @@ class MultiFormatArchive {
     const char* rarFilePath_ = nullptr;
 
     bool OpenArchive(const char* path);
-    bool OpenArchive(IStream* stream);
     bool ParseEntries(struct archive* a);
 
     bool OpenUnrarFallback(const char* rarPathUtf);
