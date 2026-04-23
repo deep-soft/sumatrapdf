@@ -903,3 +903,27 @@ EXPORTS
 	gumbo_destroy_output
 	gumbo_normalized_tagname
 	gumbo_get_attribute
+
+; pdf signature + form widgets (needed by EngineMupdf::GetProperties
+; signature reporting)
+
+	pdf_count_signatures
+	pdf_first_widget
+	pdf_next_widget
+	pdf_widget_type
+	pdf_check_widget_certificate
+	pdf_check_widget_digest
+	pdf_signature_get_widget_signatory
+	pdf_signature_drop_distinguished_name
+	pdf_signature_format_distinguished_name
+	pdf_signature_is_signed
+	pdf_signature_error_description
+	pdf_signature_incremental_change_since_signing
+	pdf_drop_verifier
+
+; pkcs7-windows (Windows CryptoAPI verifier backend)
+
+	pkcs7_windows_new_verifier
+	pkcs7_windows_check_certificate
+	pkcs7_windows_check_digest
+	pkcs7_windows_distinguished_name

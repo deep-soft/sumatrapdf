@@ -4,6 +4,7 @@
 extern "C" {
 #include <mupdf/fitz.h>
 #include <mupdf/pdf.h>
+#include <mupdf/helpers/pkcs7-windows.h>
 #include "../mupdf/source/fitz/color-imp.h"
 }
 
@@ -3837,6 +3838,62 @@ static TempStr LookupMetadataTemp(fz_context* ctx, fz_document* doc, const char*
     return str::DupTemp(buf, (size_t)n - 1);
 }
 
+static void AppendSignatureInfo(fz_context* ctx, StrBuilder& s, pdf_pkcs7_verifier* verifier, pdf_document* pdfdoc,
+                                pdf_annot* widget, int sigNo, int pageNo) {
+    if (!s.IsEmpty()) {
+        s.AppendChar('\n');
+    }
+    s.AppendFmt("Signature %d (page %d):\n", sigNo, pageNo);
+    pdf_obj* sigObj = pdf_annot_obj(ctx, widget);
+    if (!pdf_signature_is_signed(ctx, pdfdoc, sigObj)) {
+        s.Append("  not signed\n");
+        return;
+    }
+
+    pdf_pkcs7_distinguished_name* dn = nullptr;
+    char* name = nullptr;
+    fz_var(dn);
+    fz_var(name);
+    fz_try(ctx) {
+        dn = pdf_signature_get_widget_signatory(ctx, verifier, widget);
+        if (dn) {
+            name = pdf_signature_format_distinguished_name(ctx, dn);
+        }
+    }
+    fz_catch(ctx) {
+        fz_report_error(ctx);
+    }
+    s.AppendFmt("  signer: %s\n", name ? name : "(unknown)");
+    fz_free(ctx, name);
+    pdf_signature_drop_distinguished_name(ctx, dn);
+
+    pdf_signature_error certErr = PDF_SIGNATURE_ERROR_UNKNOWN;
+    fz_try(ctx) {
+        certErr = pdf_check_widget_certificate(ctx, verifier, widget);
+    }
+    fz_catch(ctx) {
+        fz_report_error(ctx);
+    }
+    s.AppendFmt("  certificate: %s\n", pdf_signature_error_description(certErr));
+
+    pdf_signature_error digErr = PDF_SIGNATURE_ERROR_UNKNOWN;
+    int edits = 0;
+    fz_try(ctx) {
+        digErr = pdf_check_widget_digest(ctx, verifier, widget);
+        edits = pdf_signature_incremental_change_since_signing(ctx, pdfdoc, sigObj);
+    }
+    fz_catch(ctx) {
+        fz_report_error(ctx);
+    }
+    if (digErr) {
+        s.AppendFmt("  digest: %s\n", pdf_signature_error_description(digErr));
+    } else if (edits) {
+        s.Append("  document edited after signing\n");
+    } else {
+        s.Append("  document unchanged since signing\n");
+    }
+}
+
 void EngineMupdf::GetProperties(StrVec& keyValOut) {
     EngineBase::GetProperties(keyValOut);
 
@@ -3851,6 +3908,44 @@ void EngineMupdf::GetProperties(StrVec& keyValOut) {
     val = LookupMetadataTemp(ctx, _doc, "encryption");
     if (val) {
         AddProp(keyValOut, kPropEncryption, val);
+    }
+
+    // pdf signatures (signed form widgets). Walks each page's widget set;
+    // for each signature widget, pulls signer DN + cert/digest verdict via
+    // the Windows CryptoAPI pdf_pkcs7_verifier.
+    if (pdfdoc && pdf_count_signatures(ctx, pdfdoc) > 0) {
+        StrBuilder sigs;
+        pdf_pkcs7_verifier* verifier = nullptr;
+        pdf_page* page = nullptr;
+        fz_var(verifier);
+        fz_var(page);
+        fz_try(ctx) {
+            verifier = pkcs7_windows_new_verifier(ctx);
+            int totalPages = pdf_count_pages(ctx, pdfdoc);
+            int sigNo = 0;
+            for (int pageNo = 0; pageNo < totalPages; pageNo++) {
+                page = pdf_load_page(ctx, pdfdoc, pageNo);
+                for (pdf_annot* w = pdf_first_widget(ctx, page); w; w = pdf_next_widget(ctx, w)) {
+                    if (pdf_widget_type(ctx, w) != PDF_WIDGET_TYPE_SIGNATURE) {
+                        continue;
+                    }
+                    ++sigNo;
+                    AppendSignatureInfo(ctx, sigs, verifier, pdfdoc, w, sigNo, pageNo + 1);
+                }
+                fz_drop_page(ctx, (fz_page*)page);
+                page = nullptr;
+            }
+        }
+        fz_always(ctx) {
+            fz_drop_page(ctx, (fz_page*)page);
+            pdf_drop_verifier(ctx, verifier);
+        }
+        fz_catch(ctx) {
+            fz_report_error(ctx);
+        }
+        if (!sigs.IsEmpty()) {
+            AddProp(keyValOut, kPropSignatures, sigs.CStr());
+        }
     }
 
     // for epub files, list all files in the archive
