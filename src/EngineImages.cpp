@@ -173,13 +173,13 @@ class EngineImages : public EngineBase {
     // Optional: load the page as an fz_image (encoded form, lazy decode).
     // RenderPage then asks mupdf to decode the JPEG at near-target scale on
     // each render -- much cheaper than decoding at full resolution and
-    // scaling down. Default impl uses GetRawImageData + fz_new_image_from_buffer,
+    // scaling down. Default impl uses GetImageData + fz_new_image_from_buffer,
     // which works for any single-frame format mupdf understands (JPEG, PNG,
     // BMP, etc.). Subclasses can override to return nullptr (forcing the
     // GDI+ path) for cases mupdf can't handle -- e.g. multi-frame TIFFs.
     virtual fz_image* LoadFzImageForPage(fz_context* ctx, int pageNo);
     virtual RectF LoadMediabox(int pageNo) = 0;
-    virtual ByteSlice GetRawImageData(int pageNo) = 0;
+    virtual ByteSlice GetImageData(int pageNo) = 0;
     virtual TempStr GetImagePathTemp(int pageNo) { return nullptr; }
 
     ImagePage* GetPage(int pageNo, bool tryOnly = false);
@@ -253,7 +253,7 @@ EngineImages::~EngineImages() {
 // The actual JPEG/PNG decode happens later in RenderPage at near-target
 // scale, much cheaper than decoding at full resolution up front.
 fz_image* EngineImages::LoadFzImageForPage(fz_context* ctx, int pageNo) {
-    ByteSlice data = GetRawImageData(pageNo);
+    ByteSlice data = GetImageData(pageNo);
     if (data.empty()) {
         data.Free();
         return nullptr;
@@ -877,7 +877,7 @@ class EngineImage : public EngineImages {
     Bitmap* LoadBitmapForPage(int pageNo, bool& deleteAfterUse) override;
     fz_image* LoadFzImageForPage(fz_context* ctx, int pageNo) override;
     RectF LoadMediabox(int pageNo) override;
-    ByteSlice GetRawImageData(int pageNo) override;
+    ByteSlice GetImageData(int pageNo) override;
 };
 
 EngineImage::EngineImage() {
@@ -1539,7 +1539,7 @@ void EngineImages::GetImageProperties(int pageNo, StrVec& keyValOut) {
     if (imgPath) {
         AddProp(keyValOut, kPropImagePath, imgPath);
     }
-    ByteSlice data = GetRawImageData(pageNo);
+    ByteSlice data = GetImageData(pageNo);
     GetExifPropertiesFromData(data, keyValOut);
     data.Free();
 }
@@ -1577,7 +1577,7 @@ Bitmap* EngineImage::LoadBitmapForPage(int pageNo, bool& deleteAfterUse) {
     return frame;
 }
 
-ByteSlice EngineImage::GetRawImageData(int) {
+ByteSlice EngineImage::GetImageData(int) {
     return file::ReadFile(FilePath());
 }
 
@@ -1705,7 +1705,7 @@ class EngineImageDir : public EngineImages {
 
     Bitmap* LoadBitmapForPage(int pageNo, bool& deleteAfterUse) override;
     RectF LoadMediabox(int pageNo) override;
-    ByteSlice GetRawImageData(int pageNo) override;
+    ByteSlice GetImageData(int pageNo) override;
     TempStr GetImagePathTemp(int pageNo) override { return str::DupTemp(pageFileNames.At(pageNo - 1)); }
 
     StrVec pageFileNames;
@@ -1832,7 +1832,7 @@ Bitmap* EngineImageDir::LoadBitmapForPage(int pageNo, bool& deleteAfterUse) {
     return res;
 }
 
-ByteSlice EngineImageDir::GetRawImageData(int pageNo) {
+ByteSlice EngineImageDir::GetImageData(int pageNo) {
     char* path = pageFileNames.At(pageNo - 1);
     return file::ReadFile(path);
 }
@@ -2013,14 +2013,12 @@ class EngineCbx : public EngineImages {
   protected:
     Bitmap* LoadBitmapForPage(int pageNo, bool& deleteAfterUse) override;
     RectF LoadMediabox(int pageNo) override;
-    ByteSlice GetRawImageData(int pageNo) override;
+    ByteSlice GetImageData(int pageNo) override;
     TempStr GetImagePathTemp(int pageNo) override { return str::DupTemp(files[pageNo - 1]->name); }
 
     bool LoadFromFile(const char* fileName);
     bool LoadFromStream(IStream* stream);
     bool FinishLoading();
-
-    ByteSlice GetImageData(int pageNo);
 
     // access to cbxFile must be protected after initialization (with cacheLock)
     MultiFormatArchive* cbxArchive = nullptr;
@@ -2227,10 +2225,6 @@ bool EngineCbx::FinishLoading() {
 
 TocTree* EngineCbx::GetToc() {
     return tocTree;
-}
-
-ByteSlice EngineCbx::GetRawImageData(int pageNo) {
-    return GetImageData(pageNo);
 }
 
 ByteSlice EngineCbx::GetImageData(int pageNo) {
