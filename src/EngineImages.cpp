@@ -2151,10 +2151,10 @@ bool EngineCbx::FinishLoading() {
         }
     }
 
-    ByteSlice metadata = cbxArchive->GetFileDataByName("ComicInfo.xml");
-    if (metadata) {
+    auto* metadataFi = cbxArchive->GetFileDataByName("ComicInfo.xml");
+    if (metadataFi && metadataFi->data) {
+        ByteSlice metadata{(u8*)metadataFi->data, metadataFi->fileSizeUncompressed};
         cip.Parse(metadata);
-        metadata.Free();
     }
     const char* comment = cbxArchive->GetComment();
     if (comment) {
@@ -2183,14 +2183,13 @@ bool EngineCbx::FinishLoading() {
                 smallest = pageFiles[i];
             }
         }
-        ByteSlice d = cbxArchive->GetFileDataById(smallest->fileId);
-        if (!d) {
+        auto* fi = cbxArchive->GetFileDataById(smallest->fileId);
+        if (!fi || !fi->data) {
             logf("EngineCbx::FinishLoading(): wrong password, failed to extract file\n");
             delete cbxArchive;
             cbxArchive = nullptr;
             return false;
         }
-        d.Free();
     }
 
     std::sort(pageFiles.begin(), pageFiles.end(), cmpArchFileInfoByName);
@@ -2237,8 +2236,13 @@ ByteSlice EngineCbx::GetRawImageData(int pageNo) {
 ByteSlice EngineCbx::GetImageData(int pageNo) {
     ReportIf((pageNo < 1) || (pageNo > PageCount()));
     size_t fileId = files[pageNo - 1]->fileId;
-    ByteSlice d = cbxArchive->GetFileDataById(fileId);
-    return d;
+    auto* fi = cbxArchive->GetFileDataById(fileId);
+    if (!fi || !fi->data) {
+        return {};
+    }
+    ByteSlice res{(u8*)fi->data, fi->fileSizeUncompressed};
+    fi->data = nullptr;
+    return res;
 }
 
 TempStr EngineCbx::GetPropertyTemp(const char* name) {

@@ -265,15 +265,18 @@ size_t MultiFormatArchive::GetFileId(const char* fileName) {
     return getFileIdByName(fileInfos_, fileName);
 }
 
-ByteSlice MultiFormatArchive::GetFileDataByName(const char* fileName) {
+MultiFormatArchive::FileInfo* MultiFormatArchive::GetFileDataByName(const char* fileName) {
     size_t fileId = getFileIdByName(fileInfos_, fileName);
     return GetFileDataById(fileId);
 }
 
-// the caller must free()
-ByteSlice MultiFormatArchive::GetFileDataById(size_t fileId) {
+// Returns the FileInfo whose ->data field holds decompressed bytes (or
+// nullptr / ->failed if extraction failed). The buffer stays owned by
+// this archive; callers that want to keep the data past the archive's
+// lifetime should set ->data = nullptr to transfer ownership.
+MultiFormatArchive::FileInfo* MultiFormatArchive::GetFileDataById(size_t fileId) {
     if (fileId == (size_t)-1) {
-        return {};
+        return nullptr;
     }
     ReportIf(fileId >= fileInfos_.size());
 
@@ -281,24 +284,26 @@ ByteSlice MultiFormatArchive::GetFileDataById(size_t fileId) {
     ReportIf(fileInfo->fileId != fileId);
 
     if (fileInfo->data != nullptr) {
-        // the caller takes ownership
-        ByteSlice res{(u8*)fileInfo->data, fileInfo->fileSizeUncompressed};
-        fileInfo->data = nullptr;
-        return res;
+        return fileInfo; // cached
+    }
+    if (fileInfo->failed) {
+        return fileInfo; // already tried
     }
 
     if (LoadedUsingUnrarDll()) {
-        return GetFileDataByIdUnarrDll(fileId);
+        LoadFileDataByIdUnarrDll(fileId);
+    } else {
+        LoadFileDataByIdLibarchive(fileId);
     }
-
-    return GetFileDataByIdLibarchive(fileId);
+    return fileInfo;
 }
 
-ByteSlice MultiFormatArchive::GetFileDataByIdLibarchive(size_t fileId) {
-    if (!archivePath_) {
-        return {};
-    }
+void MultiFormatArchive::LoadFileDataByIdLibarchive(size_t fileId) {
     auto* fileInfo = fileInfos_[fileId];
+    if (!archivePath_) {
+        fileInfo->failed = true;
+        return;
+    }
 
     // re-open the archive and skip to the right entry
     struct archive* a = archive_read_new();
@@ -309,7 +314,8 @@ ByteSlice MultiFormatArchive::GetFileDataByIdLibarchive(size_t fileId) {
     int r = archive_read_open_filename_w(a, pathW, 10240);
     if (r != ARCHIVE_OK) {
         archive_read_free(a);
-        return {};
+        fileInfo->failed = true;
+        return;
     }
 
     struct archive_entry* entry;
@@ -319,26 +325,30 @@ ByteSlice MultiFormatArchive::GetFileDataByIdLibarchive(size_t fileId) {
             size_t size = fileInfo->fileSizeUncompressed;
             if (addOverflows<size_t>(size, ZERO_PADDING_COUNT)) {
                 archive_read_free(a);
-                return {};
+                fileInfo->failed = true;
+                return;
             }
             u8* data = AllocArray<u8>(size + ZERO_PADDING_COUNT);
             if (!data) {
                 archive_read_free(a);
-                return {};
+                fileInfo->failed = true;
+                return;
             }
             la_ssize_t n = archive_read_data(a, data, size);
             archive_read_free(a);
             if (n < 0 || (size_t)n != size) {
                 free(data);
-                return {};
+                fileInfo->failed = true;
+                return;
             }
-            return {data, size};
+            fileInfo->data = (char*)data;
+            return;
         }
         archive_read_data_skip(a);
         idx++;
     }
     archive_read_free(a);
-    return {};
+    fileInfo->failed = true;
 }
 
 ByteSlice MultiFormatArchive::GetFileDataPartById(size_t fileId, size_t sizeHint) {
@@ -502,13 +512,15 @@ static bool FindFile(HANDLE hArc, RARHeaderDataEx* rarHeader, const WCHAR* fileN
     }
 }
 
-ByteSlice MultiFormatArchive::GetFileDataByIdUnarrDll(size_t fileId) {
-    ReportIf(!rarFilePath_);
-
+void MultiFormatArchive::LoadFileDataByIdUnarrDll(size_t fileId) {
     auto* fileInfo = fileInfos_[fileId];
     ReportIf(fileInfo->fileId != fileId);
     if (fileInfo->data != nullptr) {
-        return {(u8*)fileInfo->data, fileInfo->fileSizeUncompressed};
+        return; // already loaded
+    }
+    if (!rarFilePath_) {
+        fileInfo->failed = true;
+        return;
     }
 
     auto rarPath = ToWStrTemp(rarFilePath_);
@@ -524,7 +536,8 @@ ByteSlice MultiFormatArchive::GetFileDataByIdUnarrDll(size_t fileId) {
 
     HANDLE hArc = RAROpenArchiveEx(&arcData);
     if (!hArc || arcData.OpenResult != 0) {
-        return {};
+        fileInfo->failed = true;
+        return;
     }
 
     char* data = nullptr;
@@ -559,9 +572,10 @@ Exit:
     RARCloseArchive(hArc);
     if (!ok) {
         free(data);
-        return {};
+        fileInfo->failed = true;
+        return;
     }
-    return {(u8*)data, size};
+    fileInfo->data = data;
 }
 
 ByteSlice MultiFormatArchive::GetFileDataPartByIdUnarrDll(size_t fileId, size_t sizeHint) {

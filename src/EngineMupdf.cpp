@@ -4205,12 +4205,12 @@ EngineBase* CreateEngineMupdfFromFile(const char* path, Kind kind, int displayDP
         if (files.size() != 1) {
             return nullptr;
         }
-        ByteSlice d = archive->GetFileDataById(0);
-        if (d.empty()) {
+        auto* fi = archive->GetFileDataById(0);
+        if (!fi || !fi->data) {
             return nullptr;
         }
+        ByteSlice d{(u8*)fi->data, fi->fileSizeUncompressed};
         IStream* strm = CreateStreamFromData(d);
-        d.Free();
         ScopedComPtr<IStream> stream(strm);
         if (!stream) {
             return nullptr;

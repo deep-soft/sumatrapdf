@@ -65,8 +65,22 @@ class MultiFormatArchive {
 
     size_t GetFileId(const char* fileName);
 
-    ByteSlice GetFileDataByName(const char* filename);
-    ByteSlice GetFileDataById(size_t fileId);
+    // Return the FileInfo record for a given entry, loading its data into
+    // fileInfo->data on demand (on a miss, re-opens the archive unless
+    // that was disabled by eager-load mode).
+    //
+    // Ownership: the returned FileInfo* is owned by this archive. By
+    // default fileInfo->data is *not* transferred to the caller — a later
+    // call for the same entry returns the same cached buffer, and the
+    // archive destructor frees it. If the caller wants the buffer to
+    // outlive the archive, they should set fileInfo->data = nullptr after
+    // saving the pointer; they then become responsible for free()ing it.
+    //
+    // Returns nullptr for an unknown name / out-of-range fileId. For an
+    // entry whose decompression failed check fileInfo->failed — data will
+    // be nullptr in that case.
+    FileInfo* GetFileDataByName(const char* filename);
+    FileInfo* GetFileDataById(size_t fileId);
     ByteSlice GetFileDataPartById(size_t fileId, size_t sizeHint);
 
     const char* GetComment();
@@ -91,9 +105,11 @@ class MultiFormatArchive {
     bool ParseEntries(struct archive* a, const ArchiveExtractProgressCb* cbProgress);
 
     bool OpenUnrarFallback(const char* rarPathUtf, const ArchiveExtractProgressCb* cbProgress);
-    ByteSlice GetFileDataByIdUnarrDll(size_t fileId);
+    // Populate fileInfos_[fileId]->data via the respective backend; set
+    // ->failed when extraction didn't produce the expected bytes.
+    void LoadFileDataByIdUnarrDll(size_t fileId);
+    void LoadFileDataByIdLibarchive(size_t fileId);
     ByteSlice GetFileDataPartByIdUnarrDll(size_t fileId, size_t sizeHint);
-    ByteSlice GetFileDataByIdLibarchive(size_t fileId);
     bool LoadedUsingUnrarDll() const { return rarFilePath_ != nullptr; }
 };
 
