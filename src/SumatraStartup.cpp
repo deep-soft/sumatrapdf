@@ -1162,6 +1162,7 @@ int APIENTRY WinMain(_In_ HINSTANCE /*hInstance*/, _In_opt_ HINSTANCE, _In_ LPST
     HWND existingHwnd = nullptr;
     WindowTab* tabToSelect = nullptr;
     const char* logFilePath = nullptr;
+    bool logFileBecauseDebug = false;
 
     supressThrowFromNew();
 
@@ -1245,6 +1246,7 @@ int APIENTRY WinMain(_In_ HINSTANCE /*hInstance*/, _In_opt_ HINSTANCE, _In_ LPST
         if (!flags.logFile) {
             flags.logFile = str::Dup("sumlog.txt");
             flags.log = true;
+            logFileBecauseDebug = true;
         }
     }
     if (flags.log && !noLogHere) {
@@ -1703,7 +1705,9 @@ Exit:
     HandleRedirectedConsoleOnShutdown();
     DeleteManualBrowserWindow();
 
-    LaunchFileIfExists(logFilePath);
+    if (!logFileBecauseDebug) {
+        LaunchFileIfExists(logFilePath);
+    }
     if (AreDangerousThreadsPending()) {
         fastExit = true;
     }
