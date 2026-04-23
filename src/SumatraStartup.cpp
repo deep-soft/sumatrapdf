@@ -1049,7 +1049,7 @@ static MutoolFunc toolFuncs[] = {
     pdfposter_main,
     pdfrecolor_main,
     pdfshow_main,
-    // pdfsign_main,
+    pdfsign_main,
     pdftrim_main,
 #endif
     mugrep_main,
@@ -1077,7 +1077,7 @@ static SeqStrings toolNames =
     "poster\0"
     "recolor\0"
     "show\0"
-    // "sign\0"
+    "sign\0"
     "trim\0"
 #endif
     "grep\0"
@@ -1105,7 +1105,7 @@ static SeqStrings toolDescs =
     "split large PDF page into many tiles\0"
     "change colorspace of PDF document\0"
     "show internal PDF objects\0"
-    // "manipulate PDF digital signatures\0"
+    "manipulate PDF digital signatures\0"
     "trim PDF page contents\0"
 #endif
     "search for text\0"
