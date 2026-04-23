@@ -1247,25 +1247,23 @@ static void BuildElementsInfo(FzPageInfo* pageInfo) {
     }
     pageInfo->elementsNeedRebuilding = false;
     auto& els = pageInfo->allElements;
-    els.Reset();
+
+    size_t total =
+        pageInfo->images.size() + pageInfo->links.size() + pageInfo->autoLinks.size() + pageInfo->comments.size();
+    els.Clear();
+    els.EnsureCap(total);
 
     // since all elements lists are in last-to-first order, append
     // item types in inverse order and reverse the whole list at the end
-    size_t imageIdx = 0;
     for (auto& img : pageInfo->images) {
-        auto image = img->imageElement;
-        els.Append(image);
-        imageIdx++;
+        els.Append(img->imageElement);
     }
-
     for (auto& pel : pageInfo->links) {
         els.Append(pel);
     }
-
     for (auto& pel : pageInfo->autoLinks) {
         els.Append(pel);
     }
-
     for (auto& comment : pageInfo->comments) {
         els.Append(comment);
     }
