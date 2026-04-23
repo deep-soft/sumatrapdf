@@ -252,12 +252,12 @@ const char* EPUB_ENC_NS = "http://www.w3.org/2001/04/xmlenc#";
 EpubDoc::EpubDoc(const char* fileName) {
     this->fileName.SetCopy(fileName);
     InitializeCriticalSection(&zipAccess);
-    zip = OpenArchiveFromFile(fileName);
+    archive = OpenArchiveFromFile(fileName);
 }
 
 EpubDoc::EpubDoc(IStream* stream) {
     InitializeCriticalSection(&zipAccess);
-    zip = OpenArchiveFromStream(stream);
+    archive = OpenArchiveFromStream(stream);
 }
 
 EpubDoc::~EpubDoc() {
@@ -270,7 +270,7 @@ EpubDoc::~EpubDoc() {
 
     LeaveCriticalSection(&zipAccess);
     DeleteCriticalSection(&zipAccess);
-    delete zip;
+    delete archive;
 }
 
 // TODO: switch to seqstring
@@ -299,10 +299,10 @@ static bool isImageMediaType(const char* mediatype) {
 }
 
 bool EpubDoc::Load() {
-    if (!zip) {
+    if (!archive) {
         return false;
     }
-    ByteSlice container = zip->GetFileDataByName("META-INF/container.xml");
+    ByteSlice container = archive->GetFileDataByName("META-INF/container.xml");
     if (!container) {
         return false;
     }
@@ -326,7 +326,7 @@ bool EpubDoc::Load() {
 
     // encrypted files will be ignored (TODO: support decryption)
     StrVec encList;
-    ByteSlice encryption = zip->GetFileDataByName("META-INF/encryption.xml");
+    ByteSlice encryption = archive->GetFileDataByName("META-INF/encryption.xml");
     if (encryption) {
         (void)parser.ParseInPlace(encryption);
         HtmlElement* cr = parser.FindElementByNameNS("CipherReference", EPUB_ENC_NS);
@@ -343,7 +343,7 @@ bool EpubDoc::Load() {
         encryption.Free();
     }
 
-    ByteSlice content = zip->GetFileDataByName(contentPath);
+    ByteSlice content = archive->GetFileDataByName(contentPath);
     AutoFree contentFree = content.Get();
     if (!content) {
         return false;
@@ -382,7 +382,7 @@ bool EpubDoc::Load() {
             // load the image lazily
             ImageData data;
             data.fileName = str::Dup(imgPath);
-            data.fileId = zip->GetFileId(data.fileName);
+            data.fileId = archive->GetFileId(data.fileName);
             images.Append(data);
         } else if (isHtmlMediaType(mediaType)) {
             char* htmlPath = node->GetAttributeTemp("href");
@@ -438,7 +438,7 @@ bool EpubDoc::Load() {
         auto idx = idList.Find(idref);
         const char* fname = pathList.At(idx);
         char* fullPath = str::JoinTemp(contentPath, fname);
-        ByteSlice html = zip->GetFileDataByName(fullPath);
+        ByteSlice html = archive->GetFileDataByName(fullPath);
         if (!html) {
             continue;
         }
@@ -536,7 +536,7 @@ ByteSlice* EpubDoc::GetImageData(const char* fileName, const char* pagePath) {
         for (ImageData& img : images) {
             if (str::EndsWithI(img.fileName, fileName)) {
                 if (img.base.empty()) {
-                    img.base = zip->GetFileDataById(img.fileId);
+                    img.base = archive->GetFileDataById(img.fileId);
                 }
                 if (!img.base.empty()) {
                     return &img.base;
@@ -554,7 +554,7 @@ ByteSlice* EpubDoc::GetImageData(const char* fileName, const char* pagePath) {
     for (ImageData& img : images) {
         if (str::Eq(img.fileName, url)) {
             if (img.base.empty()) {
-                img.base = zip->GetFileDataById(img.fileId);
+                img.base = archive->GetFileDataById(img.fileId);
             }
             if (!img.base.empty()) {
                 return &img.base;
@@ -564,9 +564,9 @@ ByteSlice* EpubDoc::GetImageData(const char* fileName, const char* pagePath) {
 
     // try to also load images which aren't registered in the manifest
     ImageData data;
-    data.fileId = zip->GetFileId(url);
+    data.fileId = archive->GetFileId(url);
     if (data.fileId != (size_t)-1) {
-        data.base = zip->GetFileDataById(data.fileId);
+        data.base = archive->GetFileDataById(data.fileId);
         if (!data.base.empty()) {
             data.fileName = str::Dup(url);
             images.Append(data);
@@ -586,7 +586,7 @@ ByteSlice EpubDoc::GetFileData(const char* relPath, const char* pagePath) {
     ScopedCritSec scope(&zipAccess);
 
     AutoFreeStr url = NormalizeURL(relPath, pagePath);
-    return zip->GetFileDataByName(url);
+    return archive->GetFileDataByName(url);
 }
 
 TempStr EpubDoc::GetPropertyTemp(const char* name) const {
@@ -724,7 +724,7 @@ bool EpubDoc::ParseToc(EbookTocVisitor* visitor) {
     AutoFree tocData;
     {
         ScopedCritSec scope(&zipAccess);
-        ByteSlice res = zip->GetFileDataByName(tocPath);
+        ByteSlice res = archive->GetFileDataByName(tocPath);
         tocDataLen = res.size();
         tocData.Set(res);
     }
