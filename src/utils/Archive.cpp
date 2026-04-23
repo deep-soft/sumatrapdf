@@ -21,6 +21,8 @@
 // 3 is for absolute worst case of WCHAR* where last char was partially written
 #define ZERO_PADDING_COUNT 3
 
+thread_local const ArchiveExtractProgressCb* gArchiveProgressCb = nullptr;
+
 FILETIME MultiFormatArchive::FileInfo::GetWinFileTime() const {
     FILETIME ft = {(DWORD)-1, (DWORD)-1};
     LocalFileTimeToFileTime((FILETIME*)&fileTime, &ft);

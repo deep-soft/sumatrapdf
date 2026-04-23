@@ -18,6 +18,12 @@ struct ArchiveExtractProgress {
 
 using ArchiveExtractProgressCb = Func1<ArchiveExtractProgress*>;
 
+// Thread-local progress callback honored by archive opens. When set
+// (non-null), the open enables eager-load and routes per-entry
+// callbacks through it. Set by callers that want progress
+// notifications; clear afterwards.
+extern thread_local const ArchiveExtractProgressCb* gArchiveProgressCb;
+
 class MultiFormatArchive {
   public:
     enum class Format {

@@ -2355,6 +2355,60 @@ static void LoadDocumentAsyncFinish(LoadDocumentAsyncData* d) {
     LoadDocumentFinish(args);
 }
 
+// Progress notification payload posted from archive extraction (worker
+// thread) to the UI thread. The NotificationWnd* is safe to use without
+// a separate validity check because every progress task is enqueued
+// before LoadDocumentAsyncFinish (which calls RemoveNotification), and
+// uitask runs posted tasks in FIFO order on the UI thread.
+struct ExtractProgressUITask {
+    NotificationWnd* wnd;
+    char* path; // owned by the task; duped on the worker thread
+    int nDecoded;
+    int nTotal;
+};
+
+static void UpdateLoadingNotifUI(ExtractProgressUITask* task) {
+    AutoDelete delTask(task);
+    AutoFreeStr delPath(task->path);
+    if (!task->wnd) {
+        return;
+    }
+    const char* basename = path::GetBaseNameTemp(task->path);
+    TempStr msg;
+    if (task->nTotal > 0) {
+        msg = str::FormatTemp(_TRA("Loading %s %d of %d"), basename, task->nDecoded, task->nTotal);
+    } else {
+        msg = str::FormatTemp(_TRA("Loading %s %d"), basename, task->nDecoded);
+    }
+    NotificationUpdateMessage(task->wnd, msg);
+}
+
+struct ExtractProgressState {
+    NotificationWnd* wnd;
+    const char* path;
+    DWORD lastUpdate;
+};
+
+static void OnExtractProgress(ExtractProgressState* s, ArchiveExtractProgress* p) {
+    // throttle: the last callback (with nDecoded == nTotal) always posts
+    // so the final count is displayed; intermediate callbacks post at
+    // most once every 100 ms.
+    bool isFinal = (p->nTotal > 0 && p->nDecoded == p->nTotal);
+    DWORD now = GetTickCount();
+    if (!isFinal && (now - s->lastUpdate) < 100) {
+        return;
+    }
+    s->lastUpdate = now;
+
+    auto* task = new ExtractProgressUITask;
+    task->wnd = s->wnd;
+    task->path = str::Dup(s->path);
+    task->nDecoded = p->nDecoded;
+    task->nTotal = p->nTotal;
+    auto fn = MkFunc0<ExtractProgressUITask>(UpdateLoadingNotifUI, task);
+    uitask::Post(fn, "ExtractProgress");
+}
+
 static void LoadDocumentAsync(LoadDocumentAsyncData* d) {
     auto args = d->args;
     AtomicIntInc(&gDangerousThreadCount);
@@ -2363,7 +2417,20 @@ static void LoadDocumentAsync(LoadDocumentAsyncData* d) {
     HwndPasswordUI pwdUI(win->hwndFrame ? win->hwndFrame : nullptr);
     const char* path = args->FilePath();
     EngineBase* engine = args->engine;
+
+    // wire up the archive extraction progress callback so eager-load
+    // archives (small cbx) can update the "Loading ..." notification.
+    ExtractProgressState progState;
+    progState.wnd = d->wndNotif;
+    progState.path = path;
+    progState.lastUpdate = 0;
+    auto progCb = MkFunc1<ExtractProgressState, ArchiveExtractProgress*>(OnExtractProgress, &progState);
+    gArchiveProgressCb = &progCb;
+
     args->ctrl = CreateControllerForEngineOrFile(engine, path, &pwdUI, win);
+
+    gArchiveProgressCb = nullptr;
+
     if (args->ctrl && gIsDebugBuild) {
         //::Sleep(5000);
     }
