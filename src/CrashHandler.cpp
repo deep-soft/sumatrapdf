@@ -878,7 +878,7 @@ void UninstallCrashHandler() {
     str::FreePtr(&gSettingsFile);
     str::FreePtr(&gModulesInfo);
     str::FreePtr(&gCrashFilePath);
-    delete gCrashHandlerAllocator;
+    ArenaDelete(gCrashHandlerAllocator);
 }
 
 // Tests that various ways to crash will generate crash report.

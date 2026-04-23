@@ -139,7 +139,7 @@ u32 MurmurHash2(const void* key, size_t len) {
 u32 MurmurHashWStrI(const WCHAR* str) {
     size_t len = str::Len(str);
     auto a = GetTempAllocator();
-    u8* data = (u8*)a->Alloc(len);
+    u8* data = (u8*)a->Alloc((int)len);
     WCHAR c;
     u8* dst = data;
     while (true) {

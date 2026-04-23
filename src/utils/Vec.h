@@ -116,8 +116,13 @@ class Vec {
     }
 
     bool SetSize(size_t newSize) {
-        Reset();
-        return MakeSpaceAt(0, newSize);
+        if (newSize <= cap) {
+            len = newSize;
+            memset(els + len, 0, (cap - len) * kElSize);
+            return true;
+        }
+        auto res = MakeSpaceAt(0, newSize);
+        return res != nullptr;
     }
 
     // allocator is not owned by Vec and must outlive it

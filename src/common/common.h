@@ -91,6 +91,9 @@ struct Arena {
     void Pop(u64 amt);
     void* GetAvailableSpace(int* bufSizeOut);
     void* CommitReserved(void* mem, int size);
+
+    Arena() = delete;  // use ArenaNew()
+    ~Arena() = delete; // use ArenaDelete()
 };
 
 static_assert(sizeof(Arena) <= ARENA_HEADER_SIZE, "Arena header must fit in reserved header bytes");
