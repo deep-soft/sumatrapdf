@@ -1035,25 +1035,12 @@ static MutoolFunc toolFuncs[] = {
 #if FZ_ENABLE_JS
     murun_main,
 #endif
-    mudraw_main,
-    muconvert_main,
+    mudraw_main,   muconvert_main,
 #if FZ_ENABLE_PDF
-    pdfaudit_main,
-    pdfbake_main,
-    pdfclean_main,
-    pdfcreate_main,
-    pdfextract_main,
-    pdfinfo_main,
-    pdfmerge_main,
-    pdfpages_main,
-    pdfposter_main,
-    pdfrecolor_main,
-    pdfshow_main,
-    pdfsign_main,
-    pdftrim_main,
+    pdfaudit_main, pdfbake_main,   pdfclean_main,   pdfcreate_main, pdfextract_main, pdfinfo_main, pdfmerge_main,
+    pdfpages_main, pdfposter_main, pdfrecolor_main, pdfshow_main,   pdfsign_main,    pdftrim_main,
 #endif
-    mugrep_main,
-    mutrace_main,
+    mugrep_main,   mutrace_main,
 #if FZ_ENABLE_BARCODE
     mubar_main,
 #endif
