@@ -179,6 +179,8 @@ class EngineImages : public EngineBase {
     // GDI+ path) for cases mupdf can't handle -- e.g. multi-frame TIFFs.
     virtual fz_image* LoadFzImageForPage(fz_context* ctx, int pageNo);
     virtual RectF LoadMediabox(int pageNo) = 0;
+    // Returns a non-owning view into engine-owned storage; the caller must
+    // not free. Bytes stay valid until the engine is destroyed.
     virtual ByteSlice GetImageData(int pageNo) = 0;
     virtual TempStr GetImagePathTemp(int pageNo) { return nullptr; }
 
@@ -187,6 +189,12 @@ class EngineImages : public EngineBase {
 
     RectF PageContentBox(int pageNo, RenderTarget) override;
     void GetImageProperties(int pageNo, StrVec& keyValOut);
+
+    // Takes ownership of `data` and keeps it alive for the engine's
+    // lifetime. Returns the same ByteSlice so callers can chain.
+    ByteSlice KeepImageData(ByteSlice data);
+
+    Vec<ByteSlice> ownedImageData_;
 };
 
 EngineImages::EngineImages() {
@@ -241,6 +249,9 @@ EngineImages::~EngineImages() {
         DropPage(lastPage, true);
     }
     DeleteVecMembers(pageInfos);
+    for (auto& d : ownedImageData_) {
+        d.Free();
+    }
     LeaveCriticalSection(&cacheLock);
     DeleteCriticalSection(&cacheLock);
     if (fz_ctx) {
@@ -249,13 +260,21 @@ EngineImages::~EngineImages() {
     DeleteCriticalSection(&threadCtxsLock);
 }
 
+ByteSlice EngineImages::KeepImageData(ByteSlice data) {
+    if (data.empty()) {
+        return data;
+    }
+    ScopedCritSec scope(&cacheLock);
+    ownedImageData_.Append(data);
+    return data;
+}
+
 // Wrap the page's raw image bytes in an fz_image for lazy mupdf decoding.
 // The actual JPEG/PNG decode happens later in RenderPage at near-target
 // scale, much cheaper than decoding at full resolution up front.
 fz_image* EngineImages::LoadFzImageForPage(fz_context* ctx, int pageNo) {
     ByteSlice data = GetImageData(pageNo);
     if (data.empty()) {
-        data.Free();
         return nullptr;
     }
     fz_image* img = nullptr;
@@ -276,7 +295,6 @@ fz_image* EngineImages::LoadFzImageForPage(fz_context* ctx, int pageNo) {
         fz_report_error(ctx);
         img = nullptr;
     }
-    data.Free();
     return img;
 }
 
@@ -1541,7 +1559,6 @@ void EngineImages::GetImageProperties(int pageNo, StrVec& keyValOut) {
     }
     ByteSlice data = GetImageData(pageNo);
     GetExifPropertiesFromData(data, keyValOut);
-    data.Free();
 }
 
 void EngineImage::GetImageProperties(int pageNo, StrVec& keyValOut) {
@@ -1578,7 +1595,7 @@ Bitmap* EngineImage::LoadBitmapForPage(int pageNo, bool& deleteAfterUse) {
 }
 
 ByteSlice EngineImage::GetImageData(int) {
-    return file::ReadFile(FilePath());
+    return KeepImageData(file::ReadFile(FilePath()));
 }
 
 fz_image* EngineImage::LoadFzImageForPage(fz_context* ctx, int pageNo) {
@@ -1834,7 +1851,7 @@ Bitmap* EngineImageDir::LoadBitmapForPage(int pageNo, bool& deleteAfterUse) {
 
 ByteSlice EngineImageDir::GetImageData(int pageNo) {
     char* path = pageFileNames.At(pageNo - 1);
-    return file::ReadFile(path);
+    return KeepImageData(file::ReadFile(path));
 }
 
 RectF EngineImageDir::LoadMediabox(int pageNo) {
@@ -2234,9 +2251,7 @@ ByteSlice EngineCbx::GetImageData(int pageNo) {
     if (!fi || !fi->data) {
         return {};
     }
-    ByteSlice res{(u8*)fi->data, fi->fileSizeUncompressed};
-    fi->data = nullptr;
-    return res;
+    return {(u8*)fi->data, fi->fileSizeUncompressed};
 }
 
 TempStr EngineCbx::GetPropertyTemp(const char* name) {
@@ -2295,13 +2310,11 @@ Bitmap* EngineCbx::LoadBitmapForPage(int pageNo, bool& deleteAfterUse) {
     defer{};
     ByteSlice img = GetImageData(pageNo);
     if (img.empty()) {
-        img.Free();
         logf("EngineCbx::LoadBitmapForPage(page: %d) failed\n", pageNo);
         return nullptr;
     }
     deleteAfterUse = true;
     auto res = BitmapFromData(img);
-    img.Free();
     auto dur = TimeSinceInMs(timeStart);
     logf("EngineCbx::LoadBitmapForPage(page: %d) took %.2f ms\n", pageNo, dur);
     return res;
@@ -2324,7 +2337,6 @@ RectF EngineCbx::LoadMediabox(int pageNo) {
     ByteSlice img = GetImageData(pageNo);
     if (!img.empty()) {
         Size size = ImageSizeFromData(img);
-        img.Free();
         if (!size.IsEmpty()) {
             return RectF(0, 0, (float)size.dx, (float)size.dy);
         }
@@ -2334,7 +2346,6 @@ RectF EngineCbx::LoadMediabox(int pageNo) {
         // CalcZoomReal).
         logf("EngineCbx::LoadMediabox: empty media box from header for page: %d\n", pageNo);
     }
-    img.Free();
 
     ImagePage* page = GetPage(pageNo, MAX_IMAGE_PAGE_CACHE == pageCache.size());
     if (page) {
