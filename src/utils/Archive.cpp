@@ -399,45 +399,13 @@ static MultiFormatArchive* open(MultiFormatArchive* archive, IStream* stream) {
     return archive;
 }
 
-MultiFormatArchive* OpenZipArchive(const char* path, bool /*deflatedOnly*/) {
+MultiFormatArchive* OpenArchiveFromFile(const char* path) {
     auto* archive = new MultiFormatArchive();
     return open(archive, path);
 }
 
-MultiFormatArchive* Open7zArchive(const char* path) {
+MultiFormatArchive* OpenArchiveFromStream(IStream* stream) {
     auto* archive = new MultiFormatArchive();
-    return open(archive, path);
-}
-
-MultiFormatArchive* OpenTarArchive(const char* path) {
-    auto* archive = new MultiFormatArchive();
-    return open(archive, path);
-}
-
-MultiFormatArchive* OpenRarArchive(const char* path) {
-    auto* archive = new MultiFormatArchive();
-    archive->format = MultiFormatArchive::Format::Rar;
-    return open(archive, path);
-}
-
-MultiFormatArchive* OpenZipArchive(IStream* stream, bool /*deflatedOnly*/) {
-    auto* archive = new MultiFormatArchive();
-    return open(archive, stream);
-}
-
-MultiFormatArchive* Open7zArchive(IStream* stream) {
-    auto* archive = new MultiFormatArchive();
-    return open(archive, stream);
-}
-
-MultiFormatArchive* OpenTarArchive(IStream* stream) {
-    auto* archive = new MultiFormatArchive();
-    return open(archive, stream);
-}
-
-MultiFormatArchive* OpenRarArchive(IStream* stream) {
-    auto* archive = new MultiFormatArchive();
-    archive->format = MultiFormatArchive::Format::Rar;
     return open(archive, stream);
 }
 

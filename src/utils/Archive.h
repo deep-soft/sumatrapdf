@@ -78,12 +78,11 @@ class MultiFormatArchive {
     bool LoadedUsingUnrarDll() const { return rarFilePath_ != nullptr; }
 };
 
-MultiFormatArchive* OpenZipArchive(const char* path, bool deflatedOnly);
-MultiFormatArchive* Open7zArchive(const char* path);
-MultiFormatArchive* OpenTarArchive(const char* path);
-MultiFormatArchive* OpenRarArchive(const char* path);
+// Open a file on disk. MultiFormatArchive::Open(path) detects RAR via a
+// content sniff and routes it through unrar.dll; everything else goes
+// through libarchive.
+MultiFormatArchive* OpenArchiveFromFile(const char* path);
 
-MultiFormatArchive* OpenZipArchive(IStream* stream, bool deflatedOnly);
-MultiFormatArchive* Open7zArchive(IStream* stream);
-MultiFormatArchive* OpenTarArchive(IStream* stream);
-MultiFormatArchive* OpenRarArchive(IStream* stream);
+// Open from an IStream. libarchive auto-detects the container (zip/rar/
+// 7z/tar/etc.) — no per-format wrapper needed.
+MultiFormatArchive* OpenArchiveFromStream(IStream* stream);

@@ -414,7 +414,7 @@ Kind GuessFileTypeFromContent(const char* path) {
     ByteSlice d = {(u8*)buf, (size_t)n};
     auto res = GuessFileTypeFromContent(d);
     if (res == kindFileZip) {
-        MultiFormatArchive* archive = OpenZipArchive(path, true);
+        MultiFormatArchive* archive = OpenArchiveFromFile(path);
         if (archive) {
             if (IsXpsArchive(archive)) {
                 res = kindFileXps;

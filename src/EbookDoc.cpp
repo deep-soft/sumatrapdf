@@ -252,12 +252,12 @@ const char* EPUB_ENC_NS = "http://www.w3.org/2001/04/xmlenc#";
 EpubDoc::EpubDoc(const char* fileName) {
     this->fileName.SetCopy(fileName);
     InitializeCriticalSection(&zipAccess);
-    zip = OpenZipArchive(fileName, true);
+    zip = OpenArchiveFromFile(fileName);
 }
 
 EpubDoc::EpubDoc(IStream* stream) {
     InitializeCriticalSection(&zipAccess);
-    zip = OpenZipArchive(stream, true);
+    zip = OpenArchiveFromStream(stream);
 }
 
 EpubDoc::~EpubDoc() {
@@ -783,7 +783,7 @@ Fb2Doc::~Fb2Doc() {
 }
 
 static ByteSlice loadFromFile(Fb2Doc* doc) {
-    MultiFormatArchive* archive = OpenZipArchive(doc->fileName, false);
+    MultiFormatArchive* archive = OpenArchiveFromFile(doc->fileName);
     if (!archive) {
         return file::ReadFile(doc->fileName);
     }
@@ -822,7 +822,7 @@ static ByteSlice loadFromFile(Fb2Doc* doc) {
 
 static ByteSlice loadFromStream(Fb2Doc* doc) {
     auto stream = doc->stream;
-    MultiFormatArchive* archive = OpenZipArchive(stream, false);
+    MultiFormatArchive* archive = OpenArchiveFromStream(stream);
     if (!archive) {
         return {};
     }

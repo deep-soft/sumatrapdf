@@ -2392,42 +2392,18 @@ EngineBase* EngineCbx::CreateFromFile(const char* path, const char* password, Mu
 }
 
 EngineBase* EngineCbx::CreateFromStream(IStream* stream) {
-    auto* archive = OpenZipArchive(stream, false);
-    if (archive) {
-        EngineCbx* engine = new EngineCbx(archive);
-        if (engine->LoadFromStream(stream)) {
-            return engine;
-        }
-        SafeEngineRelease(&engine);
+    // libarchive inside OpenArchiveFromStream tries every container it
+    // knows (zip/rar/7z/tar/...) in one pass, so a single call replaces
+    // the old try-each-format cascade.
+    MultiFormatArchive* archive = OpenArchiveFromStream(stream);
+    if (!archive) {
+        return nullptr;
     }
-
-    archive = OpenRarArchive(stream);
-    if (archive) {
-        EngineCbx* engine = new EngineCbx(archive);
-        if (engine->LoadFromStream(stream)) {
-            return engine;
-        }
-        SafeEngineRelease(&engine);
+    EngineCbx* engine = new EngineCbx(archive);
+    if (engine->LoadFromStream(stream)) {
+        return engine;
     }
-
-    archive = Open7zArchive(stream);
-    if (archive) {
-        EngineCbx* engine = new EngineCbx(archive);
-        if (engine->LoadFromStream(stream)) {
-            return engine;
-        }
-        SafeEngineRelease(&engine);
-    }
-
-    archive = OpenTarArchive(stream);
-    if (archive) {
-        EngineCbx* engine = new EngineCbx(archive);
-        if (engine->LoadFromStream(stream)) {
-            return engine;
-        }
-        SafeEngineRelease(&engine);
-    }
-
+    SafeEngineRelease(&engine);
     return nullptr;
 }
 
