@@ -356,7 +356,7 @@ class EnginePs : public EngineBase {
         fileDPI = pdfEngine->GetFileDPI();
         allowsPrinting = pdfEngine->AllowsPrinting();
         allowsCopyingText = pdfEngine->AllowsCopyingText();
-        decryptionKey = pdfEngine->decryptionKey;
+        decryptionKey = StrDup(arena, pdfEngine->decryptionKey);
         pageCount = pdfEngine->PageCount();
 
         return true;

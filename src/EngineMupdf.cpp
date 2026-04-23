@@ -1944,9 +1944,8 @@ EngineBase* EngineMupdf::Clone() {
 
     clone->disableAntiAlias = disableAntiAlias;
 
-    if (!decryptionKey && pdfdoc && pdfdoc->crypt) {
-        free(clone->decryptionKey);
-        clone->decryptionKey = nullptr;
+    if (!decryptionKey.s && pdfdoc && pdfdoc->crypt) {
+        clone->decryptionKey = Str();
     }
 
     return clone;
@@ -2339,7 +2338,9 @@ bool EngineMupdf::LoadFromStream(fz_stream* stm, const char* nameHint, PasswordU
 
     if (pdfdoc && ok && saveKey) {
         memcpy(digest + 16, pdf_crypt_key(ctx, pdfdoc->crypt), 32);
-        decryptionKey = _MemToHex(&digest);
+        char* hex = _MemToHex(&digest);
+        decryptionKey = StrDup(arena, Str(hex));
+        free(hex);
     }
     // TODO: if !ok,
     return ok;

@@ -937,15 +937,15 @@ static void CreateThumbnailForFile(MainWindow* win, FileState* ds) {
         if (model) {
             auto* engine = model->GetEngine();
             bool withPwd = engine->IsPasswordProtected();
-            AutoFreeStr decrKey = engine->GetDecryptionKey();
+            const char* decrKey = engine->decryptionKey.s;
             if (withPwd && !decrKey) {
                 RemoveThumbnail(ds);
                 return;
             }
             // save decryption key to file history so the thumbnail thread can use it
-            if (decrKey && !str::Eq(ds->decryptionKey, decrKey.Get())) {
+            if (decrKey && !str::Eq(ds->decryptionKey, decrKey)) {
                 free(ds->decryptionKey);
-                ds->decryptionKey = decrKey.Release();
+                ds->decryptionKey = str::Dup(decrKey);
             }
         }
     }
@@ -1721,12 +1721,12 @@ void ReloadDocument(MainWindow* win, bool autoRefresh) {
     if (tab->AsFixed()) {
         // save a newly remembered password into file history so that
         // we don't ask again at the next refresh
-        AutoFreeStr decryptionKey = tab->AsFixed()->GetEngine()->GetDecryptionKey();
+        const char* decryptionKey = tab->AsFixed()->GetEngine()->decryptionKey.s;
         if (decryptionKey) {
             FileState* fs2 = gFileHistory.FindByName(fs->filePath, nullptr);
             if (fs2 && !str::Eq(fs2->decryptionKey, decryptionKey)) {
                 free(fs2->decryptionKey);
-                fs2->decryptionKey = decryptionKey.Release();
+                fs2->decryptionKey = str::Dup(decryptionKey);
             }
         }
     }

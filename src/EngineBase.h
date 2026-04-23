@@ -390,7 +390,8 @@ class EngineBase {
     bool allowsPrinting = true;
     bool allowsCopyingText = true;
     bool isPasswordProtected = false;
-    char* decryptionKey = nullptr;
+    // hex-encoded password fingerprint + crypt key; arena-allocated
+    Str decryptionKey;
     bool hasPageLabels = false;
     bool hideAnnotations = false;
     bool disableAntiAlias = false;
@@ -506,11 +507,6 @@ class EngineBase {
 
     // whether this document required a password in order to be loaded
     bool IsPasswordProtected() const;
-
-    // returns a string to remember when the user wants to save a document's password
-    // (don't implement for document types that don't support password protection)
-    // caller must free() the result
-    char* GetDecryptionKey() const;
 
     // loads the given page so that the time required can be measured
     // without also measuring rendering times

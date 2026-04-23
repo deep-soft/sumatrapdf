@@ -285,7 +285,7 @@ void DisplayModel::GetDisplayState(FileState* fs) {
     fs->displayR2L = displayR2L;
 
     free(fs->decryptionKey);
-    fs->decryptionKey = engine->GetDecryptionKey();
+    fs->decryptionKey = engine->decryptionKey.s ? str::Dup(engine->decryptionKey.s) : nullptr;
 }
 
 SizeF DisplayModel::PageSizeAfterRotation(int pageNo, bool fitToContent) const {

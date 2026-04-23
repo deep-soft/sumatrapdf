@@ -343,7 +343,6 @@ EngineBase::~EngineBase() {
         free(pagesText);
     }
     DeleteCriticalSection(&textCacheLock);
-    str::Free(decryptionKey);
     str::Free(defaultExt);
     ArenaDelete(arena);
 }
@@ -453,10 +452,6 @@ int EngineBase::GetPageByLabel(const char* label) const {
 
 bool EngineBase::IsPasswordProtected() const {
     return isPasswordProtected;
-}
-
-char* EngineBase::GetDecryptionKey() const {
-    return str::Dup(decryptionKey);
 }
 
 const char* EngineBase::FilePath() const {
