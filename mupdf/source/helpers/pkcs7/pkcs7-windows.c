@@ -14,8 +14,11 @@
 #endif
 #include <windows.h>
 #include <wincrypt.h>
+#include <ncrypt.h>
+#include <string.h>
 
 #pragma comment(lib, "crypt32.lib")
+#pragma comment(lib, "ncrypt.lib")
 
 // ---- envelope parsing helpers --------------------------------------------
 
@@ -342,4 +345,227 @@ pdf_signature_error pkcs7_windows_check_digest(fz_context* ctx, fz_stream* stm, 
 
 pdf_pkcs7_distinguished_name* pkcs7_windows_distinguished_name(fz_context* ctx, char* sig, size_t sig_len) {
     return windows_get_signatory(ctx, NULL, (unsigned char*)sig, sig_len);
+}
+
+// ---- signing -------------------------------------------------------------
+
+typedef struct {
+    pdf_pkcs7_signer base;
+    int refs;
+    HCERTSTORE hStore;   // owns the PFX store
+    PCCERT_CONTEXT cert; // signer cert, with embedded private-key provider info
+} windows_signer;
+
+static pdf_pkcs7_signer* windows_keep_signer(fz_context* ctx, pdf_pkcs7_signer* signer) {
+    (void)ctx;
+    windows_signer* s = (windows_signer*)signer;
+    s->refs++;
+    return signer;
+}
+
+static void windows_drop_signer(fz_context* ctx, pdf_pkcs7_signer* signer) {
+    if (!signer) {
+        return;
+    }
+    windows_signer* s = (windows_signer*)signer;
+    if (--s->refs > 0) {
+        return;
+    }
+    if (s->cert) {
+        CertFreeCertificateContext(s->cert);
+    }
+    if (s->hStore) {
+        CertCloseStore(s->hStore, 0);
+    }
+    fz_free(ctx, s);
+}
+
+static pdf_pkcs7_distinguished_name* windows_get_signing_name(fz_context* ctx, pdf_pkcs7_signer* signer) {
+    windows_signer* s = (windows_signer*)signer;
+    pdf_pkcs7_distinguished_name* dn = fz_malloc_struct(ctx, pdf_pkcs7_distinguished_name);
+    fz_try(ctx) {
+        dn->cn = get_name_string(ctx, s->cert, szOID_COMMON_NAME);
+        dn->o = get_name_string(ctx, s->cert, szOID_ORGANIZATION_NAME);
+        dn->ou = get_name_string(ctx, s->cert, szOID_ORGANIZATIONAL_UNIT_NAME);
+        dn->email = get_name_string(ctx, s->cert, szOID_RSA_emailAddr);
+        dn->c = get_name_string(ctx, s->cert, szOID_COUNTRY_NAME);
+    }
+    fz_catch(ctx) {
+        pdf_signature_drop_distinguished_name(ctx, dn);
+        fz_rethrow(ctx);
+    }
+    return dn;
+}
+
+// Build a detached PKCS#7 SignedData over the bytes from `in` and write the
+// DER blob to `digest`. Matches the openssl helper's semantics:
+//   digest==NULL                   → size query (return bytes required)
+//   digest!=NULL, digest_len big   → sign, return actual bytes written
+//   digest!=NULL, digest_len small → return 0
+// Passing in==NULL is a size query over empty content (used by max_digest_size).
+static int windows_create_digest(fz_context* ctx, pdf_pkcs7_signer* signer, fz_stream* in, unsigned char* digest,
+                                 size_t digest_len) {
+    windows_signer* s = (windows_signer*)signer;
+    fz_buffer* buf = NULL;
+    int res = 0;
+
+    fz_var(buf);
+    fz_try(ctx) {
+        const BYTE* content = (const BYTE*)"";
+        DWORD contentLen = 0;
+        if (in != NULL) {
+            buf = fz_read_all(ctx, in, 4096);
+            content = buf->data;
+            contentLen = (DWORD)buf->len;
+        }
+
+        CRYPT_SIGN_MESSAGE_PARA para;
+        ZeroMemory(&para, sizeof(para));
+        para.cbSize = sizeof(para);
+        para.dwMsgEncodingType = PKCS_7_ASN_ENCODING | X509_ASN_ENCODING;
+        para.pSigningCert = s->cert;
+        para.HashAlgorithm.pszObjId = (LPSTR)szOID_NIST_sha256;
+        para.cMsgCert = 1;
+        para.rgpMsgCert = &s->cert;
+
+        const BYTE* pbToBeSigned[1];
+        pbToBeSigned[0] = content;
+        DWORD cbToBeSigned[1];
+        cbToBeSigned[0] = contentLen;
+
+        DWORD sigLen = 0;
+        if (!CryptSignMessage(&para, TRUE, 1, pbToBeSigned, cbToBeSigned, NULL, &sigLen)) {
+            fz_throw(ctx, FZ_ERROR_GENERIC, "CryptSignMessage size query failed (gle=%lu)", GetLastError());
+        }
+
+        if (digest == NULL) {
+            res = (int)sigLen;
+        } else if (sigLen > digest_len) {
+            res = 0; // caller's buffer isn't big enough
+        } else {
+            if (!CryptSignMessage(&para, TRUE, 1, pbToBeSigned, cbToBeSigned, digest, &sigLen)) {
+                fz_throw(ctx, FZ_ERROR_GENERIC, "CryptSignMessage failed (gle=%lu)", GetLastError());
+            }
+            res = (int)sigLen;
+        }
+    }
+    fz_always(ctx) {
+        fz_drop_buffer(ctx, buf);
+    }
+    fz_catch(ctx) {
+        fz_rethrow(ctx);
+    }
+    return res;
+}
+
+static size_t windows_max_digest_size(fz_context* ctx, pdf_pkcs7_signer* signer) {
+    // Detached PKCS#7 size doesn't depend on signed content; query with no
+    // content and use that as the placeholder reservation.
+    return (size_t)windows_create_digest(ctx, signer, NULL, NULL, 0);
+}
+
+// Convert UTF-8 C string to newly-allocated wide (UTF-16). Returns NULL for
+// NULL input. Caller fz_free's the result.
+static WCHAR* utf8_to_wide(fz_context* ctx, const char* s) {
+    if (!s) {
+        return NULL;
+    }
+    int n = MultiByteToWideChar(CP_UTF8, 0, s, -1, NULL, 0);
+    if (n <= 0) {
+        fz_throw(ctx, FZ_ERROR_GENERIC, "MultiByteToWideChar failed (gle=%lu)", GetLastError());
+    }
+    WCHAR* w = (WCHAR*)fz_calloc(ctx, (size_t)n, sizeof(WCHAR));
+    MultiByteToWideChar(CP_UTF8, 0, s, -1, w, n);
+    return w;
+}
+
+static pdf_pkcs7_signer* pkcs7_windows_read_pfx_imp(fz_context* ctx, const char* pfile, fz_buffer* pfxBuf,
+                                                    const char* pw) {
+    windows_signer* signer = NULL;
+    fz_buffer* owned = NULL;
+    HCERTSTORE hStore = NULL;
+    PCCERT_CONTEXT cert = NULL;
+    WCHAR* pwW = NULL;
+
+    fz_var(signer);
+    fz_var(owned);
+    fz_var(hStore);
+    fz_var(cert);
+    fz_var(pwW);
+
+    fz_try(ctx) {
+        if (!pfxBuf) {
+            owned = fz_read_file(ctx, pfile);
+            pfxBuf = owned;
+        }
+
+        CRYPT_DATA_BLOB blob;
+        blob.cbData = (DWORD)pfxBuf->len;
+        blob.pbData = pfxBuf->data;
+
+        pwW = utf8_to_wide(ctx, pw ? pw : "");
+
+        hStore = PFXImportCertStore(&blob, pwW, CRYPT_USER_KEYSET | CRYPT_EXPORTABLE);
+        if (!hStore) {
+            fz_throw(ctx, FZ_ERROR_GENERIC, "PFXImportCertStore failed (gle=%lu)", GetLastError());
+        }
+
+        cert = CertFindCertificateInStore(hStore, X509_ASN_ENCODING | PKCS_7_ASN_ENCODING, 0, CERT_FIND_HAS_PRIVATE_KEY,
+                                          NULL, NULL);
+        if (!cert) {
+            fz_throw(ctx, FZ_ERROR_GENERIC, "PFX has no cert with a private key");
+        }
+
+        // Validate at load time: acquire the key once, release it. CryptSignMessage
+        // reacquires via the cert's stored CERT_KEY_PROV_INFO_PROP_ID.
+        HCRYPTPROV_OR_NCRYPT_KEY_HANDLE hKey = 0;
+        DWORD keySpec = 0;
+        BOOL mustFree = FALSE;
+        if (!CryptAcquireCertificatePrivateKey(cert, CRYPT_ACQUIRE_COMPARE_KEY_FLAG, NULL, &hKey, &keySpec,
+                                               &mustFree)) {
+            fz_throw(ctx, FZ_ERROR_GENERIC, "CryptAcquireCertificatePrivateKey failed (gle=%lu)", GetLastError());
+        }
+        if (mustFree) {
+            if (keySpec == CERT_NCRYPT_KEY_SPEC) {
+                NCryptFreeObject((NCRYPT_KEY_HANDLE)hKey);
+            } else {
+                CryptReleaseContext((HCRYPTPROV)hKey, 0);
+            }
+        }
+
+        signer = fz_malloc_struct(ctx, windows_signer);
+        signer->base.keep = windows_keep_signer;
+        signer->base.drop = windows_drop_signer;
+        signer->base.get_signing_name = windows_get_signing_name;
+        signer->base.max_digest_size = windows_max_digest_size;
+        signer->base.create_digest = windows_create_digest;
+        signer->refs = 1;
+        signer->hStore = hStore;
+        signer->cert = cert;
+        // ownership transferred to signer — null out locals so fz_catch doesn't free them
+        hStore = NULL;
+        cert = NULL;
+    }
+    fz_always(ctx) {
+        fz_free(ctx, pwW);
+        fz_drop_buffer(ctx, owned);
+    }
+    fz_catch(ctx) {
+        if (cert) {
+            CertFreeCertificateContext(cert);
+        }
+        if (hStore) {
+            CertCloseStore(hStore, 0);
+        }
+        fz_rethrow(ctx);
+    }
+    return &signer->base;
+}
+
+pdf_pkcs7_signer* pkcs7_windows_read_pfx(fz_context* ctx, const char* pfile, const char* pw) {
+    return pkcs7_windows_read_pfx_imp(ctx, pfile, NULL, pw);
+}
+
+pdf_pkcs7_signer* pkcs7_windows_read_pfx_from_buffer(fz_context* ctx, fz_buffer* buf, const char* pw) {
+    return pkcs7_windows_read_pfx_imp(ctx, NULL, buf, pw);
 }

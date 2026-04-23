@@ -1070,7 +1070,6 @@
     <ClCompile Include="..\mupdf\source\fitz\xmltext-device.c" />
     <ClCompile Include="..\mupdf\source\fitz\zip.c" />
     <ClCompile Include="..\mupdf\source\helpers\mu-threads\mu-threads.c" />
-    <ClCompile Include="..\mupdf\source\helpers\pkcs7\pkcs7-openssl.c" />
     <ClCompile Include="..\mupdf\source\helpers\pkcs7\pkcs7-windows.c" />
     <ClCompile Include="..\mupdf\source\html\css-apply.c" />
     <ClCompile Include="..\mupdf\source\html\css-parse.c" />

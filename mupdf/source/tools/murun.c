@@ -24,7 +24,6 @@
 
 #if FZ_ENABLE_PDF
 #include "mupdf/pdf.h"
-#include "mupdf/helpers/pkcs7-openssl.h"
 #include "mupdf/helpers/pkcs7-windows.h"
 #endif
 
@@ -12045,7 +12044,7 @@ static void ffi_new_PDFPKCS7Signer(js_State *J)
 	{
 		fz_buffer *buf = ffi_tonewbuffer(J, 1);
 		fz_try(ctx)
-			signer = pkcs7_openssl_read_pfx_from_buffer(ctx, buf, password);
+			signer = pkcs7_windows_read_pfx_from_buffer(ctx, buf, password);
 		fz_always(ctx)
 			fz_drop_buffer(ctx, buf);
 		fz_catch(ctx)
@@ -12055,7 +12054,7 @@ static void ffi_new_PDFPKCS7Signer(js_State *J)
 	{
 		const char *filename = js_tostring(J, 1);
 		fz_try(ctx)
-			signer = pkcs7_openssl_read_pfx(ctx, filename, password);
+			signer = pkcs7_windows_read_pfx(ctx, filename, password);
 		fz_catch(ctx)
 			rethrow(J);
 	}

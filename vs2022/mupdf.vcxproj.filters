@@ -866,9 +866,6 @@
     <ClCompile Include="..\mupdf\source\helpers\mu-threads\mu-threads.c">
       <Filter>mupdf\source\helpers\mu-threads</Filter>
     </ClCompile>
-    <ClCompile Include="..\mupdf\source\helpers\pkcs7\pkcs7-openssl.c">
-      <Filter>mupdf\source\helpers\pkcs7</Filter>
-    </ClCompile>
     <ClCompile Include="..\mupdf\source\helpers\pkcs7\pkcs7-windows.c">
       <Filter>mupdf\source\helpers\pkcs7</Filter>
     </ClCompile>
