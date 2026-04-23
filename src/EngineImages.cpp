@@ -114,7 +114,12 @@ struct ImagePageInfo {
     Vec<IPageElement*> allElements;
     RectF mediabox{};
     PageInfoState state = PageInfoState::Unknown;
+    // raw image bytes; populated lazily by GetImageData for file-backed
+    // engines (EngineImage, EngineImageDir). Unused by EngineCbx (which
+    // returns a view into the archive's cache).
+    ByteSlice rawData;
     ImagePageInfo() = default;
+    ~ImagePageInfo() { rawData.Free(); }
 };
 
 class EngineImages : public EngineBase {
@@ -189,12 +194,6 @@ class EngineImages : public EngineBase {
 
     RectF PageContentBox(int pageNo, RenderTarget) override;
     void GetImageProperties(int pageNo, StrVec& keyValOut);
-
-    // Takes ownership of `data` and keeps it alive for the engine's
-    // lifetime. Returns the same ByteSlice so callers can chain.
-    ByteSlice KeepImageData(ByteSlice data);
-
-    Vec<ByteSlice> ownedImageData_;
 };
 
 EngineImages::EngineImages() {
@@ -249,24 +248,12 @@ EngineImages::~EngineImages() {
         DropPage(lastPage, true);
     }
     DeleteVecMembers(pageInfos);
-    for (auto& d : ownedImageData_) {
-        d.Free();
-    }
     LeaveCriticalSection(&cacheLock);
     DeleteCriticalSection(&cacheLock);
     if (fz_ctx) {
         fz_drop_context_windows(fz_ctx);
     }
     DeleteCriticalSection(&threadCtxsLock);
-}
-
-ByteSlice EngineImages::KeepImageData(ByteSlice data) {
-    if (data.empty()) {
-        return data;
-    }
-    ScopedCritSec scope(&cacheLock);
-    ownedImageData_.Append(data);
-    return data;
 }
 
 // Wrap the page's raw image bytes in an fz_image for lazy mupdf decoding.
@@ -959,8 +946,13 @@ bool EngineImage::LoadSingleFile(const char* path) {
     }
     str::ReplaceWithCopy(&defaultExt, fileExt);
     image = BitmapFromData(data);
-    data.Free();
-    return FinishLoading();
+    bool ok = FinishLoading();
+    if (ok) {
+        pageInfos[0]->rawData = data;
+    } else {
+        data.Free();
+    }
+    return ok;
 }
 
 bool EngineImage::LoadFromStream(IStream* stream) {
@@ -983,8 +975,13 @@ bool EngineImage::LoadFromStream(IStream* stream) {
 
     ByteSlice data = GetDataFromStream(stream, nullptr);
     image = BitmapFromData(data);
-    data.Free();
-    return FinishLoading();
+    bool ok = FinishLoading();
+    if (ok) {
+        pageInfos[0]->rawData = data;
+    } else {
+        data.Free();
+    }
+    return ok;
 }
 
 static bool IsMultiImage(Kind fmt) {
@@ -1595,7 +1592,12 @@ Bitmap* EngineImage::LoadBitmapForPage(int pageNo, bool& deleteAfterUse) {
 }
 
 ByteSlice EngineImage::GetImageData(int) {
-    return KeepImageData(file::ReadFile(FilePath()));
+    ScopedCritSec scope(&cacheLock);
+    auto pi = pageInfos[0];
+    if (pi->rawData.empty()) {
+        pi->rawData = file::ReadFile(FilePath());
+    }
+    return pi->rawData;
 }
 
 fz_image* EngineImage::LoadFzImageForPage(fz_context* ctx, int pageNo) {
@@ -1850,8 +1852,13 @@ Bitmap* EngineImageDir::LoadBitmapForPage(int pageNo, bool& deleteAfterUse) {
 }
 
 ByteSlice EngineImageDir::GetImageData(int pageNo) {
-    char* path = pageFileNames.At(pageNo - 1);
-    return KeepImageData(file::ReadFile(path));
+    ScopedCritSec scope(&cacheLock);
+    auto pi = pageInfos[pageNo - 1];
+    if (pi->rawData.empty()) {
+        char* path = pageFileNames.At(pageNo - 1);
+        pi->rawData = file::ReadFile(path);
+    }
+    return pi->rawData;
 }
 
 RectF EngineImageDir::LoadMediabox(int pageNo) {
