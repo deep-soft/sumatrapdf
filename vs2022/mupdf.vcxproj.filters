@@ -258,6 +258,9 @@
     <ClInclude Include="..\mupdf\include\mupdf\helpers\pkcs7-openssl.h">
       <Filter>mupdf\include\mupdf\helpers</Filter>
     </ClInclude>
+    <ClInclude Include="..\mupdf\include\mupdf\helpers\pkcs7-windows.h">
+      <Filter>mupdf\include\mupdf\helpers</Filter>
+    </ClInclude>
     <ClInclude Include="..\mupdf\include\mupdf\html.h">
       <Filter>mupdf\include\mupdf</Filter>
     </ClInclude>
@@ -864,6 +867,9 @@
       <Filter>mupdf\source\helpers\mu-threads</Filter>
     </ClCompile>
     <ClCompile Include="..\mupdf\source\helpers\pkcs7\pkcs7-openssl.c">
+      <Filter>mupdf\source\helpers\pkcs7</Filter>
+    </ClCompile>
+    <ClCompile Include="..\mupdf\source\helpers\pkcs7\pkcs7-windows.c">
       <Filter>mupdf\source\helpers\pkcs7</Filter>
     </ClCompile>
     <ClCompile Include="..\mupdf\source\html\css-apply.c">

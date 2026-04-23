@@ -1277,6 +1277,7 @@ function mupdf_files()
   files {
     "mupdf/source/helpers/mu-threads/mu-threads.c",
     "mupdf/source/helpers/pkcs7/pkcs7-openssl.c",
+    "mupdf/source/helpers/pkcs7/pkcs7-windows.c",
   }
 end
 
