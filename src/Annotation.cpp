@@ -170,6 +170,11 @@ RectF GetRect(Annotation* annot) {
 void SetRect(Annotation* annot, RectF r) {
     EngineMupdf* e = annot->engine;
     auto a = annot->pdfannot;
+    if (!a) {
+        // pdfannot is nulled out by DeleteAnnotation; a stale reference
+        // (e.g. annotationBeingDragged after a reload) must not reach mupdf
+        return;
+    }
     bool failed = false;
     {
         auto ctx = e->Ctx();

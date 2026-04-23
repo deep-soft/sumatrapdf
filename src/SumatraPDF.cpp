@@ -1629,6 +1629,9 @@ void ReloadDocument(MainWindow* win, bool autoRefresh) {
     }
 
     tab->selectedAnnotation = nullptr;
+    win->annotationBeingDragged = nullptr;
+    win->annotationBeingResized = false;
+    win->annotationUnderCursor = nullptr;
     tab->ignoreNextAutoReload = false;
 
     if (!tab->IsDocLoaded()) {
@@ -2817,6 +2820,8 @@ static void CloseDocumentInCurrentTab(MainWindow* win, bool keepUIEnabled, bool 
 
     win->linkOnLastButtonDown = nullptr;
     win->annotationUnderCursor = nullptr;
+    win->annotationBeingDragged = nullptr;
+    win->annotationBeingResized = false;
 
     win->fwdSearchMark.show = false;
     if (win->uiaProvider) {
