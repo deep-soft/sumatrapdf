@@ -1315,20 +1315,85 @@ LRESULT OnDDETerminate(HWND hwnd, WPARAM wp, LPARAM) {
     return 0;
 }
 
+// Payload for async Open command carried in kCopyDataOpen WM_COPYDATA
+struct OpenCopyDataAsync {
+    char* path; // heap-allocated, freed by OpenCopyDataAsyncRun
+    u32 newWindow;
+};
+
+static void OpenCopyDataAsyncRun(OpenCopyDataAsync* d) {
+    // Pick a target window the same way HandleOpenCmd would, then kick off
+    // the load on a worker thread. We stay off the UI thread for the heavy
+    // bit so the sender (already returned from SendMessageW by now) never
+    // had to wait on us in the first place.
+    MainWindow* win = nullptr;
+    if (d->newWindow) {
+        MainWindow* emptyExistingWin = nullptr;
+        for (auto& w : gWindows) {
+            if (!w->HasDocsLoaded()) {
+                emptyExistingWin = w;
+                break;
+            }
+        }
+        win = emptyExistingWin ? emptyExistingWin : CreateAndShowMainWindow(nullptr);
+    } else {
+        win = FindMainWindowByFile(d->path, true);
+        if (!win) {
+            win = FindMainWindowByHwnd(gLastActiveFrameHwnd);
+        }
+        if (!win && gWindows.Size() > 0) {
+            win = gWindows[0];
+        }
+    }
+    LoadArgs args(d->path, win);
+    args.activateExisting = d->newWindow == 0;
+    StartLoadDocument(&args);
+
+    str::Free(d->path);
+    delete d;
+}
+
 LRESULT OnCopyData(HWND hwnd, WPARAM wp, LPARAM lp) {
     COPYDATASTRUCT* cds = (COPYDATASTRUCT*)lp;
-    if (!cds || cds->dwData != 0x44646557 /* DdeW */ || wp) {
+    if (!cds || wp) {
         return FALSE;
     }
 
-    const WCHAR* cmdW = (const WCHAR*)cds->lpData;
-    if (cmdW[cds->cbData / sizeof(WCHAR) - 1]) {
-        return FALSE;
+    if (cds->dwData == kCopyDataOpen) {
+        // Simple-open fast path used by the reuseInstance handshake: the
+        // sibling SumatraPDF that Explorer just spawned is blocked in
+        // SendMessageW. Copy the path out, post an async task, return
+        // immediately so the sender unblocks and exits.
+        if (cds->cbData < sizeof(SumatraOpenCopyData) + 1) {
+            return FALSE;
+        }
+        auto* data = (const SumatraOpenCopyData*)cds->lpData;
+        const char* path = (const char*)(data + 1);
+        size_t pathMax = cds->cbData - sizeof(SumatraOpenCopyData);
+        // require null-terminator within bounds
+        if (strnlen_s(path, pathMax) >= pathMax) {
+            return FALSE;
+        }
+        auto* d = new OpenCopyDataAsync;
+        d->path = str::Dup(path);
+        d->newWindow = data->newWindow;
+        auto fn = MkFunc0<OpenCopyDataAsync>(OpenCopyDataAsyncRun, d);
+        uitask::Post(fn, "OnCopyData/Open");
+        return TRUE;
     }
 
-    TempStr cmd = ToUtf8Temp(cmdW);
-    bool didHandle = HandleExecuteCmds(hwnd, cmd);
-    return didHandle ? TRUE : FALSE;
+    if (cds->dwData == kCopyDataDdeW) {
+        const WCHAR* cmdW = (const WCHAR*)cds->lpData;
+        if (cmdW[cds->cbData / sizeof(WCHAR) - 1]) {
+            return FALSE;
+        }
+        // Legacy DDE grammar — callers expect synchronous handling.
+        TempStr cmd = ToUtf8Temp(cmdW);
+        bool didHandle = HandleExecuteCmds(hwnd, cmd);
+        return didHandle ? TRUE : FALSE;
+    }
+
+    return FALSE;
 }
 
 #if 0

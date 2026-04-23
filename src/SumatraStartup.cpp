@@ -147,7 +147,7 @@ static void SendMyselfDDE(const char* cmdA, HWND targetHwnd) {
     if (targetHwnd) {
         // try WM_COPYDATA first, as that allows targetting a specific window
         size_t cbData = (str::Len(cmd) + 1) * sizeof(WCHAR);
-        COPYDATASTRUCT cds = {0x44646557 /* DdeW */, (DWORD)cbData, (void*)cmd};
+        COPYDATASTRUCT cds = {kCopyDataDdeW, (DWORD)cbData, (void*)cmd};
         LRESULT res = SendMessageW(targetHwnd, WM_COPYDATA, 0, (LPARAM)&cds);
         if (res) {
             return;
@@ -157,16 +157,73 @@ static void SendMyselfDDE(const char* cmdA, HWND targetHwnd) {
     DDEExecute(kSumatraDdeServer, kSumatraDdeTopic, cmd);
 }
 
+// Returns true if the only thing the caller wants is to open a file (no
+// goto-page, no forward search, no view overrides, etc.). In that case we
+// can use the cheaper kCopyDataOpen fast path instead of building a DDE
+// grammar string and blocking the caller in SendMessageW while the
+// receiver loads the document.
+static bool IsSimpleOpenCase(const Flags& i, bool isFirstWin) {
+    if (!isFirstWin) {
+        return true; // extras only apply to the first window
+    }
+    if (i.namedDest || i.pageNumber > 0) {
+        return false;
+    }
+    if (i.startView != DisplayMode::Automatic || i.startZoom != kInvalidZoom) {
+        return false;
+    }
+    if (i.startScroll.x != -1 && i.startScroll.y != -1) {
+        return false;
+    }
+    if (i.forwardSearchOrigin && i.forwardSearchLine) {
+        return false;
+    }
+    if (i.search) {
+        return false;
+    }
+    return true;
+}
+
+// Send just the path + newWindow flag to an already-running SumatraPDF via
+// WM_COPYDATA. Receiver (OnCopyData) handles it asynchronously so this
+// SendMessageW returns fast. Returns true if the message was handled.
+static bool SendOpenFileToExistingInstance(HWND targetHwnd, const char* fullPath, u32 newWindow) {
+    size_t pathLen = strlen(fullPath);
+    size_t cbData = sizeof(SumatraOpenCopyData) + pathLen + 1;
+    SumatraOpenCopyData* payload = (SumatraOpenCopyData*)malloc(cbData);
+    if (!payload) {
+        return false;
+    }
+    payload->newWindow = newWindow;
+    memcpy(payload + 1, fullPath, pathLen + 1);
+    COPYDATASTRUCT cds = {kCopyDataOpen, (DWORD)cbData, payload};
+    LRESULT res = SendMessageW(targetHwnd, WM_COPYDATA, 0, (LPARAM)&cds);
+    free(payload);
+    return res != 0;
+}
+
 // delegate file opening to a previously running instance by sending a DDE message
 static void OpenUsingDDE(HWND targetHwnd, const char* path, Flags& i, bool isFirstWin) {
     char* fullPath = path::NormalizeTemp(path);
 
-    StrBuilder cmd;
-    int newWindow = 0;
+    u32 newWindow = 0;
     if (i.inNewWindow) {
         // 2 forces opening a new window
         newWindow = 2;
     }
+
+    // Common case: Explorer double-clicks a file while SumatraPDF is already
+    // running (reuseInstance). Use the simpler kCopyDataOpen format; the
+    // receiver loads async so Explorer's child SumatraPDF process can exit
+    // instantly instead of blocking on the file load.
+    if (targetHwnd && !i.reuseDdeInstance && IsSimpleOpenCase(i, isFirstWin)) {
+        if (SendOpenFileToExistingInstance(targetHwnd, fullPath, newWindow)) {
+            return;
+        }
+        // fall through to the DDE grammar path if WM_COPYDATA wasn't handled
+    }
+
+    StrBuilder cmd;
     cmd.AppendFmt("[Open(\"%s\", %d, 1, 0)]", fullPath, newWindow);
     if (i.namedDest && isFirstWin) {
         cmd.AppendFmt("[GotoNamedDest(\"%s\", \"%s\")]", fullPath, i.namedDest);
