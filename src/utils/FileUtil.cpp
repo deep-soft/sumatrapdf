@@ -399,6 +399,20 @@ bool IsOnNetworkDrive(const char* path) {
     return PathIsNetworkPathW(ws);
 }
 
+bool IsCloudPlaceholder(const char* path) {
+    WCHAR* ws = ToWStrTemp(path);
+    DWORD attrs = GetFileAttributesW(ws);
+    if (attrs == INVALID_FILE_ATTRIBUTES) {
+        return false;
+    }
+    // Any of these signal that the bytes aren't all local yet:
+    //   FILE_ATTRIBUTE_OFFLINE                = 0x00001000
+    //   FILE_ATTRIBUTE_RECALL_ON_OPEN         = 0x00040000
+    //   FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS  = 0x00400000
+    const DWORD cloudBits = FILE_ATTRIBUTE_OFFLINE | FILE_ATTRIBUTE_RECALL_ON_OPEN | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS;
+    return (attrs & cloudBits) != 0;
+}
+
 bool IsOnFixedDrive(const char* path) {
     WCHAR* ws = ToWStrTemp(path);
     if (PathIsNetworkPathW(ws)) {

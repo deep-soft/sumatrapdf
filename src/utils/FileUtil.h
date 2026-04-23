@@ -29,6 +29,10 @@ bool IsSame(const char* path1, const char* path2);
 bool HasVariableDriveLetter(const char* path);
 bool IsOnFixedDrive(const char* path);
 bool IsOnNetworkDrive(const char* path);
+// OneDrive / iCloud / Dropbox "Files On-Demand" placeholders — cloud-only
+// stubs that hydrate on first read. File I/O is slow and/or bursty, so
+// callers may prefer to slurp the whole file into RAM once.
+bool IsCloudPlaceholder(const char* path);
 bool SupportsChangeNotifications(const char* path);
 bool IsAbsolute(const char* path);
 
