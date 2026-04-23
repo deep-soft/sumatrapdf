@@ -21,7 +21,7 @@
 // 3 is for absolute worst case of WCHAR* where last char was partially written
 #define ZERO_PADDING_COUNT 3
 
-thread_local const ArchiveExtractProgressCb* gArchiveProgressCb = nullptr;
+thread_local ArchiveExtractProgressCb gArchiveProgressCb{};
 
 FILETIME MultiFormatArchive::FileInfo::GetWinFileTime() const {
     FILETIME ft = {(DWORD)-1, (DWORD)-1};
@@ -60,10 +60,9 @@ MultiFormatArchive::~MultiFormatArchive() {
     ArenaDelete(allocator_);
 }
 
-bool MultiFormatArchive::ParseEntries(struct archive* a, const ArchiveExtractProgressCb* cbProgress) {
+bool MultiFormatArchive::ParseEntries(struct archive* a, bool eagerLoad, const ArchiveExtractProgressCb& cbProgress) {
     struct archive_entry* entry;
     size_t fileId = 0;
-    const bool loadAll = (cbProgress != nullptr);
     ArchiveExtractProgress prog{};
     prog.nTotal = -1; // libarchive streams; total is only known at end
     while (archive_read_next_header(a, &entry) == ARCHIVE_OK) {
@@ -84,7 +83,7 @@ bool MultiFormatArchive::ParseEntries(struct archive* a, const ArchiveExtractPro
         i->data = nullptr;
         fileInfos_.Append(i);
 
-        if (loadAll) {
+        if (eagerLoad) {
             size_t size = i->fileSizeUncompressed;
             if (size > 0) {
                 i->data = AllocArray<char>(size + ZERO_PADDING_COUNT);
@@ -103,16 +102,16 @@ bool MultiFormatArchive::ParseEntries(struct archive* a, const ArchiveExtractPro
             archive_read_data_skip(a);
         }
         fileId++;
-        if (cbProgress) {
-            prog.nDecoded = (int)fileId;
-            cbProgress->Call(&prog);
-        }
+        prog.fileInfo = i;
+        prog.nDecoded = (int)fileId;
+        cbProgress.Call(&prog);
     }
-    if (cbProgress && fileId > 0) {
+    if (fileId > 0) {
         // final callback with total known
+        prog.fileInfo = fileInfos_[fileId - 1];
         prog.nDecoded = (int)fileId;
         prog.nTotal = (int)fileId;
-        cbProgress->Call(&prog);
+        cbProgress.Call(&prog);
     }
     return fileId > 0;
 }
@@ -120,7 +119,8 @@ bool MultiFormatArchive::ParseEntries(struct archive* a, const ArchiveExtractPro
 // unfortunately libarchive's rar support is weak
 static bool gUnrarFirst = true;
 
-bool MultiFormatArchive::Open(const char* path, Kind hintKind, const ArchiveExtractProgressCb* cbProgress) {
+bool MultiFormatArchive::Open(const char* path, bool eagerLoad, Kind hintKind,
+                              const ArchiveExtractProgressCb& cbProgress) {
     if (!path) {
         return false;
     }
@@ -137,39 +137,35 @@ bool MultiFormatArchive::Open(const char* path, Kind hintKind, const ArchiveExtr
     }
 
     // tar archives can't seek, so we have to eager-load even when the
-    // caller didn't ask for it. Use a local empty callback to flip on
-    // the "load all entries" code path without forcing a user-visible
-    // progress stream.
-    ArchiveExtractProgressCb emptyCb;
-    const ArchiveExtractProgressCb* effectiveCb = cbProgress;
-    if (!effectiveCb && kind == kindFileTar) {
-        effectiveCb = &emptyCb;
+    // caller didn't ask for it.
+    if (kind == kindFileTar) {
+        eagerLoad = true;
     }
 
     bool isRar = kind == kindFileRar;
     bool ok = false;
     if (gUnrarFirst && isRar) {
-        ok = OpenUnrarFallback(path, effectiveCb);
+        ok = OpenUnrarFallback(path, eagerLoad, cbProgress);
         format = MultiFormatArchive::Format::Rar;
     }
     if (!ok) {
-        ok = OpenArchive(path, effectiveCb);
+        ok = OpenArchive(path, eagerLoad, cbProgress);
     }
     if (!ok && !gUnrarFirst && isRar) {
         // libarchive can open rar files but then fail to read them — fall
         // back to unrar.dll.
-        ok = OpenUnrarFallback(path, effectiveCb);
+        ok = OpenUnrarFallback(path, eagerLoad, cbProgress);
         format = MultiFormatArchive::Format::Rar;
     }
     if (!ok) {
         return false;
     }
-    if (cbProgress) {
-        // Discard the paths so GetFileDataByIdLibarchive / GetFileDataByIdUnarrDll
+    if (eagerLoad) {
+        // Discard the paths so LoadFileDataByIdLibarchive / LoadFileDataByIdUnarrDll
         // can't re-open the archive to fetch a missing entry. Entries whose
         // decompression failed above have failed=true and data=nullptr, and
-        // later GetFileDataById will see archivePath_==nullptr and return
-        // an empty slice.
+        // later GetFileDataById will see archivePath_==nullptr and mark
+        // the entry as failed.
         free(archivePath_);
         archivePath_ = nullptr;
         rarFilePath_ = nullptr; // arena-allocated; don't free
@@ -213,12 +209,11 @@ bool MultiFormatArchive::Open(IStream* stream) {
         free(data);
         return false;
     }
-    // no file path to re-open from, so load all file data now.
-    // Non-null &emptyCb signals "eager load" to ParseEntries without
-    // forcing a user-facing progress stream.
+    // no file path to re-open from, so load all file data now; no
+    // progress reporting on this path.
     ArchiveExtractProgressCb emptyCb;
     format = FormatFromArchive(a);
-    bool ok = ParseEntries(a, &emptyCb);
+    bool ok = ParseEntries(a, /*eagerLoad=*/true, emptyCb);
     if (archive_read_has_encrypted_entries(a) > 0) {
         isEncrypted = true;
     }
@@ -227,7 +222,7 @@ bool MultiFormatArchive::Open(IStream* stream) {
     return ok;
 }
 
-bool MultiFormatArchive::OpenArchive(const char* path, const ArchiveExtractProgressCb* cbProgress) {
+bool MultiFormatArchive::OpenArchive(const char* path, bool eagerLoad, const ArchiveExtractProgressCb& cbProgress) {
     struct archive* a = archive_read_new();
     archive_read_support_format_all(a);
     archive_read_support_filter_all(a);
@@ -239,7 +234,7 @@ bool MultiFormatArchive::OpenArchive(const char* path, const ArchiveExtractProgr
         return false;
     }
     archivePath_ = str::Dup(path);
-    bool ok = ParseEntries(a, cbProgress);
+    bool ok = ParseEntries(a, eagerLoad, cbProgress);
     if (ok) {
         format = FormatFromArchive(a);
     }
@@ -423,33 +418,22 @@ const char* MultiFormatArchive::GetComment() {
 
 ///// format specific handling /////
 
-static MultiFormatArchive* open(MultiFormatArchive* archive, const char* path,
-                                const ArchiveExtractProgressCb* cbProgress) {
-    bool ok = archive->Open(path, nullptr, cbProgress);
-    if (!ok) {
-        delete archive;
-        return nullptr;
-    }
-    return archive;
-}
-
-static MultiFormatArchive* open(MultiFormatArchive* archive, IStream* stream) {
-    bool ok = archive->Open(stream);
-    if (!ok) {
-        delete archive;
-        return nullptr;
-    }
-    return archive;
-}
-
-MultiFormatArchive* OpenArchiveFromFile(const char* path, const ArchiveExtractProgressCb* cbProgress) {
+MultiFormatArchive* OpenArchiveFromFile(const char* path, bool eagerLoad, const ArchiveExtractProgressCb& cbProgress) {
     auto* archive = new MultiFormatArchive();
-    return open(archive, path, cbProgress);
+    if (!archive->Open(path, eagerLoad, nullptr, cbProgress)) {
+        delete archive;
+        return nullptr;
+    }
+    return archive;
 }
 
 MultiFormatArchive* OpenArchiveFromStream(IStream* stream) {
     auto* archive = new MultiFormatArchive();
-    return open(archive, stream);
+    if (!archive->Open(stream)) {
+        delete archive;
+        return nullptr;
+    }
+    return archive;
 }
 
 struct UnrarData {
@@ -652,25 +636,22 @@ Exit:
 
 // asan build crashes in UnRAR code
 // see https://codeeval.dev/gist/801ad556960e59be41690d0c2fa7cba0
-bool MultiFormatArchive::OpenUnrarFallback(const char* rarPath, const ArchiveExtractProgressCb* cbProgress) {
+bool MultiFormatArchive::OpenUnrarFallback(const char* rarPath, bool eagerLoad,
+                                           const ArchiveExtractProgressCb& cbProgress) {
     if (!rarPath) {
         return false;
     }
     ReportIf(rarFilePath_);
     auto rarPathW = ToWStrTemp(rarPath);
-    const bool loadAll = (cbProgress != nullptr);
 
     UnrarData uncompressedBuf;
     uncompressedBuf.password = password;
 
     RAROpenArchiveDataEx arcData = {nullptr};
     arcData.ArcNameW = (WCHAR*)rarPathW;
-    arcData.OpenMode = RAR_OM_LIST;
+    arcData.OpenMode = eagerLoad ? RAR_OM_EXTRACT : RAR_OM_LIST;
     arcData.Callback = unrarCallback;
     arcData.UserData = (LPARAM)&uncompressedBuf;
-    if (loadAll) {
-        arcData.OpenMode = RAR_OM_EXTRACT;
-    }
 
     HANDLE hArc = RAROpenArchiveEx(&arcData);
     if (!hArc || arcData.OpenResult != 0) {
@@ -702,7 +683,7 @@ bool MultiFormatArchive::OpenUnrarFallback(const char* rarPath, const ArchiveExt
         i->name = str::Dup(allocator_, name);
         i->isDir = (rarHeader.Flags & RHDF_DIRECTORY) != 0;
         i->data = nullptr;
-        if (loadAll) {
+        if (eagerLoad) {
             // +2 so that it's zero-terminated even when interprted as WCHAR*
             i->data = AllocArray<char>(i->fileSizeUncompressed + 2);
             if (i->data) {
@@ -718,11 +699,11 @@ bool MultiFormatArchive::OpenUnrarFallback(const char* rarPath, const ArchiveExt
         fileId++;
 
         int op = RAR_SKIP;
-        if (loadAll && !i->failed) {
+        if (eagerLoad && !i->failed) {
             op = RAR_EXTRACT;
         }
         int rres = RARProcessFile(hArc, op, nullptr, nullptr);
-        if (loadAll && !i->failed) {
+        if (eagerLoad && !i->failed) {
             // Unrar treats extraction errors as non-zero return; also
             // require the buffer was fully filled (curr advanced by exactly
             // the declared uncompressed size).
@@ -733,15 +714,15 @@ bool MultiFormatArchive::OpenUnrarFallback(const char* rarPath, const ArchiveExt
                 i->failed = true;
             }
         }
-        if (cbProgress) {
-            prog.nDecoded = (int)fileId;
-            cbProgress->Call(&prog);
-        }
+        prog.fileInfo = i;
+        prog.nDecoded = (int)fileId;
+        cbProgress.Call(&prog);
     }
-    if (cbProgress && fileId > 0) {
+    if (fileId > 0) {
+        prog.fileInfo = fileInfos_[fileId - 1];
         prog.nDecoded = (int)fileId;
         prog.nTotal = (int)fileId;
-        cbProgress->Call(&prog);
+        cbProgress.Call(&prog);
     }
 
     RARCloseArchive(hArc);

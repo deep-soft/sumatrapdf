@@ -2388,20 +2388,13 @@ EngineBase* EngineCbx::CreateFromFile(const char* path, const char* password, Mu
     MultiFormatArchive* archive = new MultiFormatArchive();
     archive->password = str::Dup(password);
 
-    // for small archives, eagerly decompress everything up front so we
-    // don't have to re-open the file for each page's image data. prefer
-    // the externally-supplied progress callback (set by the file loader
-    // so it can update the "Loading ..." notification), else pass an
-    // empty callback just to flip on eager-load.
+    // eagerly decompress small archives up front so we don't have to
+    // re-open the file for each page's image data.
     constexpr i64 kMaxEagerLoadSize = 32 * 1024 * 1024;
-    ArchiveExtractProgressCb emptyCb;
-    const ArchiveExtractProgressCb* cbProgress = nullptr;
     i64 fileSize = file::GetSize(path);
-    if (fileSize > 0 && fileSize < kMaxEagerLoadSize) {
-        cbProgress = gArchiveProgressCb ? gArchiveProgressCb : &emptyCb;
-    }
+    bool eagerLoad = fileSize > 0 && fileSize < kMaxEagerLoadSize;
 
-    if (!archive->Open(path, hintKind, cbProgress)) {
+    if (!archive->Open(path, eagerLoad, hintKind, gArchiveProgressCb)) {
         delete archive;
         return nullptr;
     }

@@ -4,25 +4,18 @@
 struct archive;
 struct archive_entry;
 
-// Progress callback payload used by OpenArchiveFromFile in eagerLoad mode.
-// nDecoded : count of files (entries) processed so far (incremented whether
-//            decompression succeeded or failed).
-// nTotal   : total count of files when known, -1 while the archive header
-//            is still being iterated. For libarchive this only becomes
-//            known at the end, so most callbacks carry -1 during the pass
-//            and a final callback with nDecoded == nTotal.
-struct ArchiveExtractProgress {
-    int nDecoded;
-    int nTotal;
-};
+// forward-declared so ArchiveExtractProgress below can reference
+// MultiFormatArchive::FileInfo, which is defined inside the class body.
+class MultiFormatArchive;
 
+struct ArchiveExtractProgress;
 using ArchiveExtractProgressCb = Func1<ArchiveExtractProgress*>;
 
-// Thread-local progress callback honored by archive opens. When set
-// (non-null), the open enables eager-load and routes per-entry
-// callbacks through it. Set by callers that want progress
-// notifications; clear afterwards.
-extern thread_local const ArchiveExtractProgressCb* gArchiveProgressCb;
+// Thread-local progress callback honored by archive opens. Callers set
+// it before triggering a load that may open archives (e.g. cbx / epub /
+// fb2z); cleared afterwards. Archive openers pass it straight through to
+// MultiFormatArchive::Open without further indirection.
+extern thread_local ArchiveExtractProgressCb gArchiveProgressCb;
 
 class MultiFormatArchive {
   public:
@@ -59,12 +52,12 @@ class MultiFormatArchive {
     // hintKind is the result of a prior GuessFileTypeFromContent() done
     // by the caller. When non-null we skip the internal 2 KiB sniff and
     // use it to drive rar-first vs. libarchive routing.
-    // cbProgress != nullptr signals "eager load": decompress every entry
-    // at open time and close the archive so no re-open will ever happen.
-    // The callback fires after each entry is processed (see
-    // ArchiveExtractProgress); pass &emptyCb to turn on eager load without
-    // actually wanting notifications.
-    bool Open(const char* path, Kind hintKind = nullptr, const ArchiveExtractProgressCb* cbProgress = nullptr);
+    // eagerLoad = true: decompress every entry at open time and close
+    //   the archive so no re-open will ever happen.
+    // cbProgress fires after each entry is processed (see
+    // ArchiveExtractProgress). Pass a default-constructed Func1 to skip
+    // notifications.
+    bool Open(const char* path, bool eagerLoad, Kind hintKind, const ArchiveExtractProgressCb& cbProgress);
     bool Open(IStream* stream);
 
     Vec<FileInfo*> const& GetFileInfos();
@@ -107,10 +100,10 @@ class MultiFormatArchive {
     // only set when we loaded file infos using unrar.dll fallback
     const char* rarFilePath_ = nullptr;
 
-    bool OpenArchive(const char* path, const ArchiveExtractProgressCb* cbProgress);
-    bool ParseEntries(struct archive* a, const ArchiveExtractProgressCb* cbProgress);
+    bool OpenArchive(const char* path, bool eagerLoad, const ArchiveExtractProgressCb& cbProgress);
+    bool ParseEntries(struct archive* a, bool eagerLoad, const ArchiveExtractProgressCb& cbProgress);
 
-    bool OpenUnrarFallback(const char* rarPathUtf, const ArchiveExtractProgressCb* cbProgress);
+    bool OpenUnrarFallback(const char* rarPathUtf, bool eagerLoad, const ArchiveExtractProgressCb& cbProgress);
     // Populate fileInfos_[fileId]->data via the respective backend; set
     // ->failed when extraction didn't produce the expected bytes.
     void LoadFileDataByIdUnarrDll(size_t fileId);
@@ -119,18 +112,31 @@ class MultiFormatArchive {
     bool LoadedUsingUnrarDll() const { return rarFilePath_ != nullptr; }
 };
 
+// Progress callback payload. fileInfo points at the FileInfo record for
+// the entry just processed (may have ->failed set). nDecoded is the
+// running count (incremented whether decompression succeeded or failed);
+// nTotal is the total count when known, -1 otherwise (libarchive only
+// knows the total at the end, so most callbacks carry -1 and a final
+// callback carries nDecoded == nTotal).
+struct ArchiveExtractProgress {
+    MultiFormatArchive::FileInfo* fileInfo;
+    int nDecoded;
+    int nTotal;
+};
+
 // Open a file on disk. MultiFormatArchive::Open(path) detects RAR via a
 // content sniff and routes it through unrar.dll; everything else goes
 // through libarchive.
 //
-// When cbProgress is non-null every file is decompressed during Open()
-// and the archive is then closed — GetFileDataById for a file that failed
-// to decompress returns an empty ByteSlice and never re-opens the file.
-// Use FileInfo::failed to tell "not yet loaded" from "failed". Pass &emptyCb
-// (a default-constructed ArchiveExtractProgressCb) to enable eager load
-// without actually wanting progress notifications.
-MultiFormatArchive* OpenArchiveFromFile(const char* path, const ArchiveExtractProgressCb* cbProgress = nullptr);
+// eagerLoad: if true, every file is decompressed during Open() and the
+// archive is then closed. GetFileDataById for a file that failed to
+// decompress returns FileInfo with data=nullptr and never re-opens the
+// file; use FileInfo::failed to tell "not yet loaded" from "failed".
+// cbProgress fires once per entry (see ArchiveExtractProgress); pass a
+// default-constructed Func1 to skip notifications.
+MultiFormatArchive* OpenArchiveFromFile(const char* path, bool eagerLoad, const ArchiveExtractProgressCb& cbProgress);
 
 // Open from an IStream. libarchive auto-detects the container (zip/rar/
-// 7z/tar/etc.) — no per-format wrapper needed.
+// 7z/tar/etc.). Always eager-loads (can't re-open a stream); no progress
+// reporting.
 MultiFormatArchive* OpenArchiveFromStream(IStream* stream);

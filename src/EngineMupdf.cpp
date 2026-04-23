@@ -3951,7 +3951,8 @@ void EngineMupdf::GetProperties(StrVec& keyValOut) {
     // for epub files, list all files in the archive
     const char* path = FilePath();
     if (path && str::EndsWithI(path, ".epub")) {
-        MultiFormatArchive* zip = OpenArchiveFromFile(path);
+        ArchiveExtractProgressCb emptyCb;
+        MultiFormatArchive* zip = OpenArchiveFromFile(path, /*eagerLoad=*/false, emptyCb);
         if (zip) {
             StrBuilder filesStr;
             auto& fileInfos = zip->GetFileInfos();
@@ -4197,7 +4198,7 @@ EngineBase* CreateEngineMupdfFromFile(const char* path, Kind kind, int displayDP
         return nullptr;
     }
     if (kind == kindFileFb2z) {
-        AutoDelete archive = OpenArchiveFromFile(path);
+        AutoDelete archive = OpenArchiveFromFile(path, /*eagerLoad=*/true, gArchiveProgressCb);
         if (!archive) {
             return nullptr;
         }

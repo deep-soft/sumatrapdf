@@ -2419,17 +2419,17 @@ static void LoadDocumentAsync(LoadDocumentAsyncData* d) {
     EngineBase* engine = args->engine;
 
     // wire up the archive extraction progress callback so eager-load
-    // archives (small cbx) can update the "Loading ..." notification.
+    // archives (small cbx / epub / fb2z) can update the "Loading ..."
+    // notification.
     ExtractProgressState progState;
     progState.wnd = d->wndNotif;
     progState.path = path;
     progState.lastUpdate = 0;
-    auto progCb = MkFunc1<ExtractProgressState, ArchiveExtractProgress*>(OnExtractProgress, &progState);
-    gArchiveProgressCb = &progCb;
+    gArchiveProgressCb = MkFunc1<ExtractProgressState, ArchiveExtractProgress*>(OnExtractProgress, &progState);
 
     args->ctrl = CreateControllerForEngineOrFile(engine, path, &pwdUI, win);
 
-    gArchiveProgressCb = nullptr;
+    gArchiveProgressCb = {};
 
     if (args->ctrl && gIsDebugBuild) {
         //::Sleep(5000);
