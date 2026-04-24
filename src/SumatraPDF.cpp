@@ -5152,6 +5152,17 @@ static bool ChmForwardKey(WPARAM key) {
     return false;
 }
 
+static bool IsChmTab(WindowTab* tab) {
+    if (!tab || !tab->IsDocLoaded()) {
+        return false;
+    }
+    if (tab->AsChm()) {
+        return true;
+    }
+    DisplayModel* dm = tab->AsFixed();
+    return dm && dm->GetEngineType() == kindEngineChm;
+}
+
 static Annotation* GetAnnotionUnderCursor(WindowTab* tab, Annotation* annot) {
     DisplayModel* dm = tab->AsFixed();
     if (!dm) return nullptr;
@@ -7332,6 +7343,15 @@ static LRESULT FrameOnCommand(MainWindow* win, HWND hwnd, UINT msg, WPARAM wp, L
             gGlobalPrefs->reuseInstance = !gGlobalPrefs->reuseInstance;
             SaveSettings();
             break;
+
+        case CmdToggleChmUI: {
+            gGlobalPrefs->chmUI.useFixedPageUI = !gGlobalPrefs->chmUI.useFixedPageUI;
+            SaveSettings();
+            if (IsChmTab(tab)) {
+                ReloadDocument(win, false);
+            }
+            return 0;
+        }
 
         case CmdToggleTips: {
             gGlobalPrefs->showTips = !gGlobalPrefs->showTips;

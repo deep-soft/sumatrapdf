@@ -109,6 +109,8 @@ static i32 gDocumentNotOpenWhitelist[] = {
     CmdToggleUseTabs,
     CmdToggleTips,
     CmdToggleFrequentlyRead,
+    CmdToggleChmUI,
+    CmdToggleReuseInstance,
     CmdFavoriteToggle,
     CmdShowLog,
     CmdClearHistory,
@@ -606,8 +608,19 @@ static const char* UpdateCommandNameTemp(MainWindow* win, int cmdId, const char*
             newIsOn = !gGlobalPrefs->reuseInstance;
         } break;
     }
+
     if (isToggle) {
         s = (const char*)str::JoinTemp(s, newIsOn ? ": on" : ": off");
+        return s;
+    }
+
+    if (cmdId == CmdToggleChmUI) {
+        if (gGlobalPrefs->chmUI.useFixedPageUI) {
+            s = (const char*)str::JoinTemp(s, ": browser");
+        } else {
+            s = (const char*)str::JoinTemp(s, ": fixed");
+        }
+        return s;
     }
 
     if (cmdId == CmdToggleWindowsPreviewer) {
@@ -616,6 +629,7 @@ static const char* UpdateCommandNameTemp(MainWindow* win, int cmdId, const char*
         } else {
             s = _TRA("Register Windows Previewer");
         }
+        return s;
     }
 
     if (cmdId == CmdToggleWindowsSearchFilter) {
@@ -624,6 +638,7 @@ static const char* UpdateCommandNameTemp(MainWindow* win, int cmdId, const char*
         } else {
             s = _TRA("Register Windows Search Filter");
         }
+        return s;
     }
 
     return s;
