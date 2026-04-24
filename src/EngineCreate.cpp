@@ -22,6 +22,7 @@
 #include "EngineAll.h"
 #include "GlobalPrefs.h"
 #include "Flags.h"
+#include "StressTesting.h"
 
 static bool gEnableEpubWithPdfEngine = true;
 
@@ -79,6 +80,11 @@ static void OnCbxCopyProgress(CbxCopyProgressState* s, file::CopyProgress* p) {
 // the caller falls back to opening the original file directly.
 static TempStr MaybeCopyCbxToLocalCache(const char* path) {
     if (!path::IsOnNetworkDrive(path)) {
+        return nullptr;
+    }
+    // stress testing opens thousands of files back-to-back; copying each
+    // one into the local cache would just churn the disk.
+    if (IsStressTesting()) {
         return nullptr;
     }
     i64 fileSize = file::GetSize(path);
