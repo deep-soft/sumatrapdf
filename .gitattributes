@@ -1,3 +1,4 @@
 # Disable LF normalization for all files
 * -text
 docs/**/*.md          text eol=lf
+cmd/**/*.ts           text eol=lf
