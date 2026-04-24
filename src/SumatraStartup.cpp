@@ -956,8 +956,59 @@ static void ShowNoAdminErrorMessage() {
     TaskDialogIndirect(&dialogConfig, nullptr, nullptr, nullptr);
 }
 
+// delete locally cached copies of cbx files that haven't been opened in a
+// while. We cache network-drive cbx archives under <data>/cbx-cache/ to
+// avoid slow re-reads; they're pure cache so evicting cold entries is
+// safe.
+static void DeleteStaleCbxCacheFiles() {
+    TempStr dataDir = GetNotImportantDataDirTemp();
+    if (!dataDir) {
+        return;
+    }
+    TempStr cacheDir = path::JoinTemp(dataDir, "cbx-cache");
+    if (path::GetType(cacheDir) != path::Type::Dir) {
+        return;
+    }
+
+    constexpr i64 kMaxAgeSec = 7LL * 24 * 60 * 60;
+    FILETIME nowFt;
+    GetSystemTimeAsFileTime(&nowFt);
+    ULARGE_INTEGER now;
+    now.LowPart = nowFt.dwLowDateTime;
+    now.HighPart = nowFt.dwHighDateTime;
+
+    DirIter di{cacheDir};
+    di.includeFiles = true;
+    di.includeDirs = false;
+    for (DirIterEntry* de : di) {
+        TempStr ext = path::GetExtTemp(de->name);
+        bool isCbx = str::EqI(ext, ".cbx") || str::EqI(ext, ".cbz") || str::EqI(ext, ".cbr") || str::EqI(ext, ".cb7") ||
+                     str::EqI(ext, ".cbt");
+        if (!isCbx) {
+            continue;
+        }
+        FILETIME atime = de->fd->ftLastAccessTime;
+        ULARGE_INTEGER a;
+        a.LowPart = atime.dwLowDateTime;
+        a.HighPart = atime.dwHighDateTime;
+        // FILETIME is 100-ns ticks since 1601; convert delta to seconds.
+        i64 ageSec = (i64)((now.QuadPart - a.QuadPart) / 10000000ULL);
+        if (ageSec < kMaxAgeSec) {
+            continue;
+        }
+        bool ok = file::Delete(de->filePath);
+        logf("DeleteStaleCbxCacheFiles: delete '%s' (age %lld days) -> %d\n", de->filePath,
+             (long long)(ageSec / (24 * 60 * 60)), (int)ok);
+    }
+}
+
 // delete symbols and manual from possibly previous versions
 static void DeleteStaleFilesAsync() {
+    DeleteStaleCbxCacheFiles();
+
+    if (!(gIsPreReleaseBuild || gIsDebugBuild)) {
+        return;
+    }
     TempStr dir = GetNotImportantDataDirTemp();
     TempStr ver = GetVerDirNameTemp("");
     logf("DeleteStaleFilesAsync: dir: '%s', gIsPreRelaseBuild: %d, ver: %s\n", dir, (int)gIsPreReleaseBuild, ver);
@@ -983,11 +1034,6 @@ static void DeleteStaleFilesAsync() {
 }
 
 void StartDeleteStaleFiles() {
-    // for now we only care about pre-release builds as they can be updated frequently
-    if (!(gIsPreReleaseBuild || gIsDebugBuild)) {
-        logf("DeleteStaleFiles: skipping because gIsPreRelaseBuild: %d\n", (int)gIsPreReleaseBuild);
-        return;
-    }
     auto fn = MkFunc0Void(DeleteStaleFilesAsync);
     RunAsync(fn, "DeleteStaleFilesThread");
 }

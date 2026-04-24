@@ -2412,6 +2412,50 @@ static void OnExtractProgress(ExtractProgressState* s, ArchiveExtractProgress* p
     uitask::Post(fn, "ExtractProgress");
 }
 
+// Progress payload for the network-drive copy step, rendered as
+// "Copying <name>: 12.38 MB / 45.00 MB" so users can see large copies
+// making progress. nDecoded/nTotal from OnExtractProgress's task carry
+// counts; this task carries byte totals instead.
+struct CopyProgressUITask {
+    NotificationWnd* wnd;
+    char* path;
+    i64 bytesCopied;
+    i64 bytesTotal;
+};
+
+static void UpdateCopyNotifUI(CopyProgressUITask* task) {
+    AutoDelete delTask(task);
+    AutoFreeStr delPath(task->path);
+    if (!task->wnd) {
+        return;
+    }
+    const char* basename = path::GetBaseNameTemp(task->path);
+    TempStr copied = str::FormatSizeShortTemp(task->bytesCopied, nullptr);
+    TempStr msg;
+    if (task->bytesTotal > 0) {
+        TempStr total = str::FormatSizeShortTemp(task->bytesTotal, nullptr);
+        msg = str::FormatTemp(_TRA("Copying %s: %s / %s"), basename, copied, total);
+    } else {
+        msg = str::FormatTemp(_TRA("Copying %s: %s"), basename, copied);
+    }
+    NotificationUpdateMessage(task->wnd, msg);
+}
+
+struct CopyProgressState {
+    NotificationWnd* wnd;
+    const char* path;
+};
+
+static void OnFileCopyProgress(CopyProgressState* s, file::CopyProgress* p) {
+    auto* task = new CopyProgressUITask;
+    task->wnd = s->wnd;
+    task->path = str::Dup(s->path);
+    task->bytesCopied = p->bytesCopied;
+    task->bytesTotal = p->bytesTotal;
+    auto fn = MkFunc0<CopyProgressUITask>(UpdateCopyNotifUI, task);
+    uitask::Post(fn, "CopyProgress");
+}
+
 static void LoadDocumentAsync(LoadDocumentAsyncData* d) {
     auto args = d->args;
     AtomicIntInc(&gDangerousThreadCount);
@@ -2430,9 +2474,18 @@ static void LoadDocumentAsync(LoadDocumentAsyncData* d) {
     progState.lastUpdate = 0;
     gArchiveProgressCb = MkFunc1<ExtractProgressState, ArchiveExtractProgress*>(OnExtractProgress, &progState);
 
+    // also wire up the file-copy progress callback so the cbx
+    // network-drive caching step (runs before archive open) reports bytes
+    // copied into the same loading notification.
+    CopyProgressState copyState;
+    copyState.wnd = d->wndNotif;
+    copyState.path = path;
+    file::gFileCopyProgressCb = MkFunc1<CopyProgressState, file::CopyProgress*>(OnFileCopyProgress, &copyState);
+
     args->ctrl = CreateControllerForEngineOrFile(engine, path, &pwdUI, win);
 
     gArchiveProgressCb = {};
+    file::gFileCopyProgressCb = {};
 
     if (args->ctrl && gIsDebugBuild) {
         //::Sleep(5000);

@@ -2029,9 +2029,12 @@ class EngineCbx : public EngineImages {
 
     TocTree* GetToc() override;
 
+    // realPath: when non-null we actually open the archive from this
+    // (local) path but still report `path` via FilePath() so callers
+    // (file history, bookmarks, etc.) see the user's original file.
     static EngineBase* CreateFromFile(const char* path, const char* password = nullptr,
                                       MultiFormatArchive::Format* formatOut = nullptr, bool* isEncryptedOut = nullptr,
-                                      Kind hintKind = nullptr);
+                                      Kind hintKind = nullptr, const char* realPath = nullptr);
     static EngineBase* CreateFromStream(IStream* stream);
 
   protected:
@@ -2049,6 +2052,12 @@ class EngineCbx : public EngineImages {
     Vec<MultiFormatArchive::FileInfo*> files;
     TocTree* tocTree = nullptr;
 
+    // When set, the archive was actually opened from this local path (e.g.
+    // a cached copy of a network-drive file). FilePath() still returns the
+    // original path so file history / bookmarks / state track the user's
+    // real file, not our cache.
+    char* physicalPath = nullptr;
+
     ComicInfoParser cip;
 };
 
@@ -2061,6 +2070,7 @@ EngineCbx::EngineCbx(MultiFormatArchive* archive) {
 EngineCbx::~EngineCbx() {
     delete tocTree;
     delete cbxArchive;
+    str::Free(physicalPath);
 }
 
 EngineBase* EngineCbx::Clone() {
@@ -2077,7 +2087,8 @@ EngineBase* EngineCbx::Clone() {
     }
     const char* path = FilePath();
     if (path) {
-        auto clone = CreateFromFile(path);
+        // keep the cached-local-copy in play on the clone too
+        auto clone = CreateFromFile(path, nullptr, nullptr, nullptr, nullptr, physicalPath);
         if (!clone) {
             logf("EngineCbx::Clone() failed: CreateFromFile('%s') failed\n", path);
         }
@@ -2378,7 +2389,7 @@ RectF EngineCbx::LoadMediabox(int pageNo) {
 }
 
 EngineBase* EngineCbx::CreateFromFile(const char* path, const char* password, MultiFormatArchive::Format* formatOut,
-                                      bool* isEncryptedOut, Kind hintKind) {
+                                      bool* isEncryptedOut, Kind hintKind, const char* realPath) {
     auto timeStart = TimeGet();
     // we sniff the type from content first because the
     // files can be mis-named e.g. .cbr archive with .cbz ext
@@ -2388,13 +2399,18 @@ EngineBase* EngineCbx::CreateFromFile(const char* path, const char* password, Mu
     MultiFormatArchive* archive = new MultiFormatArchive();
     archive->password = str::Dup(password);
 
+    // realPath is a local copy of a file that lives on a slow drive (see
+    // caller in EngineCreate.cpp). We open the archive from there but
+    // still surface `path` as the logical file path.
+    const char* openPath = realPath ? realPath : path;
+
     // eagerly decompress small archives up front so we don't have to
     // re-open the file for each page's image data.
     constexpr i64 kMaxEagerLoadSize = 32 * 1024 * 1024;
-    i64 fileSize = file::GetSize(path);
+    i64 fileSize = file::GetSize(openPath);
     bool eagerLoad = fileSize > 0 && fileSize < kMaxEagerLoadSize;
 
-    if (!archive->Open(path, eagerLoad, hintKind, gArchiveProgressCb)) {
+    if (!archive->Open(openPath, eagerLoad, hintKind, gArchiveProgressCb)) {
         delete archive;
         return nullptr;
     }
@@ -2407,6 +2423,9 @@ EngineBase* EngineCbx::CreateFromFile(const char* path, const char* password, Mu
     logf("EngineCbx::CreateFromFile(): opening archive took %.2f\n", TimeSinceInMs(timeStart));
 
     auto* engine = new EngineCbx(archive);
+    if (realPath) {
+        engine->physicalPath = str::Dup(realPath);
+    }
     if (engine->LoadFromFile(path)) {
         return engine;
     }
@@ -2439,10 +2458,10 @@ bool IsEngineCbxSupportedFileType(Kind kind) {
     return KindIndexOf(cbxKinds, n, kind) >= 0;
 }
 
-EngineBase* CreateEngineCbxFromFile(const char* path, PasswordUI* pwdUI, Kind hintKind) {
+EngineBase* CreateEngineCbxFromFile(const char* path, PasswordUI* pwdUI, Kind hintKind, const char* realPath) {
     MultiFormatArchive::Format fmt = MultiFormatArchive::Format::Unknown;
     bool isEncrypted = false;
-    EngineBase* engine = EngineCbx::CreateFromFile(path, nullptr, &fmt, &isEncrypted, hintKind);
+    EngineBase* engine = EngineCbx::CreateFromFile(path, nullptr, &fmt, &isEncrypted, hintKind, realPath);
     if (engine || !pwdUI) {
         return engine;
     }
@@ -2462,7 +2481,7 @@ EngineBase* CreateEngineCbxFromFile(const char* path, PasswordUI* pwdUI, Kind hi
         if (!pwd) {
             return nullptr; // user cancelled
         }
-        engine = EngineCbx::CreateFromFile(path, pwd, nullptr, nullptr, hintKind);
+        engine = EngineCbx::CreateFromFile(path, pwd, nullptr, nullptr, hintKind, realPath);
         str::Free(pwd);
         if (engine) {
             return engine;

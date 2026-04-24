@@ -81,8 +81,24 @@ int GetZoneIdentifier(const char* path);
 bool SetZoneIdentifier(const char* path, int zoneId = URLZONE_INTERNET);
 bool DeleteZoneIdentifier(const char* path);
 
+// Progress reported by Copy(). bytesTotal == 0 means "total not known".
+struct CopyProgress {
+    i64 bytesCopied;
+    i64 bytesTotal;
+};
+using CopyProgressCb = Func1<CopyProgress*>;
+
+// Thread-local progress callback honored by long-running copies (e.g.
+// caching a network-drive cbx locally). Caller sets it before triggering
+// an operation that may copy large files; clears it afterwards.
+extern thread_local CopyProgressCb gFileCopyProgressCb;
+
 bool Copy(const char* dst, const char* src, bool dontOverwrite);
+bool Copy(const char* dst, const char* src, bool dontOverwrite, const CopyProgressCb& cbProgress);
 bool Rename(const char* newPath, const char* oldPath);
+
+bool SetAccessTime(const char* path, FILETIME accessTime);
+FILETIME GetAccessTime(const char* path);
 
 } // namespace file
 

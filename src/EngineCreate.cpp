@@ -2,10 +2,14 @@
    License: GPLv3 */
 
 #include "utils/BaseUtil.h"
+#include "utils/CryptoUtil.h"
+#include "utils/FileUtil.h"
 #include "utils/ScopedWin.h"
 #include "utils/WinUtil.h"
 #include "utils/GuessFileType.h"
 #include "utils/Dpi.h"
+#include "utils/Log.h"
+#include "utils/Timer.h"
 
 #include "wingui/UIModels.h"
 
@@ -20,6 +24,95 @@
 #include "Flags.h"
 
 static bool gEnableEpubWithPdfEngine = true;
+
+// Deterministic cache path for a cbx file on a slow drive. Uses
+// md5(path + size) so it stays stable across opens of the same file, and
+// reuses the file's own extension (.cbr/.cbz/.cb7/.cbt) so tooling that
+// inspects the temp copy still sniffs the right format.
+static TempStr GetCbxCachePathTemp(const char* path, i64 fileSize) {
+    TempStr dataDir = GetNotImportantDataDirTemp();
+    if (!dataDir) {
+        return nullptr;
+    }
+    if (path::IsOnNetworkDrive(dataDir)) {
+        // local-appdata is also remote (unusual) -- caching wouldn't help
+        return nullptr;
+    }
+    TempStr cacheDir = path::JoinTemp(dataDir, "cbx-cache");
+
+    u8 digest[16]{};
+    TempStr keyStr = str::FormatTemp("%s|%lld", path, (long long)fileSize);
+    CalcMD5Digest((const u8*)keyStr, str::Leni(keyStr), digest);
+    AutoFreeStr hex = str::MemToHex(digest, dimof(digest));
+
+    TempStr ext = path::GetExtTemp(path);
+    if (str::IsEmpty(ext)) {
+        ext = (TempStr) ".cbx";
+    }
+    TempStr name = str::JoinTemp(hex, ext);
+    return path::JoinTemp(cacheDir, name);
+}
+
+struct CbxCopyProgressState {
+    DWORD lastUpdate;
+};
+
+static void OnCbxCopyProgress(CbxCopyProgressState* s, file::CopyProgress* p) {
+    // throttle to once every 100 ms; the "done" callback (bytesCopied ==
+    // bytesTotal) always fires because CopyFileExW issues a final update.
+    bool isFinal = (p->bytesTotal > 0 && p->bytesCopied == p->bytesTotal);
+    DWORD now = GetTickCount();
+    if (!isFinal && (now - s->lastUpdate) < 100) {
+        return;
+    }
+    s->lastUpdate = now;
+    if (file::gFileCopyProgressCb.IsValid()) {
+        file::gFileCopyProgressCb.Call(p);
+    }
+}
+
+// If `path` is on a network drive and the local cache dir is not, copy
+// it into a deterministically named file under <dataDir>/cbx-cache and
+// return the cache path. On cache hit we bump the access time so the
+// stale-files sweep in DeleteStaleFilesAsync() keeps the file warm. Any
+// failure (copy error, cache dir unavailable, ...) returns nullptr and
+// the caller falls back to opening the original file directly.
+static TempStr MaybeCopyCbxToLocalCache(const char* path) {
+    if (!path::IsOnNetworkDrive(path)) {
+        return nullptr;
+    }
+    i64 fileSize = file::GetSize(path);
+    if (fileSize <= 0) {
+        return nullptr;
+    }
+    TempStr cachePath = GetCbxCachePathTemp(path, fileSize);
+    if (!cachePath) {
+        return nullptr;
+    }
+    if (file::Exists(cachePath)) {
+        FILETIME now;
+        GetSystemTimeAsFileTime(&now);
+        file::SetAccessTime(cachePath, now);
+        logf("MaybeCopyCbxToLocalCache: cache hit '%s'\n", cachePath);
+        return cachePath;
+    }
+    if (!dir::CreateForFile(cachePath)) {
+        logf("MaybeCopyCbxToLocalCache: dir::CreateForFile('%s') failed\n", cachePath);
+        return nullptr;
+    }
+
+    auto timeStart = TimeGet();
+    CbxCopyProgressState progState{0};
+    auto cb = MkFunc1<CbxCopyProgressState, file::CopyProgress*>(OnCbxCopyProgress, &progState);
+    bool ok = file::Copy(cachePath, path, false, cb);
+    if (!ok) {
+        logf("MaybeCopyCbxToLocalCache: file::Copy('%s' -> '%s') failed\n", path, cachePath);
+        file::Delete(cachePath);
+        return nullptr;
+    }
+    logf("MaybeCopyCbxToLocalCache: copied '%s' -> '%s' in %.2f ms\n", path, cachePath, TimeSinceInMs(timeStart));
+    return cachePath;
+}
 
 bool IsSupportedFileType(Kind kind, bool enableEngineEbooks) {
     if (!kind) return false;
@@ -92,7 +185,13 @@ static EngineBase* CreateEngineForKind(Kind kind, Kind contentHintKind, const ch
     }
 
     if (IsEngineCbxSupportedFileType(kind)) {
-        engine = CreateEngineCbxFromFile(path, pwdUI, contentHintKind);
+        // reading a cbx straight off a network drive is painfully slow
+        // (lazy-load re-opens the file for every page and even eager-load
+        // reads the whole archive over the wire). Copy it to a local
+        // cache once and load from there; FilePath() still reports the
+        // user's original path so file history / bookmarks are unchanged.
+        TempStr realPath = MaybeCopyCbxToLocalCache(path);
+        engine = CreateEngineCbxFromFile(path, pwdUI, contentHintKind, realPath);
         return engine;
     }
     if (IsEnginePsSupportedFileType(kind)) {
