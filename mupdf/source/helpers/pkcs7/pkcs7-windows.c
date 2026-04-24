@@ -361,15 +361,30 @@ static pdf_signature_error windows_check_digest(fz_context* ctx, pdf_pkcs7_verif
 
 // ---- get_signatory -------------------------------------------------------
 
-// Copy a named attribute from the cert Subject into an fz-owned C string.
-// Returns NULL when the attribute is empty or missing.
+// Copy a named attribute from the cert Subject into an fz-owned UTF-8
+// C string. Returns NULL when the attribute is empty or missing.
+//
+// We go via CertGetNameStringW (not ...A) because the ANSI variant
+// returns bytes in the active system code page -- e.g. a Portuguese
+// "Joao da Silva" signer with 'ã' / 'á' comes back as single-byte
+// 0xE3 / 0xE1, which then renders as mojibake once the rest of the
+// SumatraPDF UI treats it as UTF-8. Convert UTF-16 -> UTF-8 here so
+// callers get well-formed UTF-8 regardless of the signer's locale.
 static char* get_name_string(fz_context* ctx, PCCERT_CONTEXT cert, LPCSTR oid) {
-    DWORD n = CertGetNameStringA(cert, CERT_NAME_ATTR_TYPE, 0, (void*)oid, NULL, 0);
+    DWORD n = CertGetNameStringW(cert, CERT_NAME_ATTR_TYPE, 0, (void*)oid, NULL, 0);
     if (n <= 1) {
         return NULL;
     }
-    char* buf = fz_malloc(ctx, n);
-    CertGetNameStringA(cert, CERT_NAME_ATTR_TYPE, 0, (void*)oid, buf, n);
+    WCHAR* wbuf = fz_malloc(ctx, n * sizeof(WCHAR));
+    CertGetNameStringW(cert, CERT_NAME_ATTR_TYPE, 0, (void*)oid, wbuf, n);
+    int u8len = WideCharToMultiByte(CP_UTF8, 0, wbuf, -1, NULL, 0, NULL, NULL);
+    if (u8len <= 1) {
+        fz_free(ctx, wbuf);
+        return NULL;
+    }
+    char* buf = fz_malloc(ctx, (size_t)u8len);
+    WideCharToMultiByte(CP_UTF8, 0, wbuf, -1, buf, u8len, NULL, NULL);
+    fz_free(ctx, wbuf);
     return buf;
 }
 

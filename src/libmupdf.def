@@ -921,6 +921,8 @@ EXPORTS
 	pdf_signature_error_description
 	pdf_signature_incremental_change_since_signing
 	pdf_drop_verifier
+	pdf_to_text_string
+	pdf_to_date
 
 ; pkcs7-windows (Windows CryptoAPI verifier backend)
 

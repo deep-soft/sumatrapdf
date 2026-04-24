@@ -3838,6 +3838,46 @@ static TempStr LookupMetadataTemp(fz_context* ctx, fz_document* doc, const char*
     return str::DupTemp(buf, (size_t)n - 1);
 }
 
+static void AppendSigDictText(fz_context* ctx, StrBuilder& s, pdf_obj* sigDict, const char* label, pdf_obj* key) {
+    const char* val = nullptr;
+    fz_try(ctx) {
+        pdf_obj* obj = pdf_dict_get(ctx, sigDict, key);
+        if (obj) {
+            val = pdf_to_text_string(ctx, obj);
+        }
+    }
+    fz_catch(ctx) {
+        fz_report_error(ctx);
+        val = nullptr;
+    }
+    if (val && *val) {
+        s.AppendFmt("  %s: %s\n", label, val);
+    }
+}
+
+static void AppendSigDictDate(fz_context* ctx, StrBuilder& s, pdf_obj* sigDict, const char* label, pdf_obj* key) {
+    int64_t secs = 0;
+    fz_try(ctx) {
+        pdf_obj* obj = pdf_dict_get(ctx, sigDict, key);
+        if (obj) {
+            secs = pdf_to_date(ctx, obj);
+        }
+    }
+    fz_catch(ctx) {
+        fz_report_error(ctx);
+        secs = 0;
+    }
+    if (secs <= 0) {
+        return;
+    }
+    time_t t = (time_t)secs;
+    struct tm tm;
+    gmtime_s(&tm, &t);
+    char buf[64];
+    strftime(buf, sizeof buf, "%Y-%m-%d %H:%M UTC", &tm);
+    s.AppendFmt("  %s: %s\n", label, buf);
+}
+
 static void AppendSignatureInfo(fz_context* ctx, StrBuilder& s, pdf_pkcs7_verifier* verifier, pdf_document* pdfdoc,
                                 pdf_annot* widget, int sigNo, int pageNo) {
     if (!s.IsEmpty()) {
@@ -3866,6 +3906,18 @@ static void AppendSignatureInfo(fz_context* ctx, StrBuilder& s, pdf_pkcs7_verifi
     s.AppendFmt("  signer: %s\n", name ? name : "(unknown)");
     fz_free(ctx, name);
     pdf_signature_drop_distinguished_name(ctx, dn);
+
+    // optional metadata the signer put in the /V dictionary (PDF 32000-1
+    // §12.8.1). These are plain PDF text strings, so pdf_to_text_string
+    // already hands us well-formed UTF-8 -- no mojibake risk.
+    pdf_obj* vDict = pdf_dict_get(ctx, sigObj, PDF_NAME(V));
+    if (!vDict) {
+        vDict = sigObj;
+    }
+    AppendSigDictDate(ctx, s, vDict, "signing time", PDF_NAME(M));
+    AppendSigDictText(ctx, s, vDict, "reason", PDF_NAME(Reason));
+    AppendSigDictText(ctx, s, vDict, "location", PDF_NAME(Location));
+    AppendSigDictText(ctx, s, vDict, "contact", PDF_NAME(ContactInfo));
 
     pdf_signature_error certErr = PDF_SIGNATURE_ERROR_UNKNOWN;
     fz_try(ctx) {
