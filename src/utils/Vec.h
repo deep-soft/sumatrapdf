@@ -11,7 +11,7 @@ store pointer types or POD types
 template <typename T>
 class Vec {
   public:
-    Allocator* allocator = nullptr;
+    Arena* allocator = nullptr;
     size_t len = 0;
     size_t cap = 0;
     size_t capacityHint = 0;
@@ -25,7 +25,7 @@ class Vec {
     static constexpr size_t kPadding = 1;
     static constexpr size_t kElSize = sizeof(T);
 
-  protected:
+  private:
     NO_INLINE bool EnsureCapSlow(size_t needed) {
         size_t newCap = cap * 2;
         if (needed > newCap) {
@@ -48,9 +48,9 @@ class Vec {
         size_t newPadding = allocSize - len * kElSize;
         T* newEls;
         if (buf == els) {
-            newEls = (T*)Allocator::MemDup(allocator, buf, len * kElSize, newPadding);
+            newEls = (T*)MemDup(allocator, buf, len * kElSize, newPadding);
         } else {
-            newEls = (T*)Allocator::Realloc(allocator, els, allocSize);
+            newEls = (T*)Realloc(allocator, els, allocSize);
         }
         if (!newEls) {
             ReportIf(InterlockedExchangeAdd(&gAllowAllocFailure, 0) == 0);
@@ -62,18 +62,22 @@ class Vec {
         return true;
     }
 
-    inline bool EnsureCap(size_t capNeeded) {
+  public:
+    inline T* EnsureCap(size_t capNeeded) {
         // this is frequent, fast path that should be inlined
         if (cap >= capNeeded) {
-            return true;
+            return els;
         }
         // slow path
-        return EnsureCapSlow(capNeeded);
+        if (!EnsureCapSlow(capNeeded)) {
+            return nullptr;
+        }
+        return els;
     }
 
     T* MakeSpaceAt(size_t idx, size_t count) {
         size_t newLen = std::max(len, idx) + count;
-        bool ok = EnsureCap(newLen);
+        T* ok = EnsureCap(newLen);
         if (!ok) {
             return nullptr;
         }
@@ -89,7 +93,7 @@ class Vec {
 
     void FreeEls() {
         if (els != buf) {
-            Allocator::Free(allocator, els);
+            Free(allocator, els);
             els = nullptr;
         }
     }
@@ -112,12 +116,17 @@ class Vec {
     }
 
     bool SetSize(size_t newSize) {
-        Reset();
-        return MakeSpaceAt(0, newSize);
+        if (newSize <= cap) {
+            len = newSize;
+            memset(els + len, 0, (cap - len) * kElSize);
+            return true;
+        }
+        auto res = MakeSpaceAt(0, newSize);
+        return res != nullptr;
     }
 
     // allocator is not owned by Vec and must outlive it
-    explicit Vec(size_t capHint = 0, Allocator* a = nullptr) {
+    explicit Vec(size_t capHint = 0, Arena* a = nullptr) {
         allocator = a;
         capacityHint = capHint;
         els = buf;
@@ -154,9 +163,7 @@ class Vec {
         return *this;
     }
 
-    ~Vec() {
-        FreeEls();
-    }
+    ~Vec() { FreeEls(); }
 
     // this frees all elements and clears the array.
     // only applicable where T is a pointer. Otherwise will fail to compile
@@ -207,17 +214,11 @@ class Vec {
         return els[idx];
     }
 
-    bool isValidIndex(int idx) const {
-        return (idx >= 0) && (idx < (int)len);
-    }
+    bool isValidIndex(int idx) const { return (idx >= 0) && (idx < (int)len); }
 
-    size_t size() const {
-        return len;
-    }
+    size_t size() const { return len; }
 
-    int Size() const {
-        return (int)len;
-    }
+    int Size() const { return (int)len; }
 
     bool InsertAt(size_t idx, const T& el) {
         T* p = MakeSpaceAt(idx, 1);
@@ -228,9 +229,7 @@ class Vec {
         return true;
     }
 
-    bool Append(const T& el) {
-        return InsertAt(len, el);
-    }
+    bool Append(const T& el) { return InsertAt(len, el); }
 
     bool Append(const T* src, size_t count) {
         if (0 == count) {
@@ -251,9 +250,7 @@ class Vec {
     }
 
     // appends count blank (i.e. zeroed-out) elements at the end
-    T* AppendBlanks(size_t count) {
-        return MakeSpaceAt(len, count);
-    }
+    T* AppendBlanks(size_t count) { return MakeSpaceAt(len, count); }
 
     void RemoveAt(size_t idx, size_t count = 1) {
         if (len > idx + count) {
@@ -317,16 +314,14 @@ class Vec {
     T* StealData() {
         T* res = els;
         if (els == buf) {
-            res = (T*)Allocator::MemDup(allocator, buf, (len + kPadding) * kElSize);
+            res = (T*)MemDup(allocator, buf, (len + kPadding) * kElSize);
         }
         els = buf;
         Reset();
         return res;
     }
 
-    T* LendData() const {
-        return els;
-    }
+    T* LendData() const { return els; }
 
     int Find(const T& el, size_t startAt = 0) const {
         for (size_t i = startAt; i < len; i++) {
@@ -337,9 +332,7 @@ class Vec {
         return -1;
     }
 
-    bool Contains(const T& el) const {
-        return -1 != Find(el);
-    }
+    bool Contains(const T& el) const { return -1 != Find(el); }
 
     // returns position of removed element or -1 if not removed
     int Remove(const T& el) {
@@ -359,9 +352,7 @@ class Vec {
         return i;
     }
 
-    void Sort(int (*cmpFunc)(const void* a, const void* b)) {
-        qsort(els, len, kElSize, cmpFunc);
-    }
+    void Sort(int (*cmpFunc)(const void* a, const void* b)) { qsort(els, len, kElSize, cmpFunc); }
 
     void SortTyped(int (*cmpFunc)(const T* a, const T* b)) {
         auto cmpFunc2 = (int (*)(const void* a, const void* b))cmpFunc;
@@ -374,32 +365,20 @@ class Vec {
         }
     }
 
-    bool IsEmpty() const {
-        return len == 0;
-    }
+    bool IsEmpty() const { return len == 0; }
 
     // TOOD: replace with IsEmpty()
-    bool empty() const {
-        return len == 0;
-    }
+    bool empty() const { return len == 0; }
 
     // http://www.cprogramming.com/c++11/c++11-ranged-for-loop.html
     // https://stackoverflow.com/questions/16504062/how-to-make-the-for-each-loop-function-in-c-work-with-a-custom-class
     using iterator = T*;
     using const_iterator = const T*;
 
-    iterator begin() {
-        return &(els[0]);
-    }
-    const_iterator begin() const {
-        return &(els[0]);
-    }
-    iterator end() {
-        return &(els[len]);
-    }
-    const_iterator end() const {
-        return &(els[len]);
-    }
+    iterator begin() { return &(els[0]); }
+    const_iterator begin() const { return &(els[0]); }
+    iterator end() { return &(els[len]); }
+    const_iterator end() const { return &(els[len]); }
 };
 
 // only suitable for T that are pointers to C++ objects

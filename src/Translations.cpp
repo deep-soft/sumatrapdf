@@ -3,10 +3,12 @@
 
 #include "utils/BaseUtil.h"
 #include "utils/WinUtil.h"
+#include "utils/LzmaSimpleArchive.h"
 
 #include "SumatraConfig.h"
 
 #include "Translations.h"
+#include "resource.h"
 
 #include "utils/Log.h"
 
@@ -126,7 +128,7 @@ static void ParseTranslationsTxt(const StrSpan& d, const char* langCode) {
     }
 }
 
-// don't free
+// don't free the result
 const char* GetTranslation(const char* s) {
     if (gCurrLangIdx == 0) {
         // 0 is english, no translation needed
@@ -145,6 +147,12 @@ const char* GetTranslation(const char* s) {
             if (!tr) {
                 logf("Didn't find translation for '%s'\n", s);
                 return s;
+            }
+            // special case of "Change Language"
+            // if we accidentally change language, we want be able to
+            // change it back so add ("Change Language") to translation
+            if (str::ContainsI(s, "Change Language") && !str::ContainsI(tr, "Change Language")) {
+                tr = (char*)str::JoinTemp(tr, " (Change Language)");
             }
             return tr;
         }
@@ -180,12 +188,36 @@ void SetCurrentLangByCode(const char* langCode) {
         // in debug we want to execute this code to catch errors
         return;
     }
-    StrSpan d = LoadDataResource(2);
+    LoadedDataResource ldr;
+    bool lok = LockDataResource(IDR_TRANSLATIONS, &ldr);
+    if (!lok) {
+        logf("SetCurrentLangByCode: LockDataResource(IDR_TRANSLATIONS) failed\n");
+        return;
+    }
+    lzma::SimpleArchive archive;
+    lok = lzma::ParseSimpleArchive(ldr.data, (size_t)ldr.dataSize, &archive);
+    if (!lok) {
+        logf("SetCurrentLangByCode: ParseSimpleArchive failed\n");
+        return;
+    }
+    int fileIdx = lzma::GetIdxFromName(&archive, "translations-good.txt");
+    if (fileIdx < 0) {
+        logf("SetCurrentLangByCode: translations-good.txt not found in archive\n");
+        return;
+    }
+    u8* data = lzma::GetFileDataByIdx(&archive, fileIdx, nullptr);
+    if (!data) {
+        logf("SetCurrentLangByCode: GetFileDataByIdx failed\n");
+        return;
+    }
+    int dataSize = (int)(archive.files[fileIdx].uncompressedSize);
+    StrSpan d = {(char*)data, dataSize};
     ParseTranslationsTxt(d, langCode);
-    str::Free(d);
+    free(data);
 }
 
 const char* ValidateLangCode(const char* langCode) {
+    if (!langCode) return nullptr;
     int idx = seqstrings::StrToIdx(gLangCodes, langCode);
     if (idx < 0) {
         return nullptr;
@@ -235,4 +267,8 @@ void Destroy() {
 
 const char* _TRA(const char* s) {
     return trans::GetTranslation(s);
+}
+
+TempWStr _TRW(const char* s) {
+    return ToWStrTemp(trans::GetTranslation(s));
 }

@@ -105,7 +105,7 @@ TempStr JoinTemp(const char* path, const char* fileName, const char* fileName2) 
     return res;
 }
 
-char* Join(Allocator* allocator, const char* path, const char* fileName) {
+char* Join(Arena* allocator, const char* path, const char* fileName) {
     if (IsSep(*fileName)) {
         fileName++;
     }
@@ -268,11 +268,14 @@ static TempWStr NormalizeTemp(const WCHAR* path) {
         }
         return shortPath;
     }
-    // else mark the path as overlong
+    // only add \\?\ prefix for paths that are actually overlong
     if (str::StartsWith(normPath, L"\\\\?\\")) {
         return normPath;
     }
-    return str::JoinTemp(L"\\\\?\\", normPath);
+    if (str::Len(normPath) >= MAX_PATH) {
+        return str::JoinTemp(L"\\\\?\\", normPath);
+    }
+    return normPath;
 }
 
 TempStr NormalizeTemp(const char* path) {
@@ -391,20 +394,67 @@ bool HasVariableDriveLetter(const char* path) {
     return false;
 }
 
-bool IsOnFixedDrive(const char* pathA) {
-    WCHAR* path = ToWStrTemp(pathA);
-    if (PathIsNetworkPathW(path)) {
+bool IsOnNetworkDrive(const char* path) {
+    WCHAR* ws = ToWStrTemp(path);
+    return PathIsNetworkPathW(ws);
+}
+
+bool IsCloudPlaceholder(const char* path) {
+    WCHAR* ws = ToWStrTemp(path);
+    DWORD attrs = GetFileAttributesW(ws);
+    if (attrs == INVALID_FILE_ATTRIBUTES) {
+        return false;
+    }
+    // Any of these signal that the bytes aren't all local yet:
+    //   FILE_ATTRIBUTE_OFFLINE                = 0x00001000
+    //   FILE_ATTRIBUTE_RECALL_ON_OPEN         = 0x00040000
+    //   FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS  = 0x00400000
+    const DWORD cloudBits =
+        FILE_ATTRIBUTE_OFFLINE | FILE_ATTRIBUTE_RECALL_ON_OPEN | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS;
+    return (attrs & cloudBits) != 0;
+}
+
+bool IsOnFixedDrive(const char* path) {
+    WCHAR* ws = ToWStrTemp(path);
+    if (PathIsNetworkPathW(ws)) {
         return false;
     }
 
     uint type;
     WCHAR root[MAX_PATH];
-    if (GetVolumePathNameW(path, root, dimof(root))) {
+    if (GetVolumePathNameW(ws, root, dimof(root))) {
         type = GetDriveType(root);
     } else {
-        type = GetDriveType(path);
+        type = GetDriveType(ws);
     }
     return DRIVE_FIXED == type;
+}
+
+// ReadDirectoryChangesW() only works reliably on NTFS and ReFS.
+// Network paths don't support it either (SMB doesn't relay notifications).
+// For other file systems (FAT32, exFAT etc.) we need manual polling.
+bool SupportsChangeNotifications(const char* pathA) {
+    WCHAR* path = ToWStrTemp(pathA);
+    if (PathIsNetworkPathW(path)) {
+        return false;
+    }
+
+    WCHAR root[MAX_PATH];
+    if (!GetVolumePathNameW(path, root, dimof(root))) {
+        return false;
+    }
+
+    WCHAR fsName[MAX_PATH];
+    if (!GetVolumeInformationW(root, nullptr, 0, nullptr, nullptr, nullptr, fsName, dimof(fsName))) {
+        return false;
+    }
+    if (str::EqI(fsName, L"NTFS")) {
+        return true;
+    }
+    if (str::EqI(fsName, L"ReFS")) {
+        return true;
+    }
+    return false;
 }
 
 static bool MatchWildcardsRec(const WCHAR* fileName, const WCHAR* filter) {
@@ -531,6 +581,23 @@ TempStr GetPathInExeDirTemp(const char* fileName) {
     return path;
 }
 
+// If path doesn't exist, returns it as-is.
+// Otherwise generates unique path by inserting ".1", ".2" etc. before extension.
+TempStr MakeUniqueFilePathTemp(const char* path) {
+    if (!file::Exists(path)) {
+        return str::DupTemp(path);
+    }
+    TempStr noExt = path::GetPathNoExtTemp(path);
+    TempStr ext = path::GetExtTemp(path);
+    for (int i = 1; i < 10000; i++) {
+        TempStr candidate = str::FormatTemp("%s.%d%s", noExt, i, ext);
+        if (!file::Exists(candidate)) {
+            return candidate;
+        }
+    }
+    return str::DupTemp(path);
+}
+
 namespace file {
 
 FILE* OpenFILE(const char* path) {
@@ -542,7 +609,7 @@ FILE* OpenFILE(const char* path) {
     return _wfopen(pathW, L"rb");
 }
 
-ByteSlice ReadFileWithAllocator(const char* filePath, Allocator* allocator) {
+ByteSlice ReadFileWithAllocator(const char* filePath, Arena* allocator) {
 #if 0 // OS_WIN
     WCHAR buf[512];
     strconv::Utf8ToWcharBuf(filePath, str::Len(filePath), buf, dimof(buf));
@@ -566,7 +633,7 @@ ByteSlice ReadFileWithAllocator(const char* filePath, Allocator* allocator) {
     if (addOverflows<size_t>(size, ZERO_PADDING_COUNT)) {
         goto Error;
     }
-    d = Allocator::AllocArray<char>(allocator, size + ZERO_PADDING_COUNT);
+    d = AllocArray<char>(allocator, size + ZERO_PADDING_COUNT);
     if (!d) {
         goto Error;
     }
@@ -591,7 +658,7 @@ ByteSlice ReadFileWithAllocator(const char* filePath, Allocator* allocator) {
 
     return {(u8*)d, size};
 Error:
-    Allocator::Free(allocator, (void*)d);
+    Free(allocator, (void*)d);
     return {};
 #endif
 }
@@ -721,6 +788,54 @@ bool Copy(const char* dst, const char* src, bool dontOverwrite) {
     return true;
 }
 
+thread_local CopyProgressCb gFileCopyProgressCb;
+
+static DWORD CALLBACK CopyProgressRoutine(LARGE_INTEGER TotalFileSize, LARGE_INTEGER TotalBytesTransferred,
+                                          LARGE_INTEGER, LARGE_INTEGER, DWORD, DWORD, HANDLE, HANDLE, LPVOID lpData) {
+    auto* cb = (const CopyProgressCb*)lpData;
+    CopyProgress p;
+    p.bytesCopied = TotalBytesTransferred.QuadPart;
+    p.bytesTotal = TotalFileSize.QuadPart;
+    cb->Call(&p);
+    return PROGRESS_CONTINUE;
+}
+
+bool Copy(const char* dst, const char* src, bool dontOverwrite, const CopyProgressCb& cbProgress) {
+    if (cbProgress.IsEmpty()) {
+        return Copy(dst, src, dontOverwrite);
+    }
+    WCHAR* dstW = ToWStrTemp(dst);
+    WCHAR* srcW = ToWStrTemp(src);
+    BOOL cancel = FALSE;
+    DWORD flags = dontOverwrite ? COPY_FILE_FAIL_IF_EXISTS : 0;
+    BOOL ok = CopyFileExW(srcW, dstW, CopyProgressRoutine, (LPVOID)&cbProgress, &cancel, flags);
+    if (!ok) {
+        LogLastError();
+        return false;
+    }
+    return true;
+}
+
+FILETIME GetAccessTime(const char* path) {
+    FILETIME t{};
+    AutoCloseHandle h(OpenReadOnly(path));
+    if (h.IsValid()) {
+        GetFileTime(h, nullptr, &t, nullptr);
+    }
+    return t;
+}
+
+bool SetAccessTime(const char* path, FILETIME accessTime) {
+    WCHAR* pathW = ToWStrTemp(path);
+    DWORD access = FILE_WRITE_ATTRIBUTES;
+    DWORD share = FILE_SHARE_READ | FILE_SHARE_WRITE;
+    AutoCloseHandle h(CreateFileW(pathW, access, share, nullptr, OPEN_EXISTING, 0, nullptr));
+    if (INVALID_HANDLE_VALUE == h) {
+        return false;
+    }
+    return SetFileTime(h, nullptr, &accessTime, nullptr);
+}
+
 FILETIME GetModificationTime(const char* filePath) {
     FILETIME lastMod{};
     AutoCloseHandle h(OpenReadOnly(filePath));
@@ -785,6 +900,20 @@ bool SetZoneIdentifier(const char* filePath, int zoneId) {
 bool DeleteZoneIdentifier(const char* filePath) {
     char* path = str::JoinTemp(filePath, ":Zone.Identifier");
     return Delete(path);
+}
+
+bool Rename(const char* newPath, const char* oldPath) {
+    if (!newPath || !oldPath) {
+        return false;
+    }
+    WCHAR* newPathW = ToWStrTemp(newPath);
+    WCHAR* oldPathW = ToWStrTemp(oldPath);
+    BOOL ok = MoveFileW(oldPathW, newPathW);
+    if (!ok) {
+        LogLastError();
+        return false;
+    }
+    return true;
 }
 
 } // namespace file
@@ -857,6 +986,23 @@ bool RemoveAll(const char* dir) {
     SHFILEOPSTRUCTW shfo = {nullptr, op, dirDoubleTerminated, nullptr, flags, FALSE, nullptr, nullptr};
     int res = SHFileOperationW(&shfo);
     return res == 0;
+}
+
+// Check if the process can create files/directories in the given directory
+// by attempting to create and immediately remove a temporary file.
+bool HasWriteAccess(const char* dir) {
+    if (!dir) {
+        return false;
+    }
+    TempStr path = path::JoinTemp(dir, "__sumatra_write_test__.tmp");
+    WCHAR* pathW = ToWStrTemp(path);
+    HANDLE h = CreateFileW(pathW, GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+                           FILE_ATTRIBUTE_NORMAL | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
+    if (h == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+    CloseHandle(h);
+    return true;
 }
 
 } // namespace dir

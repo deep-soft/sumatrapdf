@@ -7,10 +7,10 @@ struct TextSearch : public TextSelection {
         Forward = true
     };
 
-    TextSearch(EngineBase* engine, DocumentTextCache* textCache);
+    explicit TextSearch(EngineBase* engine);
     ~TextSearch();
 
-    void SetSensitive(bool sensitive);
+    void SetMatchCase(bool sensitive);
     void SetDirection(Direction direction);
     void SetLastResult(TextSelection* sel);
     TextSel* FindFirst(int page, const WCHAR* text);
@@ -32,7 +32,7 @@ struct TextSearch : public TextSelection {
     int findPage = 0;
     int searchHitStartAt = 0; // when text found spans several pages, searchHitStartAt < findPage
     bool forward = true;
-    bool caseSensitive = false;
+    bool matchCase = false;
     // these two options are implicitly set when the search text begins
     // resp. ends in a single space (many users already search that way),
     // combining them yields a 'Whole words' search

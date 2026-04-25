@@ -27,6 +27,7 @@ bool ListBoxSetTopIndex(HWND, int);
 
 bool IsValidHandle(HANDLE);
 bool SafeCloseHandle(HANDLE*);
+bool SafeFindClose(HANDLE*);
 void FillWndClassEx(WNDCLASSEX& wcex, const WCHAR* clsName, WNDPROC wndproc);
 void MoveWindow(HWND hwnd, Rect rect);
 void MoveWindow(HWND hwnd, RECT* r);
@@ -50,7 +51,6 @@ void DbgOutLastError(DWORD err = 0);
 
 // registry
 const char* RegKeyNameTemp(HKEY key);
-const char* RegKeyNameWTemp(HKEY key);
 bool RegKeyExists(HKEY keySub, const char* keyName);
 char* ReadRegStrTemp(HKEY keySub, const char* keyName, const char* valName);
 char* LoggedReadRegStrTemp(HKEY keySub, const char* keyName, const char* valName);
@@ -73,6 +73,7 @@ HRESULT CLSIDFromString(const char* lpsz, LPCLSID pclsid);
 TempStr GetSpecialFolderTemp(int csidl, bool createIfMissing = false);
 TempStr GetTempDirTemp();
 TempStr GetSelfExePathTemp();
+WCHAR* GetSelfExePathW();
 TempStr GetSelfExeDirTemp();
 void ChangeCurrDirToDocuments();
 int FileTimeDiffInSecs(const FILETIME& ft1, const FILETIME& ft2);
@@ -86,11 +87,13 @@ HANDLE LaunchProcessInDir(const char* cmdLine, const char* currDir = nullptr, DW
 bool CreateProcessHelper(const char* exe, const char* args);
 bool LaunchFileShell(const char* path, const char* params = nullptr, const char* verb = nullptr, bool hidden = false);
 bool LaunchBrowser(const char* url);
-void OpenPathInExplorer(const char* path);
+void OpenPathInDefaultFileManager(const char* path);
+void PaintCheckerboard(HDC hdc, int x, int y, int w, int h);
 
 void RunNonElevated(const char* exePath);
 bool LaunchElevated(const char* path, const char* cmdline);
 bool IsProcessRunningElevated();
+TempStr GetParentProcessPath(DWORD* pidOut = nullptr);
 bool CanTalkToProcess(DWORD procId);
 DWORD GetAccountType();
 DWORD GetOriginalAccountType();
@@ -108,6 +111,7 @@ bool IsCtrlPressed();
 Rect ShiftRectToWorkArea(Rect rect, HWND hwnd = nullptr, bool bFully = false);
 Rect GetWorkAreaRect(Rect rect, HWND hwnd);
 void LimitWindowSizeToScreen(HWND hwnd, SIZE& size);
+void HwndEnsureVisible(HWND hwnd);
 Rect GetFullscreenRect(HWND);
 Rect GetVirtualScreenRect();
 
@@ -133,6 +137,7 @@ bool IsCursorOverWindow(HWND);
 HWND HwndGetParent(HWND hwnd);
 TempStr HwndGetClassName(HWND hwnd);
 Point HwndGetCursorPos(HWND hwnd);
+Point& UnmirrorRtl(HWND hwnd, Point& p);
 int MapWindowPoints(HWND, HWND, Point*, int);
 void HwndScreenToClient(HWND, Point&);
 void HwndMakeVisible(HWND);
@@ -285,7 +290,6 @@ bool BlitHBITMAP(HBITMAP hbmp, HDC hdc, Rect target);
 double GetProcessRunningTime();
 
 void VariantInitBstr(VARIANT& urlVar, const WCHAR* s);
-StrSpan LoadDataResource(int resId);
 bool DDEExecute(const WCHAR* server, const WCHAR* topic, const WCHAR* command);
 
 void RectInflateTB(RECT& r, int top, int bottom);
@@ -334,7 +338,8 @@ void HwndSetFont(HWND, HFONT);
 
 void HwndPositionToTheRightOf(HWND hwnd, HWND hwndRelative);
 void HwndPositionInCenterOf(HWND hwnd, HWND hwndRelative);
-void HwndSendCommand(HWND hwnd, int cmdId);
+void HwndSendCommand(HWND hwnd, int cmdId, LPARAM lp = 0);
+void HwndPostCommand(HWND hwnd, int cmdId, LPARAM lp = 0);
 void HwndDestroyWindowSafe(HWND* hwnd);
 void HwndToForeground(HWND hwnd);
 void HwndSetVisibility(HWND hwnd, bool visible);
@@ -343,12 +348,13 @@ bool DeleteObjectSafe(HGDIOBJ*);
 bool DeleteBrushSafe(HBRUSH*);
 bool DestroyIconSafe(HICON*);
 
-void TbSetButtonInfo(HWND hwnd, int buttonId, TBBUTTONINFO* info);
+void TbSetButtonInfoById(HWND hwnd, int buttonId, TBBUTTONINFO* info);
 void TbGetPadding(HWND, int* padX, int* padY);
 void TbSetPadding(HWND, int padX, int padY);
 void TbGetMetrics(HWND hwnd, TBMETRICS* metrics);
 void TbSetMetrics(HWND hwnd, TBMETRICS* metrics);
-void TbGetRect(HWND hwnd, int buttonId, RECT* rc);
+void TbGetRectById(HWND hwnd, int buttonId, RECT* rc);
+void TbGetRectByIdx(HWND hwnd, int buttonIdx, RECT* rc);
 
 void TreeViewExpandRecursively(HWND hTree, HTREEITEM hItem, uint flag, bool subtree);
 void AddPathToRecentDocs(const char*);
@@ -358,6 +364,8 @@ HGLOBAL MemToHGLOBAL(void* src, int n, UINT flags = GMEM_MOVEABLE);
 HGLOBAL StrToHGLOBAL(const char* s, UINT flags = GMEM_MOVEABLE);
 TempStr AtomToStrTemp(ATOM a);
 int MsgBox(HWND, const char*, const char*, UINT);
+HWND ShowTextInWindow(const char* title, const char* text, HWND* hwndPtr = nullptr);
+void ShowTextInWindowDialog(const char* title, const char* text);
 
 constexpr u32 kCpuMMX = 1 << 1;
 constexpr u32 kCpuSSE = 1 << 2;
@@ -367,10 +375,17 @@ constexpr u32 kCpuSSE41 = 1 << 4;
 constexpr u32 kCpuSSE42 = 1 << 5;
 constexpr u32 kCpuAVX = 1 << 6;
 constexpr u32 kCpuAVX2 = 1 << 7;
+// ARM
+constexpr u32 kCpuNEON = 1 << 8;
+constexpr u32 kCpuArmCrypto = 1 << 9;
+constexpr u32 kCpuArmAtomics = 1 << 10;
+constexpr u32 kCpuArmDotProd = 1 << 11;
 
 u32 CpuID();
+const char* LatestSupportedSIMD();
 
 LARGE_INTEGER TimeNow();
 double TimeDiffSecs(const LARGE_INTEGER& start, const LARGE_INTEGER& end);
 double TimeDiffMs(const LARGE_INTEGER& start, const LARGE_INTEGER& end);
 bool IsPEFileSigned(const char* filePath);
+TempStr GetExecutableSignerTemp(const char* exePath);

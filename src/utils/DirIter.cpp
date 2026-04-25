@@ -74,7 +74,7 @@ NextDir:
     } else {
         ok = FindNextFileW(it->h, &it->fd);
         if (!ok) {
-            SafeCloseHandle(&it->h);
+            SafeFindClose(&it->h);
             str::FreePtr(&it->pattern);
             goto NextDir;
         }
@@ -99,14 +99,14 @@ NextDir:
         }
         ok = FindNextFileW(it->h, &it->fd);
         if (!ok) {
-            SafeCloseHandle(&it->h);
+            SafeFindClose(&it->h);
             str::FreePtr(&it->pattern);
             goto NextDir;
         }
     };
 DidFinish:
     str::FreePtr(&it->pattern);
-    SafeCloseHandle(&it->h);
+    SafeFindClose(&it->h);
     it->didFinish = true;
     return;
 }
@@ -174,9 +174,7 @@ struct DirTraverseThreadData {
     StrQueue* queue = nullptr; // we don't own it
     const char* dir = nullptr;
     bool recurse = false;
-    ~DirTraverseThreadData() {
-        str::FreePtr(&dir);
-    }
+    ~DirTraverseThreadData() { str::FreePtr(&dir); }
 };
 
 static void DirTraverseThread(DirTraverseThreadData* td) {

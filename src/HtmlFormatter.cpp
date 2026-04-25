@@ -363,8 +363,7 @@ void HtmlFormatter::DumpLineDebugInfo() {
 void HtmlFormatter::JustifyLineBoth() {
     float extraSpaceDxTotal = pageDx - currX;
 #ifdef DEBUG
-    if (extraSpaceDxTotal < 0.f)
-        DumpLineDebugInfo();
+    if (extraSpaceDxTotal < 0.f) DumpLineDebugInfo();
 #endif
     ReportIf(extraSpaceDxTotal < 0.f);
 
@@ -462,13 +461,20 @@ static RectF RectFUnion(RectF& r1, RectF& r2) {
 }
 
 void HtmlFormatter::UpdateLinkBboxes(HtmlPage* page) {
-    for (DrawInstr& i : page->instructions) {
-        if (DrawInstrType::LinkStart != i.type) {
+    Vec<DrawInstr>& a = page->instructions;
+    size_t n = a.size();
+    for (size_t i = 0; i < n; i++) {
+        DrawInstr& instr = a[i];
+        if (DrawInstrType::LinkStart != instr.type) {
             continue;
         }
-        for (DrawInstr* i2 = &i + 1; i2->type != DrawInstrType::LinkEnd; i2++) {
-            if (IsVisibleDrawInstr(*i2)) {
-                i.bbox = RectFUnion(i.bbox, i2->bbox);
+        for (size_t j = i + 1; j < n; j++) {
+            DrawInstr& linkInstr = a[j];
+            if (DrawInstrType::LinkEnd != linkInstr.type) {
+                continue;
+            }
+            if (IsVisibleDrawInstr(linkInstr)) {
+                instr.bbox = RectFUnion(instr.bbox, linkInstr.bbox);
             }
         }
     }
@@ -591,7 +597,7 @@ static bool HasPreviousLineSingleImage(Vec<DrawInstr>& instrs) {
 
 bool HtmlFormatter::EmitImage(const ByteSlice* img) {
     ReportIf(img->empty());
-    Size imgSize = BitmapSizeFromData(*img);
+    Size imgSize = ImageSizeFromData(*img);
     if (imgSize.IsEmpty()) {
         return false;
     }
@@ -1491,7 +1497,7 @@ void SetTextRenderMethod(mui::TextRenderMethod method) {
     gTextRenderMethod = method;
 }
 
-HtmlFormatterArgs* CreateFormatterDefaultArgs(int dx, int dy, Allocator* textAllocator) {
+HtmlFormatterArgs* CreateFormatterDefaultArgs(int dx, int dy, Arena* textAllocator) {
     HtmlFormatterArgs* args = new HtmlFormatterArgs();
     args->SetFontName(L"Georgia");
     args->fontSize = 12.5f;

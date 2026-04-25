@@ -13,14 +13,19 @@ const char* ListBoxModelStrings::Item(int i) {
 }
 
 void FillWithItems(HWND hwnd, ListBoxModel* model) {
+    SendMessageW(hwnd, WM_SETREDRAW, FALSE, 0);
     ListBox_ResetContent(hwnd);
     if (model) {
-        for (int i = 0; i < model->ItemsCount(); i++) {
+        int n = model->ItemsCount();
+        SendMessageW(hwnd, LB_INITSTORAGE, (WPARAM)n, 0);
+        for (int i = 0; i < n; i++) {
             auto sv = model->Item(i);
             auto ws = ToWStrTemp(sv);
             ListBox_AddString(hwnd, ws);
         }
     }
+    SendMessageW(hwnd, WM_SETREDRAW, TRUE, 0);
+    InvalidateRect(hwnd, nullptr, TRUE);
 }
 
 static bool VisitTreeItemRec(TreeModel* tm, TreeItem ti, const TreeItemVisitor& visitor) {

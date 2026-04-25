@@ -18,19 +18,23 @@
 #include "EngineBase.h"
 #include "SumatraConfig.h"
 #include "FileHistory.h"
-#include "AppColors.h"
 #include "GlobalPrefs.h"
 #include "Annotation.h"
 #include "SumatraPDF.h"
 #include "MainWindow.h"
 #include "resource.h"
 #include "Commands.h"
+#include "Accelerators.h"
+#include "CommandPalette.h"
 #include "FileThumbnails.h"
 #include "HomePage.h"
 #include "Translations.h"
 #include "Version.h"
 #include "Theme.h"
+#include "AppSettings.h"
+#include "OverlayScrollbar.h"
 #include "DarkModeSubclass.h"
+#include "utils/Log.h"
 
 #ifndef ABOUT_USE_LESS_COLORS
 #define ABOUT_LINE_OUTER_SIZE 2
@@ -39,18 +43,273 @@
 #endif
 #define ABOUT_LINE_SEP_SIZE 1
 
-constexpr const char* promoteBuiltIn = R"(
-[
-    Name = Edna
-    URL = https://edna.arslexis.io
-    Info = note taking app for develelopers
-]
-[
-    Name = "ArsLexis"
-    URL = https://arslexis.io
-    Info = Various web tools
-]
+constexpr const char* sumatraTips = R"(You can [customize scrollbar](CmdChangeScrollbar).
+You can [customize keyboard shortcuts](Help/Customizing-keyboard-shortcuts).
+You can [customize toolbar](Help/Customize-toolbar).
+Press (Key/CmdCommandPalette) to open [command palette](CmdCommandPalette).
+To open file from history open [command palette](CmdCommandPalette) with (Key/CmdCommandPalette) and type `#`.
+You can [extract text from PDF file](Help/Tool-x-extract-text-from-pdf).
+You can [toggle menu bar](CmdToggleMenuBar) with (Key/CmdToggleMenuBar).
+You can [toggle toolbar](CmdToggleToolbar) with (Key/CmdToggleToolbar).
+You can [edit PDF annotations](Help/Editing-annotations).
 )";
+
+constexpr const char* sumatraPromos = R"(Try [Edna](https://edna.arslexis.io): a note taking web app for power users.
+Try [MarkLexis](https://marklexis.arslexis.io): a bookmarking web application.
+)";
+
+// TODO: leaks if set
+const char* promoFromServer = nullptr;
+
+// a word in a parsed tip; can be part of a link
+struct TipWord {
+    char* text = nullptr; // owned
+    int dx = 0;
+    int dy = 0;
+    int x = 0;
+    int y = 0;
+    bool isLink = false;
+    int linkIdx = -1; // index into ParsedTip::links
+};
+
+struct TipLink {
+    char* cmd = nullptr; // owned, the link_command
+    int firstWord = 0;
+    int lastWord = 0; // inclusive
+};
+
+struct ParsedTip {
+    Vec<TipWord> words;
+    Vec<TipLink> links;
+    int totalDy = 0; // computed by layout
+
+    ~ParsedTip() {
+        for (auto& w : words) {
+            str::Free(w.text);
+        }
+        for (auto& l : links) {
+            str::Free(l.cmd);
+        }
+    }
+};
+
+// resolve (Key/CmdXxx) to keyboard shortcut string
+static TempStr ResolveKeyShortcutTemp(const char* cmdName) {
+    int cmdId = GetCommandIdByName(cmdName);
+    if (cmdId <= 0) {
+        return str::DupTemp(cmdName);
+    }
+    TempStr accel = AppendAccelKeyToMenuStringTemp((TempStr) "", cmdId);
+    if (!accel || !*accel) {
+        return str::DupTemp(cmdName);
+    }
+    // AppendAccelKeyToMenuStringTemp prepends \t, skip it
+    if (accel[0] == '\t') {
+        accel++;
+    }
+    return accel;
+}
+
+// resolve link command to a URL for StaticLink target
+static TempStr ResolveLinkCmdTemp(const char* cmd) {
+    if (str::StartsWith(cmd, "https://") || str::StartsWith(cmd, "http://")) {
+        return str::DupTemp(cmd);
+    }
+    if (str::StartsWith(cmd, "Help/")) {
+        return str::FormatTemp("https://www.sumatrapdfreader.org/docs/%s", cmd + 5);
+    }
+    // Cmd* - use as-is, will be resolved to command ID on click
+    return str::DupTemp(cmd);
+}
+
+static void ParseTip(ParsedTip& tip, const char* s) {
+    StrBuilder expanded;
+    // first pass: expand (Key/CmdXxx) to shortcut strings
+    while (*s) {
+        if (*s == '(' && str::StartsWith(s + 1, "Key/")) {
+            const char* end = str::FindChar(s, ')');
+            if (end) {
+                // extract command name between "Key/" and ")"
+                const char* cmdStart = s + 5; // skip "(Key/"
+                TempStr cmdName = str::DupTemp(cmdStart, (int)(end - cmdStart));
+                TempStr shortcut = ResolveKeyShortcutTemp(cmdName);
+                expanded.Append(shortcut);
+                s = end + 1;
+                continue;
+            }
+        }
+        expanded.AppendChar(*s);
+        s++;
+    }
+
+    // second pass: split into words, detecting [text](link) markdown links
+    const char* p = expanded.Get();
+    while (*p) {
+        // skip spaces
+        while (*p == ' ') {
+            p++;
+        }
+        if (!*p) {
+            break;
+        }
+
+        if (*p == '[') {
+            // parse markdown link: [text](cmd)
+            const char* textStart = p + 1;
+            const char* textEnd = str::FindChar(textStart, ']');
+            if (textEnd && textEnd[1] == '(') {
+                const char* cmdStart = textEnd + 2;
+                const char* cmdEnd = str::FindChar(cmdStart, ')');
+                if (cmdEnd) {
+                    TempStr linkCmd = str::DupTemp(cmdStart, (int)(cmdEnd - cmdStart));
+                    TempStr linkText = str::DupTemp(textStart, (int)(textEnd - textStart));
+
+                    TipLink link;
+                    link.cmd = str::Dup(ResolveLinkCmdTemp(linkCmd));
+                    link.firstWord = tip.words.Size();
+
+                    // split link text into words
+                    const char* lt = linkText;
+                    while (*lt) {
+                        while (*lt == ' ') {
+                            lt++;
+                        }
+                        if (!*lt) {
+                            break;
+                        }
+                        const char* wordStart = lt;
+                        while (*lt && *lt != ' ') {
+                            lt++;
+                        }
+                        TipWord w;
+                        w.text = str::Dup(wordStart, (int)(lt - wordStart));
+                        w.isLink = true;
+                        w.linkIdx = tip.links.Size();
+                        tip.words.Append(w);
+                    }
+
+                    link.lastWord = tip.words.Size() - 1;
+                    tip.links.Append(link);
+                    p = cmdEnd + 1;
+                    continue;
+                }
+            }
+        }
+
+        // regular word
+        const char* wordStart = p;
+        while (*p && *p != ' ' && *p != '[') {
+            p++;
+        }
+        if (p > wordStart) {
+            TipWord w;
+            w.text = str::Dup(wordStart, (int)(p - wordStart));
+            tip.words.Append(w);
+        }
+    }
+}
+
+static void MeasureTipWords(ParsedTip& tip, HDC hdc, HFONT font) {
+    uint fmt = DT_LEFT | DT_NOCLIP;
+    for (auto& w : tip.words) {
+        Size sz = HdcMeasureText(hdc, w.text, fmt, font);
+        w.dx = sz.dx;
+        w.dy = sz.dy;
+    }
+}
+
+static void LayoutTip(ParsedTip& tip, int areaWidth, int startX, int startY) {
+    int x = startX;
+    int y = startY;
+    int lineHeight = 0;
+    int spaceWidth = 4; // approximate space between words
+    for (auto& w : tip.words) {
+        if (x > startX && x + w.dx > startX + areaWidth) {
+            // wrap to next line
+            x = startX;
+            y += lineHeight + 2;
+            lineHeight = 0;
+        }
+        w.x = x;
+        w.y = y;
+        x += w.dx + spaceWidth;
+        if (w.dy > lineHeight) {
+            lineHeight = w.dy;
+        }
+    }
+    tip.totalDy = (y - startY) + lineHeight;
+}
+
+static ParsedTip* gParsedTips = nullptr;
+static int gParsedTipCount = 0;
+static ParsedTip* gParsedPromos = nullptr;
+static int gParsedPromoCount = 0;
+static bool gSelectedIsPromo = false;
+static int gSelectedTipIdx = -1;
+
+static int ParseTipsFromString(const char* src, const char* prefix, ParsedTip*& outTips) {
+    StrVec lines;
+    Split(&lines, src, "\n");
+    int n = 0;
+    for (int i = 0; i < lines.Size(); i++) {
+        const char* line = lines.At(i);
+        if (!str::IsEmptyOrWhiteSpace(line)) {
+            n++;
+        }
+    }
+    if (n == 0) {
+        return 0;
+    }
+    outTips = new ParsedTip[n];
+    int count = 0;
+    for (int i = 0; i < lines.Size(); i++) {
+        const char* line = lines.At(i);
+        if (str::IsEmptyOrWhiteSpace(line)) {
+            continue;
+        }
+        if (prefix) {
+            TempStr prefixed = str::FormatTemp("%s%s", prefix, line);
+            ParseTip(outTips[count], prefixed);
+        } else {
+            ParseTip(outTips[count], line);
+        }
+        count++;
+    }
+    return count;
+}
+
+static void PickRandomTipOrPromo() {
+    bool pickPromo = (gParsedPromoCount > 0) && (rand() % 100 < 30);
+    if (pickPromo) {
+        gSelectedIsPromo = true;
+        gSelectedTipIdx = rand() % gParsedPromoCount;
+    } else if (gParsedTipCount > 0) {
+        gSelectedIsPromo = false;
+        gSelectedTipIdx = rand() % gParsedTipCount;
+    }
+}
+
+static void EnsureTipsParsed() {
+    if (gParsedTips || gParsedPromos) {
+        return;
+    }
+    gParsedTipCount = ParseTipsFromString(sumatraTips, "Tip: ", gParsedTips);
+    gParsedPromoCount = ParseTipsFromString(sumatraPromos, nullptr, gParsedPromos);
+    PickRandomTipOrPromo();
+}
+
+static void PickAnotherRandomTip() {
+    bool prevIsPromo = gSelectedIsPromo;
+    int prev = gSelectedTipIdx;
+    // keep picking until we get a different one
+    int maxIter = 100;
+    while (maxIter-- > 0) {
+        PickRandomTipOrPromo();
+        if (gSelectedIsPromo != prevIsPromo || gSelectedTipIdx != prev) {
+            return;
+        }
+    }
+}
 
 constexpr COLORREF kAboutBorderCol = RGB(0, 0, 0);
 
@@ -91,7 +350,6 @@ static AboutLayoutInfoEl gAboutLayoutInfo[] = {
     {"manual", "SumatraPDF manual", kManualURL},
     {"forums", "SumatraPDF forums", "https://github.com/sumatrapdfreader/sumatrapdf/discussions"},
     {"programming", "The Programmers", "https://github.com/sumatrapdfreader/sumatrapdf/blob/master/AUTHORS"},
-    {"translations", "The Translators", "https://github.com/sumatrapdfreader/sumatrapdf/blob/master/TRANSLATORS"},
     {"licenses", "Various Open Source", "https://github.com/sumatrapdfreader/sumatrapdf/blob/master/AUTHORS"},
 #if defined(GIT_COMMIT_ID_STR)
     {"last change", "git commit " GIT_COMMIT_ID_STR,
@@ -105,12 +363,19 @@ static AboutLayoutInfoEl gAboutLayoutInfo[] = {
 #endif
     {nullptr, nullptr, nullptr}};
 
-static Vec<StaticLinkInfo*> gStaticLinks;
+static Vec<StaticLink*> gStaticLinks;
+
+void SetPromoString(const char* s) {
+    if (!s) return;
+    str::ReplaceWithCopy(&promoFromServer, s);
+}
 
 static TempStr GetAppVersionTemp() {
-    char* s = str::DupTemp("v" CURR_VERSION_STRA);
+    TempStr s = str::DupTemp("v" CURR_VERSION_STRA);
     if (IsProcess64()) {
         s = str::JoinTemp(s, " 64-bit");
+    } else {
+        s = str::JoinTemp(s, " 32-bit");
     }
     if (gIsDebugBuild) {
         s = str::JoinTemp(s, " (dbg)");
@@ -152,7 +417,7 @@ static void DrawSumatraVersion(HDC hdc, Rect rect) {
     int x = mainRect.x + mainRect.dx + DpiScale(hdc, kInnerPadding);
     int y = mainRect.y;
 
-    char* ver = GetAppVersionTemp();
+    TempStr ver = GetAppVersionTemp();
     Point p = {x, y};
     HdcDrawText(hdc, ver, p, fmt, fontVersionTxt);
     p.y += DpiScale(hdc, 13);
@@ -218,7 +483,7 @@ static TempStr TrimGitTemp(char* s) {
 /* Draws the about screen and remembers some state for hyperlinking.
    It transcribes the design I did in graphics software - hopeless
    to understand without seeing the design. */
-static void DrawAbout(HWND hwnd, HDC hdc, Rect rect, Vec<StaticLinkInfo*>& staticLinks) {
+static void DrawAbout(HWND hwnd, HDC hdc, Rect rect, Vec<StaticLink*>& staticLinks) {
     auto col = ThemeWindowTextColor();
     AutoDeletePen penBorder(CreatePen(PS_SOLID, ABOUT_LINE_OUTER_SIZE, col));
     AutoDeletePen penDivideLine(CreatePen(PS_SOLID, ABOUT_LINE_SEP_SIZE, col));
@@ -291,7 +556,7 @@ static void DrawAbout(HWND hwnd, HDC hdc, Rect rect, Vec<StaticLinkInfo*>& stati
         if (hasUrl) {
             int underlineY = pos.y + pos.dy - 3;
             DrawLine(hdc, Rect(pos.x, underlineY, pos.dx, 0));
-            auto sl = new StaticLinkInfo(pos, el->url, el->url);
+            auto sl = new StaticLink(pos, el->url, el->url);
             staticLinks.Append(sl);
         }
     }
@@ -400,8 +665,8 @@ static void OnSizeAbout(HWND hwnd) {
 }
 
 static void CopyAboutInfoToClipboard() {
-    str::Str info(512);
-    char* ver = GetAppVersionTemp();
+    StrBuilder info(512);
+    TempStr ver = GetAppVersionTemp();
     info.AppendFmt("%s %s\r\n", kAppName, ver);
     for (int i = info.Size() - 2; i > 0; i--) {
         info.AppendChar('-');
@@ -422,33 +687,36 @@ static void CopyAboutInfoToClipboard() {
     CopyTextToClipboard(info.LendData());
 }
 
-char* GetStaticLinkTemp(Vec<StaticLinkInfo*>& staticLinks, int x, int y, StaticLinkInfo** linkOut) {
+TempStr GetStaticLinkAtTemp(Vec<StaticLink*>& staticLinks, int x, int y, StaticLink** linkOut) {
     if (!CanAccessDisk()) {
         return nullptr;
     }
 
     Point pt(x, y);
-    for (size_t i = 0; i < staticLinks.size(); i++) {
+    for (int i = 0; i < staticLinks.Size(); i++) {
         if (staticLinks.at(i)->rect.Contains(pt)) {
+            auto link = staticLinks.At(i);
             if (linkOut) {
-                *linkOut = staticLinks.at(i);
+                *linkOut = link;
             }
-            auto res = staticLinks.at(i)->target;
-            return str::DupTemp(res);
+            return str::DupTemp(link->target);
         }
     }
 
     return nullptr;
 }
 
-static void CreateInfotipForLink(StaticLinkInfo* linkInfo) {
+static void CreateInfotipForLink(StaticLink* linkInfo) {
     if (gAboutTooltip != nullptr) {
         return;
     }
 
-    gAboutTooltip = new Tooltip();
     Tooltip::CreateArgs args;
     args.parent = gHwndAbout;
+    args.font = GetAppFont();
+    args.isRtl = IsUIRtl();
+
+    gAboutTooltip = new Tooltip();
     gAboutTooltip->Create(args);
     gAboutTooltip->SetSingle(linkInfo->tooltip, linkInfo->rect, false);
 }
@@ -471,7 +739,7 @@ LRESULT CALLBACK WndProcAbout(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
         case WM_CREATE:
             ReportIf(gHwndAbout);
-            if (gUseDarkModeLib) {
+            if (UseDarkModeLib()) {
                 DarkMode::setDarkTitleBarEx(hwnd, true);
             }
             break;
@@ -491,8 +759,8 @@ LRESULT CALLBACK WndProcAbout(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_SETCURSOR:
             pt = HwndGetCursorPos(hwnd);
             if (!pt.IsEmpty()) {
-                StaticLinkInfo* linkInfo;
-                if (GetStaticLinkTemp(gStaticLinks, pt.x, pt.y, &linkInfo)) {
+                StaticLink* linkInfo;
+                if (GetStaticLinkAtTemp(gStaticLinks, pt.x, pt.y, &linkInfo)) {
                     CreateInfotipForLink(linkInfo);
                     SetCursorCached(IDC_HAND);
                     return TRUE;
@@ -502,12 +770,12 @@ LRESULT CALLBACK WndProcAbout(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return DefWindowProc(hwnd, msg, wp, lp);
 
         case WM_LBUTTONDOWN: {
-            url = GetStaticLinkTemp(gStaticLinks, x, y, nullptr);
+            url = GetStaticLinkAtTemp(gStaticLinks, x, y, nullptr);
             str::ReplaceWithCopy(&gClickedURL, url);
         } break;
 
         case WM_LBUTTONUP:
-            url = GetStaticLinkTemp(gStaticLinks, x, y, nullptr);
+            url = GetStaticLinkAtTemp(gStaticLinks, x, y, nullptr);
             if (url && str::Eq(url, gClickedURL)) {
                 SumatraLaunchBrowser(url);
             }
@@ -593,24 +861,23 @@ void DrawAboutPage(MainWindow* win, HDC hdc) {
     Rect rc = ClientRect(win->hwndCanvas);
     UpdateAboutLayoutInfo(win->hwndCanvas, hdc, &rc);
     DrawAbout(win->hwndCanvas, hdc, rc, win->staticLinks);
-    if (HasPermission(Perm::SavePreferences | Perm::DiskAccess) && gGlobalPrefs->rememberOpenedFiles) {
+    if (HasPermission(Perm::SavePreferences | Perm::DiskAccess) && SettingsRememberOpenedFiles()) {
         Rect rect = DrawHideFrequentlyReadLink(win->hwndCanvas, hdc, _TRA("Show frequently read"));
-        auto sl = new StaticLinkInfo(rect, kLinkShowList);
+        auto sl = new StaticLink(rect, kLinkShowList);
         win->staticLinks.Append(sl);
     }
 }
 
 /* alternate static page to display when no document is loaded */
 
-constexpr int kThumbsMaxCols = 5;
 constexpr int kThumbsSeparatorDy = 2;
 constexpr int kThumbsBorderDx = 1;
 #define kThumbsMarginLeft DpiScale(hdc, 40)
 #define kThumbsMarginRight DpiScale(hdc, 40)
 #define kThumbsMarginTop DpiScale(hdc, 50)
 #define kThumbsMarginBottom DpiScale(hdc, 40)
-#define kThumbsSpaceBetweenX DpiScale(hdc, 30)
-#define kThumbsSpaceBetweenY DpiScale(hdc, 50)
+#define kThumbsSpaceBetweenX DpiScale(hdc, 38)
+#define kThumbsSpaceBetweenY DpiScale(hdc, 58)
 #define kThumbsBottomBoxDy DpiScale(hdc, 50)
 
 struct ThumbnailLayout {
@@ -618,23 +885,8 @@ struct ThumbnailLayout {
     Size szThumb;
     Rect rcText;
     FileState* fs = nullptr; // info needed to draw the thumbnail
-    StaticLinkInfo* sl = nullptr;
+    StaticLink* sl = nullptr;
 };
-
-struct Promote {
-    struct Promote* next = nullptr;
-    const char* name = nullptr;
-    const char* url = nullptr;
-    const char* info = nullptr;
-    Promote() = default;
-    ~Promote();
-};
-
-Promote::~Promote() {
-    str::Free(name);
-    str::Free(url);
-    str::Free(info);
-}
 
 struct HomePageLayout {
     // args in
@@ -642,8 +894,6 @@ struct HomePageLayout {
     HDC hdc = nullptr;
     Rect rc;
     MainWindow* win = nullptr;
-
-    Promote* promote = nullptr;
 
     Rect rcAppWithVer; // SumatraPDF colorful text + version
     Rect rcLine;       // line under bApp
@@ -654,60 +904,126 @@ struct HomePageLayout {
     VirtWndText* openDoc = nullptr;
     VirtWndText* hideShowFreqRead = nullptr;
     Vec<ThumbnailLayout> thumbnails; // info for each thumbnail
+    int totalContentDy = 0;          // total height of all thumbnail rows
+    int thumbsVisibleDy = 0;         // visible height for thumbnails area
+    Rect rcThumbsArea;               // clip rect for thumbnails
+
+    // search filter
+    StrVec filterWords;
+    Vec<u8> highlighted;
+    Rect rcSearchBorder; // border rect drawn around the edit control
+
+    // tip layout
+    Rect rcTip;               // background rect for tip area
+    ParsedTip* tip = nullptr; // points to gParsedTips or gParsedPromos, not owned
+
     ~HomePageLayout();
 };
 
 HomePageLayout::~HomePageLayout() {
     delete freqRead;
     delete openDoc;
-    ListDelete(promote);
 }
 
-static Promote* ParsePromote(const char* s) {
-    if (str::IsEmptyOrWhiteSpace(s)) {
-        return nullptr;
-    }
-    SquareTreeNode* root = ParseSquareTree(s);
-    if (!root) {
-        return nullptr;
-    }
-    SquareTreeNode* node;
-    Promote* first = nullptr;
-    for (auto& i : root->data) {
-        node = i.child;
-        if (!node || node->data.Size() != 3) {
-            continue;
+constexpr int kOpenDocumentYShift = 7;
+constexpr int kThumbsMiddleMargin = 32;
+constexpr int kSearchEditDy = 28;
+constexpr int kHeaderSearchGapY = 12;
+constexpr int kSearchThumbnailsGapY = 12;
+
+static WNDPROC DefWndProcHomeSearch = nullptr;
+
+static LRESULT CALLBACK WndProcHomeSearch(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    if (msg == WM_KEYDOWN && wp == VK_ESCAPE) {
+        HwndSetText(hwnd, "");
+        MainWindow* win = FindMainWindowByHwnd(GetParent(hwnd));
+        if (win) {
+            HwndSetFocus(win->hwndCanvas);
+            win->RedrawAll(true);
         }
-        Promote* p = new Promote();
-        p->name = str::Dup(node->GetValue("Name"));
-        p->url = str::Dup(node->GetValue("URL"));
-        p->info = str::Dup(node->GetValue("Info"));
-        bool ok = !str::IsEmptyOrWhiteSpace(p->name) && !str::IsEmptyOrWhiteSpace(p->url) &&
-                  !str::IsEmptyOrWhiteSpace(p->info);
-        if (!ok) {
-            delete p;
-            continue;
-        }
-        ListInsertEnd(&first, p);
+        return 0;
     }
-    delete root;
-    return first;
+    if (msg == WM_MOUSEWHEEL) {
+        HWND parent = GetParent(hwnd);
+        return SendMessageW(parent, msg, wp, lp);
+    }
+    return CallWindowProcW(DefWndProcHomeSearch, hwnd, msg, wp, lp);
 }
 
-// layout homepage in r
+static void EnsureHomeSearchCreated(MainWindow* win) {
+    if (win->hwndHomeSearch) {
+        return;
+    }
+    HMODULE hmod = GetModuleHandleW(nullptr);
+    DWORD style = WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL;
+    DWORD exStyle = 0;
+    win->hwndHomeSearch = CreateWindowExW(exStyle, WC_EDITW, L"", style, 0, 0, 100, kSearchEditDy, win->hwndCanvas,
+                                          nullptr, hmod, nullptr);
+    HDC hdc = GetDC(win->hwndCanvas);
+    HFONT font = CreateSimpleFont(hdc, "MS Shell Dlg", 14);
+    ReleaseDC(win->hwndCanvas, hdc);
+    SetWindowFont(win->hwndHomeSearch, font, TRUE);
+    if (!DefWndProcHomeSearch) {
+        DefWndProcHomeSearch = (WNDPROC)GetWindowLongPtr(win->hwndHomeSearch, GWLP_WNDPROC);
+    }
+    SetWindowLongPtr(win->hwndHomeSearch, GWLP_WNDPROC, (LONG_PTR)WndProcHomeSearch);
+    Edit_SetCueBannerText(win->hwndHomeSearch, L"search files (Ctrl + F)");
+    // add left/right padding so text doesn't overlap the border
+    int margin = DpiScale(win->hwndCanvas, 6);
+    SendMessage(win->hwndHomeSearch, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, MAKELPARAM(margin, margin));
+}
+
+void HomePageDestroySearch(MainWindow* win) {
+    if (win->hwndHomeSearch) {
+        DestroyWindow(win->hwndHomeSearch);
+        win->hwndHomeSearch = nullptr;
+    }
+}
+
+void HomePageFocusSearch(MainWindow* win) {
+    EnsureHomeSearchCreated(win);
+    ShowWindow(win->hwndHomeSearch, SW_SHOW);
+    HwndSetFocus(win->hwndHomeSearch);
+}
+
+void PickAnotherRandomPromotion() {
+    PickAnotherRandomTip();
+}
+
 void LayoutHomePage(HomePageLayout& l) {
-    l.promote = ParsePromote(promoteBuiltIn);
+    EnsureTipsParsed();
 
-    Vec<FileState*> fileStates;
+    Vec<FileState*> allFileStates;
     if (gGlobalPrefs->homePageSortByFrequentlyRead) {
-        gFileHistory.GetFrequencyOrder(fileStates);
+        gFileHistory.GetFrequencyOrder(allFileStates);
     } else {
-        gFileHistory.GetRecentlyOpenedOrder(fileStates);
+        gFileHistory.GetRecentlyOpenedOrder(allFileStates);
     }
     auto hwnd = l.hwnd;
     auto hdc = l.hdc;
     auto rc = l.rc;
     auto win = l.win;
+
+    // filter by search query if present
+    TempStr searchQuery = nullptr;
+    if (win->hwndHomeSearch) {
+        searchQuery = HwndGetTextTemp(win->hwndHomeSearch);
+    }
+    bool hasFilter = searchQuery && searchQuery[0];
+    if (hasFilter) {
+        SplitFilterToWords(searchQuery, l.filterWords);
+    }
+    Vec<FileState*> fileStates;
+    for (int i = 0; i < allFileStates.Size(); i++) {
+        FileState* fs = allFileStates.at(i);
+        if (hasFilter) {
+            TempStr baseName = path::GetBaseNameTemp(fs->filePath);
+            if (!FilterMatches(baseName, l.filterWords)) {
+                continue;
+            }
+        }
+        fileStates.Append(fs);
+    }
 
     bool isRtl = IsUIRtl();
     HFONT fontText = CreateSimpleFont(hdc, "MS Shell Dlg", 14);
@@ -723,27 +1039,23 @@ void LayoutHomePage(HomePageLayout& l) {
 
     l.rcLine = {0, sz.dy, rc.dx, 0};
 
-    Rect& titleBox = l.rcAppWithVer;
-    rc.SubTB(titleBox.dy, kThumbsBottomBoxDy);
-
-    int dx =
+    // --- Pre-compute thumbnail grid x offset so header can align with it ---
+    // use unfiltered count so layout stays stable when search filters results
+    int nFilesForLayout = allFileStates.Size();
+    int colsForLayout =
         (rc.dx - kThumbsMarginLeft - kThumbsMarginRight + kThumbsSpaceBetweenX) / (kThumbnailDx + kThumbsSpaceBetweenX);
-    int thumbsCols = limitValue(dx, 1, kThumbsMaxCols);
-    int dy =
-        (rc.dy - kThumbsMarginTop - kThumbsMarginBottom + kThumbsSpaceBetweenY) / (kThumbnailDy + kThumbsSpaceBetweenY);
-    int thumbsRows = std::min(dy, kFileHistoryMaxFrequent / thumbsCols);
-    int x = rc.x + kThumbsMarginLeft +
-            (rc.dx - thumbsCols * kThumbnailDx - (thumbsCols - 1) * kThumbsSpaceBetweenX - kThumbsMarginLeft -
-             kThumbsMarginRight) /
-                2;
-    rc.y = 0;
-    Point ptOff(x, rc.y + kThumbsMarginTop);
-    if (ptOff.x < DpiScale(hdc, kInnerPadding)) {
-        ptOff.x = DpiScale(hdc, kInnerPadding);
-    } else if (fileStates.size() == 0) {
-        ptOff.x = kThumbsMarginLeft;
+    int thumbsColsForLayout = std::max(colsForLayout, 1);
+    int thumbsStartX = rc.x + kThumbsMarginLeft +
+                       (rc.dx - thumbsColsForLayout * kThumbnailDx - (thumbsColsForLayout - 1) * kThumbsSpaceBetweenX -
+                        kThumbsMarginLeft - kThumbsMarginRight) /
+                           2;
+    if (thumbsStartX < DpiScale(hdc, kInnerPadding)) {
+        thumbsStartX = DpiScale(hdc, kInnerPadding);
+    } else if (nFilesForLayout == 0) {
+        thumbsStartX = kThumbsMarginLeft;
     }
 
+    // --- Step 1: layout header at the top ---
     const char* txt = _TRA("Recently Opened");
     if (gGlobalPrefs->homePageSortByFrequentlyRead) {
         txt = _TRA("Frequently Read");
@@ -753,17 +1065,125 @@ void LayoutHomePage(HomePageLayout& l) {
     hdr->isRtl = isRtl;
     Size txtSize = hdr->GetIdealSize(true);
 
-    Rect rcHdr(ptOff.x, rc.y + (kThumbsMarginTop - txtSize.dy) / 2, txtSize.dx, txtSize.dy);
+    int hdrY = DpiScale(hdc, 8);
+    Rect rcHdr(thumbsStartX, hdrY, txtSize.dx, txtSize.dy);
     if (isRtl) {
-        rcHdr.x = rc.dx - ptOff.x - rcHdr.dx;
+        rcHdr.x = rc.dx - thumbsStartX - rcHdr.dx;
     }
     hdr->SetBounds(rcHdr);
 
+    /* "Open a document" link next to header */
+    l.himlOpen = (HIMAGELIST)SendMessageW(win->hwndToolbar, TB_GETIMAGELIST, 0, 0);
+    Rect rcIconOpen(0, 0, 0, 0);
+    ImageList_GetIconSize(l.himlOpen, &rcIconOpen.dx, &rcIconOpen.dy);
+
+    txt = _TRA("Open a document...");
+    auto openDoc = new VirtWndText(hwnd, txt, fontText);
+    openDoc->isRtl = isRtl;
+    openDoc->withUnderline = true;
+    txtSize = openDoc->GetIdealSize(true);
+
+    int openDocSpacing = DpiScale(hdc, 16);
+    rcIconOpen.x = rcHdr.x + rcHdr.dx + openDocSpacing;
+    rcIconOpen.y = rcHdr.y + rcHdr.dy - rcIconOpen.dy - kOpenDocumentYShift + 3;
+    if (isRtl) {
+        rcIconOpen.x = rcHdr.x - openDocSpacing - rcIconOpen.dx;
+    }
+    l.rcIconOpen = rcIconOpen;
+
+    Rect rcOpenDoc(rcIconOpen.x + rcIconOpen.dx + 3, rcHdr.y + rcHdr.dy - txtSize.dy - kOpenDocumentYShift, txtSize.dx,
+                   txtSize.dy);
+    if (isRtl) {
+        rcOpenDoc.x = rcIconOpen.x - rcOpenDoc.dx - 3;
+    }
+    openDoc->SetBounds(rcOpenDoc);
+
+    rcOpenDoc = rcOpenDoc.Union(rcIconOpen);
+    rcOpenDoc.Inflate(10, 10);
+    l.openDoc = openDoc;
+    auto sl = new StaticLink(rcOpenDoc, kLinkOpenFile);
+    win->staticLinks.Append(sl);
+
+    int headerBottomY = rcHdr.y + rcHdr.dy;
+
+    // --- Position search edit below header ---
+    EnsureHomeSearchCreated(win);
+    int searchEditDy = DpiScale(hdc, kSearchEditDy);
+    int headerSearchGap = DpiScale(hdc, kHeaderSearchGapY);
+    int searchThumbsGap = DpiScale(hdc, kSearchThumbnailsGapY);
+    {
+        int thumbsContentWidth = thumbsColsForLayout * kThumbnailDx + (thumbsColsForLayout - 1) * kThumbsSpaceBetweenX;
+        int borderDx = thumbsContentWidth * 3 / 4;
+        if (borderDx < DpiScale(hdc, 200)) {
+            borderDx = DpiScale(hdc, 200);
+        }
+        int borderX = thumbsStartX + (thumbsContentWidth - borderDx) / 2;
+        int borderY = headerBottomY + headerSearchGap;
+        int borderDy = searchEditDy + 2; // 1px border on each side
+        l.rcSearchBorder = {borderX, borderY, borderDx, borderDy};
+        // measure font height so we can vertically center the edit
+        HFONT editFont = (HFONT)SendMessage(win->hwndHomeSearch, WM_GETFONT, 0, 0);
+        TEXTMETRIC tm;
+        HFONT oldFont = (HFONT)SelectObject(hdc, editFont);
+        GetTextMetrics(hdc, &tm);
+        SelectObject(hdc, oldFont);
+        int fontDy = tm.tmHeight + tm.tmExternalLeading + 2; // +2 for caret padding
+        int editDy = std::min(fontDy, searchEditDy);
+        int editY = borderY + 1 + (searchEditDy - editDy) / 2;
+        MoveWindow(win->hwndHomeSearch, borderX + 1, editY, borderDx - 2, editDy, TRUE);
+    }
+    // border is 1px top + 1px bottom = 2px
+    int searchAreaDy = headerSearchGap + searchEditDy + 2 + searchThumbsGap;
+    headerBottomY += searchAreaDy;
+
+    // --- Step 2: calculate tip area at the bottom (before thumbnails) ---
+    int tipHeight = 0;
+    HFONT fontTip = CreateSimpleFont(hdc, "MS Shell Dlg", 16);
+    ParsedTip* tip = nullptr;
+    if (gGlobalPrefs->showTips && gSelectedTipIdx >= 0) {
+        if (gSelectedIsPromo && gSelectedTipIdx < gParsedPromoCount) {
+            tip = &gParsedPromos[gSelectedTipIdx];
+        } else if (!gSelectedIsPromo && gSelectedTipIdx < gParsedTipCount) {
+            tip = &gParsedTips[gSelectedTipIdx];
+        }
+    }
+    if (tip) {
+        MeasureTipWords(*tip, hdc, fontTip);
+        int tipPadding = DpiScale(hdc, 8);
+        // do a preliminary layout to get the height (use thumbnails content width)
+        int tipTextWidth = thumbsColsForLayout * kThumbnailDx + (thumbsColsForLayout - 1) * kThumbsSpaceBetweenX;
+        LayoutTip(*tip, tipTextWidth, 0, 0);
+        tipHeight = tip->totalDy + 2 * tipPadding;
+    }
+
+    // --- Step 3: middle area for thumbnails ---
+    // thumbnails start directly after headerBottomY (which includes kSearchThumbnailsGapY)
+    int thumbsTopY = headerBottomY;
+    int thumbsBottomY = rc.dy - tipHeight - kThumbsMiddleMargin;
+    int thumbsVisibleDy = std::max(0, thumbsBottomY - thumbsTopY);
+
+    l.rcThumbsArea = {0, thumbsTopY, rc.dx, thumbsVisibleDy};
+
     int nFiles = fileStates.Size();
+    int thumbsCols = thumbsColsForLayout;
+    int thumbsRows = (nFiles + thumbsCols - 1) / thumbsCols;
+    int thumbsContentDy = thumbsRows * (kThumbnailDy + kThumbsSpaceBetweenY) - kThumbsSpaceBetweenY;
+
+    int scrollY = win->homePageScrollY;
+    int maxScrollY = std::max(0, thumbsContentDy - thumbsVisibleDy);
+    if (scrollY > maxScrollY) {
+        scrollY = maxScrollY;
+        win->homePageScrollY = scrollY;
+    }
+    l.totalContentDy = thumbsContentDy;
+    l.thumbsVisibleDy = thumbsVisibleDy;
+
+    Point ptOff(thumbsStartX, thumbsTopY - scrollY);
+
     for (int row = 0; row < thumbsRows; row++) {
         for (int col = 0; col < thumbsCols; col++) {
             if (row * thumbsCols + col >= nFiles) {
-                // display the "Open a document" link right below the last row
+                // no more files to display
                 thumbsRows = col > 0 ? row + 1 : row;
                 break;
             }
@@ -794,41 +1214,50 @@ void LayoutHomePage(HomePageLayout& l) {
             }
             thumb.rcText = rcText;
             char* path = fs->filePath;
-            thumb.sl = new StaticLinkInfo(rcText.Union(rcPage), path, path);
-            win->staticLinks.Append(thumb.sl);
+            Rect slRect = rcText.Union(rcPage).Intersect(l.rcThumbsArea);
+            if (!slRect.IsEmpty()) {
+                thumb.sl = new StaticLink(slRect, path, path);
+                win->staticLinks.Append(thumb.sl);
+            }
         }
     }
-    /* bottom links */
-    rc.y +=
-        kThumbsMarginTop + thumbsRows * kThumbnailDy + (thumbsRows - 1) * kThumbsSpaceBetweenY + kThumbsMarginBottom;
-    rc.dy = kThumbsBottomBoxDy;
 
-    l.himlOpen = (HIMAGELIST)SendMessageW(win->hwndToolbar, TB_GETIMAGELIST, 0, 0);
-    Rect rcIconOpen(ptOff.x, rc.y, 0, 0);
-    ImageList_GetIconSize(l.himlOpen, &rcIconOpen.dx, &rcIconOpen.dy);
-    rcIconOpen.y += (rc.dy - rcIconOpen.dy) / 2;
-    if (isRtl) {
-        rcIconOpen.x = rc.dx - ptOff.x - rcIconOpen.dx;
+    // layout tip at the bottom
+    if (tip) {
+        Rect rcClient = ClientRect(win->hwndCanvas);
+        int tipPadding = DpiScale(hdc, 8);
+
+        int tipY = rcClient.dy - tipHeight;
+        // background spans full window width
+        l.rcTip = {0, tipY, rcClient.dx, tipHeight};
+        l.tip = tip;
+
+        // text area aligned with thumbnails
+        int tipTextWidth = thumbsColsForLayout * kThumbnailDx + (thumbsColsForLayout - 1) * kThumbsSpaceBetweenX;
+        int tipStartX = thumbsStartX;
+        int tipStartY = tipY + tipPadding;
+        LayoutTip(*tip, tipTextWidth, tipStartX, tipStartY);
+
+        // register tip links; per-link rects first so they take priority in hit testing
+        for (auto& link : tip->links) {
+            // compute bounding rect of all words in this link
+            Rect linkRect;
+            for (int i = link.firstWord; i <= link.lastWord; i++) {
+                auto& w = tip->words[i];
+                Rect wr = {w.x, w.y, w.dx, w.dy};
+                if (i == link.firstWord) {
+                    linkRect = wr;
+                } else {
+                    linkRect = linkRect.Union(wr);
+                }
+            }
+            auto slTip = new StaticLink(linkRect, link.cmd, link.cmd);
+            win->staticLinks.Append(slTip);
+        }
+        // tip background: clicking outside of links picks another tip
+        auto slBg = new StaticLink(l.rcTip, kLinkNextTip);
+        win->staticLinks.Append(slBg);
     }
-    l.rcIconOpen = rcIconOpen;
-
-    txt = _TRA("Open a document...");
-    auto openDoc = new VirtWndText(hwnd, txt, fontText);
-    openDoc->isRtl = isRtl;
-    openDoc->withUnderline = true;
-    txtSize = openDoc->GetIdealSize(true);
-    Rect rcOpenDoc(ptOff.x + rcIconOpen.dx + 3, rc.y + (rc.dy - txtSize.dy) / 2, txtSize.dx, txtSize.dy);
-    if (isRtl) {
-        rcOpenDoc.x = rcIconOpen.x - rcOpenDoc.dx - 3;
-    }
-    openDoc->SetBounds(rcOpenDoc);
-
-    // make the click target larger
-    rcOpenDoc = rcOpenDoc.Union(rcIconOpen);
-    rcOpenDoc.Inflate(10, 10);
-    l.openDoc = openDoc;
-    auto sl = new StaticLinkInfo(rcOpenDoc, kLinkOpenFile);
-    win->staticLinks.Append(sl);
 }
 
 static void GetFileStateIcon(FileState* fs) {
@@ -843,7 +1272,7 @@ static void GetFileStateIcon(FileState* fs) {
     fs->iconIdx = sfi.iIcon;
 }
 
-static void DrawHomePageLayout(const HomePageLayout& l) {
+static void DrawHomePageLayout(HomePageLayout& l) {
     bool isRtl = IsUIRtl();
     auto hdc = l.hdc;
     auto win = l.win;
@@ -854,6 +1283,22 @@ static void DrawHomePageLayout(const HomePageLayout& l) {
         Rect rc = ClientRect(win->hwndCanvas);
         auto color = ThemeMainWindowBackgroundColor();
         FillRect(hdc, rc, color);
+    }
+
+    // draw search edit border and background on the canvas
+    {
+        COLORREF bgCol = ThemeControlBackgroundColor();
+        const Rect& sb = l.rcSearchBorder;
+        RECT rcBorder = {sb.x, sb.y, sb.x + sb.dx, sb.y + sb.dy};
+        // fill interior with control background so padding matches the edit
+        HBRUSH brBg = CreateSolidBrush(bgCol);
+        FillRect(hdc, &rcBorder, brBg);
+        DeleteObject(brBg);
+        // draw border frame
+        COLORREF borderCol = AccentColor(bgCol, 40);
+        HBRUSH brBorder = CreateSolidBrush(borderCol);
+        FrameRect(hdc, &rcBorder, brBorder);
+        DeleteObject(brBorder);
     }
 
     if (false) {
@@ -880,25 +1325,27 @@ static void DrawHomePageLayout(const HomePageLayout& l) {
     l.freqRead->Paint(hdc);
     SelectObject(hdc, GetStockBrush(NULL_BRUSH));
 
+    // clip thumbnails to the middle area
+    {
+        const Rect& ta = l.rcThumbsArea;
+        HRGN thumbsClip = CreateRectRgn(ta.x, ta.y, ta.x + ta.dx, ta.y + ta.dy);
+        SelectClipRgn(hdc, thumbsClip);
+        DeleteObject(thumbsClip);
+    }
+
     for (const ThumbnailLayout& thumb : l.thumbnails) {
         FileState* fs = thumb.fs;
         const Rect& page = thumb.rcPage;
 
         RenderedBitmap* thumbImg = LoadThumbnail(fs);
         if (thumbImg) {
+            int savedDC = SaveDC(hdc);
             HRGN clip = CreateRoundRectRgn(page.x, page.y, page.x + page.dx, page.y + page.dy, 10, 10);
-            SelectClipRgn(hdc, clip);
+            ExtSelectClipRgn(hdc, clip, RGN_AND);
             // note: we used to invert bitmaps in dark theme but that doesn't
             // make sense for thumbnails
-            RenderedBitmap* clone = nullptr; // state->thumbnail->Clone();
-            if (clone) {
-                UpdateBitmapColors(clone->GetBitmap(), textColor, backgroundColor);
-                clone->Blit(hdc, page);
-                delete clone;
-            } else {
-                thumbImg->Blit(hdc, page);
-            }
-            SelectClipRgn(hdc, nullptr);
+            thumbImg->Blit(hdc, page);
+            RestoreDC(hdc, savedDC);
             DeleteObject(clip);
         }
         RoundRect(hdc, page.x, page.y, page.x + page.dx, page.y + page.dy, 10, 10);
@@ -907,12 +1354,27 @@ static void DrawHomePageLayout(const HomePageLayout& l) {
         char* path = fs->filePath;
         TempStr fileName = path::GetBaseNameTemp(path);
         UINT fmt = DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX | (isRtl ? DT_RIGHT : DT_LEFT);
-        HdcDrawText(hdc, fileName, rect, fmt, fontText);
+
+        SelectObject(hdc, fontText);
+        {
+            RECT rcText = {rect.x, rect.y, rect.x + rect.dx, rect.y + rect.dy};
+            DrawMaybeHighlightedTextArgs hlArgs(l.filterWords, l.highlighted);
+            hlArgs.hdc = hdc;
+            hlArgs.rc = rcText;
+            hlArgs.text = fileName;
+            hlArgs.colBg = backgroundColor;
+            hlArgs.isRtl = isRtl;
+            hlArgs.drawFmt = fmt;
+            DrawMaybeHighlightedText(hlArgs);
+        }
 
         GetFileStateIcon(fs);
         int x = isRtl ? page.x + page.dx - DpiScale(hdc, 16) : page.x;
         ImageList_Draw(fs->himl, fs->iconIdx, hdc, x, rect.y, ILD_TRANSPARENT);
     }
+
+    // restore full clip region
+    SelectClipRgn(hdc, nullptr);
 
     color = ThemeWindowLinkColor();
     SetTextColor(hdc, color);
@@ -927,8 +1389,40 @@ static void DrawHomePageLayout(const HomePageLayout& l) {
 
     if (false) {
         Rect rcFreqRead = DrawHideFrequentlyReadLink(win->hwndCanvas, hdc, _TRA("Hide frequently read"));
-        auto sl = new StaticLinkInfo(rcFreqRead, kLinkHideList);
+        auto sl = new StaticLink(rcFreqRead, kLinkHideList);
         win->staticLinks.Append(sl);
+    }
+
+    // draw tip at the bottom
+    if (l.tip) {
+        COLORREF tipBgCol = ThemeControlBackgroundColor();
+        FillRect(hdc, l.rcTip, tipBgCol);
+
+        HFONT fontTip = CreateSimpleFont(hdc, "MS Shell Dlg", 16);
+        uint fmt = DT_LEFT | DT_NOCLIP;
+        COLORREF textCol = ThemeWindowTextColor();
+        COLORREF linkCol = ThemeWindowLinkColor();
+
+        for (auto& w : l.tip->words) {
+            Point pt = {w.x, w.y};
+            if (w.isLink) {
+                SetTextColor(hdc, linkCol);
+                HdcDrawText(hdc, w.text, pt, fmt, fontTip);
+            } else {
+                SetTextColor(hdc, textCol);
+                HdcDrawText(hdc, w.text, pt, fmt, fontTip);
+            }
+        }
+        // draw underlines spanning each link
+        SelectObject(hdc, penLinkLine);
+        for (auto& link : l.tip->links) {
+            auto& first = l.tip->words[link.firstWord];
+            auto& last = l.tip->words[link.lastWord];
+            int underlineY = first.y + first.dy - 3;
+            int x1 = first.x;
+            int x2 = last.x + last.dx;
+            DrawLine(hdc, Rect(x1, underlineY, x2 - x1, 0));
+        }
     }
 }
 
@@ -938,11 +1432,97 @@ void DrawHomePage(MainWindow* win, HDC hdc) {
 
     HomePageLayout l;
     l.rc = ClientRect(win->hwndCanvas);
-    ;
     l.hdc = hdc;
     l.hwnd = hwnd;
     l.win = win;
     LayoutHomePage(l);
 
     DrawHomePageLayout(l);
+
+    // update overlay scrollbar for home page if thumbnails overflow visible area
+    bool showScrollbarV = ScrollbarsUseOverlay() && l.totalContentDy > l.thumbsVisibleDy;
+    if (showScrollbarV) {
+        if (!win->overlayScrollV) {
+            win->overlayScrollV =
+                OverlayScrollbarCreate(win->hwndCanvas, OverlayScrollbar::Type::Vert, ScrollbarsOverlayMode());
+        }
+        SCROLLINFO si{};
+        si.cbSize = sizeof(si);
+        si.fMask = SIF_ALL;
+        si.nMin = 0;
+        si.nMax = l.totalContentDy - 1;
+        si.nPage = l.thumbsVisibleDy;
+        si.nPos = win->homePageScrollY;
+        OverlayScrollbarShow(win->overlayScrollV, true);
+        OverlayScrollbarSetInfo(win->overlayScrollV, &si, TRUE);
+    }
+    // show thin scrollbar briefly to indicate content is scrollable
+    OverlayScrollbarShow(win->overlayScrollV, showScrollbarV);
+}
+
+void HomePageOnVScroll(MainWindow* win, WPARAM wp) {
+    USHORT msg = LOWORD(wp);
+    HDC hdc = GetDC(win->hwndCanvas);
+    int lineDy = kThumbnailDy + kThumbsSpaceBetweenY;
+    int pageDy = lineDy * 3;
+    ReleaseDC(win->hwndCanvas, hdc);
+
+    int newScrollY = win->homePageScrollY;
+    switch (msg) {
+        case SB_LINEUP:
+            newScrollY -= lineDy;
+            break;
+        case SB_LINEDOWN:
+            newScrollY += lineDy;
+            break;
+        case SB_PAGEUP:
+            newScrollY -= pageDy;
+            break;
+        case SB_PAGEDOWN:
+            newScrollY += pageDy;
+            break;
+        case SB_THUMBTRACK:
+        case SB_THUMBPOSITION: {
+            int pos = (int)(short)HIWORD(wp);
+            // overlay scrollbar sends full position in HIWORD for THUMBTRACK
+            if (win->overlayScrollV) {
+                pos = win->overlayScrollV->nTrackPos;
+            }
+            newScrollY = pos;
+            break;
+        }
+        case SB_TOP:
+            newScrollY = 0;
+            break;
+        case SB_BOTTOM:
+            newScrollY = INT_MAX; // will be clamped by layout
+            break;
+    }
+    if (newScrollY < 0) {
+        newScrollY = 0;
+    }
+    if (newScrollY != win->homePageScrollY) {
+        win->homePageScrollY = newScrollY;
+        InvalidateRect(win->hwndCanvas, nullptr, FALSE);
+    }
+}
+
+void HomePageOnMouseWheel(MainWindow* win, int delta) {
+    Rect rc = ClientRect(win->hwndCanvas);
+    HDC hdc = GetDC(win->hwndCanvas);
+    int thumbsRowDy = kThumbnailDy + kThumbsSpaceBetweenY;
+    ReleaseDC(win->hwndCanvas, hdc);
+
+    int scrollBy = thumbsRowDy / 3;
+    if (delta > 0) {
+        scrollBy = -scrollBy;
+    }
+    int newScrollY = win->homePageScrollY + scrollBy;
+    if (newScrollY < 0) {
+        newScrollY = 0;
+    }
+    if (newScrollY != win->homePageScrollY) {
+        win->homePageScrollY = newScrollY;
+        InvalidateRect(win->hwndCanvas, nullptr, FALSE);
+    }
 }

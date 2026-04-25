@@ -19,10 +19,8 @@ void Destroy();
 
 } // namespace trans
 
-// _TRA() is like _TR() but returns Utf8 version
 const char* _TRA(const char* s);
-#define _TR_TODO(quote) L##quote
-#define _TR_TODON(quote) quote
+WCHAR* _TRW(const char* s);
 
 // _TRN() marks strings that need to be translated but are used in a context
 // that doesn't allow calling Trans::GetTranslationTemp() (e.g. when used as part

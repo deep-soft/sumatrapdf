@@ -101,6 +101,13 @@
 #if defined(min) || defined(max)
 #error "min or max defined"
 #endif
+// mingw's gdiplus.h includes <math.h> which in C++ pulls in <cmath>/<limits>
+// that use min/max as identifiers; pre-include them before defining macros
+#ifdef __GNUC__
+#include <cmath>
+#include <algorithm>
+#include <limits>
+#endif
 #define min(x, y) ((x) < (y) ? (x) : (y))
 #define max(x, y) ((x) > (y) ? (x) : (y))
 #include <gdiplus.h>
@@ -134,6 +141,8 @@
 #include <string>
 #include <array>
 #include <limits>
+
+#include "../common/common.h"
 
 using i8 = int8_t;
 using u8 = uint8_t;
@@ -224,20 +233,24 @@ inline void CrashMe() {
 // rare cases where we really want to know a given condition happens. Before
 // each release we should audit the uses of ReportAlwaysIf()
 
-extern void _uploadDebugReport(const char*, bool, bool);
+extern void _uploadDebugReport(const char*, const char*, bool, bool);
 
-#define ReportIfCond(cond, condStr, isCrash, captureCallstack)      \
-    __analysis_assume(!(cond));                                     \
-    do {                                                            \
-        if (cond) {                                                 \
-            _uploadDebugReport(condStr, isCrash, captureCallstack); \
-        }                                                           \
+#define STRINGIZE_(x) #x
+#define STRINGIZE(x) STRINGIZE_(x)
+#define FILE_LINE __FILE__ ":" STRINGIZE(__LINE__)
+
+#define ReportIfCond(cond, condStr, fileLine, isCrash, captureCallstack)      \
+    __analysis_assume(!(cond));                                               \
+    do {                                                                      \
+        if (cond) {                                                           \
+            _uploadDebugReport(condStr, fileLine, isCrash, captureCallstack); \
+        }                                                                     \
     } while (0)
 
-#define ReportIf(cond) ReportIfCond(cond, #cond, false, true)
-#define ReportIfQuick(cond) ReportIfCond(cond, #cond, false, false)
+#define ReportIf(cond) ReportIfCond(cond, #cond, FILE_LINE, false, true)
+#define ReportIfFast(cond) ReportIfCond(cond, #cond, FILE_LINE, false, false)
 #if defined(DEBUG)
-#define ReportDebugIf(cond) ReportIfCond(cond, #cond, false, true)
+#define ReportDebugIf(cond) ReportIfCond(cond, #cond, FILE_LINE, false, true)
 #else
 #define ReportDebugIf(cond)
 #endif
@@ -272,9 +285,48 @@ float limitValue(float val, float min, float max);
 // return true if adding n to val overflows. Only valid for n > 0
 template <typename T>
 inline bool addOverflows(T val, T n) {
-    ReportIf(!(n > 0));
+    if (n == 0 || val == 0) {
+        return true;
+    }
+    ReportIf(n < 0);
+    ReportIf(val < 0);
     T res = val + n;
     return val > res;
+}
+
+// return false if adding n to val overflows. Only valid for n > 0
+template <typename T>
+inline bool addSafe(T* valInOut, T n) {
+    if (n == 0 || *valInOut == 0) {
+        valInOut = 0;
+        return true;
+    }
+    ReportIf(n < 0);
+    ReportIf(*valInOut < 0);
+    T res = *valInOut + n;
+    if (res < *valInOut) {
+        return false;
+    }
+    *valInOut = res;
+    return true;
+}
+
+// return false if multiplying val by n overflows. Only valid for n > 0
+template <typename T>
+inline bool mulSafe(T* valInOut, T n) {
+    if (n == 0 || *valInOut == 0) {
+        *valInOut = 0;
+        return true;
+    }
+    ReportIf(n < 0);
+    ReportIf(*valInOut < 0);
+    T res = *valInOut * n;
+    if (res < *valInOut || res < n) {
+        // multiplication overflowed
+        return false;
+    }
+    *valInOut = res;
+    return true;
 }
 
 void* memdup(const void* data, size_t len, size_t extraBytes = 0);
@@ -368,174 +420,9 @@ int ListLen(T* root) {
     return n;
 }
 
-// Base class for allocators that can be provided to Vec class
-// (and potentially others). Needed because e.g. in crash handler
-// we want to use Vec but not use standard malloc()/free() functions
-struct Allocator {
-    Allocator() = default;
-    virtual ~Allocator() = default;
-
-    virtual void* Alloc(size_t size) = 0;
-    virtual void* Realloc(void* mem, size_t size) = 0;
-    virtual void Free(const void* mem) = 0;
-
-    // helper functions that fallback to malloc()/free() if allocator is nullptr
-    // helps write clients where allocator is optional
-    static void* Alloc(Allocator* a, size_t size);
-
-    template <typename T>
-    static T* AllocArray(Allocator* a, size_t n = 1) {
-        size_t size = n * sizeof(T);
-        return (T*)AllocZero(a, size);
-    }
-
-    static void* AllocZero(Allocator* a, size_t size);
-    static void Free(Allocator* a, void* p);
-    static void* Realloc(Allocator* a, void* mem, size_t size);
-    static void* MemDup(Allocator* a, const void* mem, size_t size, size_t extraBytes = 0);
-};
-
-// PoolAllocator is for the cases where we need to allocate pieces of memory
-// that are meant to be freed together. It simplifies the callers (only need
-// to track this object and not all allocated pieces). Allocation and freeing
-// is faster. The downside is that free() is a no-op i.e. it can't free memory
-// for re-use.
-//
-// Note: we could be a bit more clever here by allocating data in 4K chunks
-// via VirtualAlloc() etc. instead of malloc(), which would lower the overhead
-struct PoolAllocator : Allocator {
-    // we'll allocate block of the minBlockSize unless
-    // asked for a block of bigger size
-    size_t minBlockSize = 4096;
-
-    // contains allocated data and index of each allocation
-    struct Block {
-        struct Block* next;
-        size_t dataSize; // size of data in block
-        size_t nAllocs;
-        // curr points to free space
-        char* freeSpace;
-        // from the end, we store index of each allocation relative
-        // to start of the block. <end> points at the current
-        // reverse end of i32 array of indexes
-        char* end;
-        // data follows here
-    };
-
-    Block* currBlock = nullptr;
-    Block* firstBlock = nullptr;
-    int nAllocs = 0;
-    CRITICAL_SECTION cs;
-
-    PoolAllocator();
-
-    // Allocator methods
-    ~PoolAllocator() override;
-    void* Realloc(void* mem, size_t size) override;
-    void Free(const void*) override;
-    void* Alloc(size_t size) override;
-
-    void FreeAll();
-    void Reset(bool poisonFreedMemory = false);
-    void* At(int i);
-
-    // only valid for structs, could alloc objects with
-    // placement new()
-    template <typename T>
-    T* AllocStruct() {
-        return (T*)Alloc(sizeof(T));
-    }
-
-    // Iterator for easily traversing allocated memory as array
-    // of values of type T. The caller has to enforce the fact
-    // that the values stored are indeed values of T
-    // see http://www.cprogramming.com/c++11/c++11-ranged-for-loop.html
-    template <typename T>
-    struct Iter {
-        PoolAllocator* self;
-        int idx;
-
-        // TODO: can make it more efficient
-        Iter(PoolAllocator* a, int startIdx) {
-            self = a;
-            idx = startIdx;
-        }
-
-        bool operator!=(const Iter& other) const {
-            return idx != other.idx;
-        }
-
-        T* operator*() const {
-            return (T*)self->At(idx);
-        }
-
-        Iter& operator++() {
-            idx += 1;
-            return *this;
-        }
-    };
-
-    template <typename T>
-    Iter<T> begin() {
-        return Iter<T>(this, 0);
-    }
-    template <typename T>
-    Iter<T> end() {
-        return Iter<T>(this, nAllocs);
-    }
-};
-
-struct HeapAllocator : Allocator {
-    HANDLE allocHeap = nullptr;
-
-    explicit HeapAllocator(size_t initialSize = 128 * 1024) : allocHeap(HeapCreate(0, initialSize, 0)) {
-    }
-    ~HeapAllocator() override {
-        HeapDestroy(allocHeap);
-    }
-    void* Alloc(size_t size) override {
-        return HeapAlloc(allocHeap, 0, size);
-    }
-    void* Realloc(void* mem, size_t size) override {
-        return HeapReAlloc(allocHeap, 0, mem, size);
-    }
-    void Free(const void* mem) override {
-        HeapFree(allocHeap, 0, (void*)mem);
-    }
-
-    HeapAllocator(const HeapAllocator&) = delete;
-    HeapAllocator& operator=(const HeapAllocator&) = delete;
-};
-
-// A helper for allocating an array of elements of type T
-// either on stack (if they fit within StackBufInBytes)
-// or in memory. Allocating on stack is a perf optimization
-// note: not the best name
-template <typename T, int StackBufInBytes>
-class FixedArray {
-    T stackBuf[StackBufInBytes / sizeof(T)];
-    T* memBuf;
-
-  public:
-    explicit FixedArray(size_t elCount) {
-        memBuf = nullptr;
-        size_t stackEls = StackBufInBytes / sizeof(T);
-        if (elCount > stackEls) {
-            memBuf = (T*)malloc(elCount * sizeof(T));
-        }
-    }
-
-    ~FixedArray() {
-        free(memBuf);
-    }
-
-    T* Get() {
-        if (memBuf) {
-            return memBuf;
-        }
-        return &(stackBuf[0]);
-    }
-};
+using AtomicRefCount = volatile LONG;
+int AtomicRefCountAdd(AtomicRefCount* v);
+int AtomicRefCountDec(AtomicRefCount* v);
 
 /*
 Poor-man's manual dynamic typing.
@@ -565,9 +452,7 @@ using Kind = const char*;
 struct KindBase {
     Kind kind = nullptr;
 
-    Kind GetKind() const {
-        return kind;
-    }
+    Kind GetKind() const { return kind; }
 };
 
 inline bool isOfKindHelper(Kind k1, Kind k2) {
@@ -589,9 +474,7 @@ struct ExitScope {
     T lambda;
     ExitScope(T lambda) : lambda(lambda) { // NOLINT
     }
-    ~ExitScope() {
-        lambda();
-    }
+    ~ExitScope() { lambda(); }
     ExitScope(const ExitScope&);
 
   private:
@@ -604,21 +487,6 @@ class ExitScopeHelp {
     ExitScope<T> operator+(T t) {
         return t;
     }
-};
-
-// it's 32-bit value which we cast to int for ease of use
-struct AtomicInt {
-    AtomicInt() = default;
-    ~AtomicInt() = default;
-    int Set(int n);
-    int Inc();
-    int Dec();
-    int Add(int n);
-    int Sub(int n);
-    int Get() const;
-
-  private:
-    volatile LONG val = 0;
 };
 
 using func0Ptr = void (*)(void*);
@@ -648,12 +516,8 @@ struct Func0 {
     }
     ~Func0() = default;
 
-    bool IsEmpty() const {
-        return fn == nullptr;
-    }
-    bool IsValid() const {
-        return fn != nullptr;
-    }
+    bool IsEmpty() const { return fn == nullptr; }
+    bool IsValid() const { return fn != nullptr; }
     void Call() const {
         if (!fn) {
             return;
@@ -674,6 +538,19 @@ Func0 MkFunc0(void (*fn)(T*), T* d) {
     auto res = Func0{};
     res.fn = (void*)fn;
     res.userData = (void*)d;
+    return res;
+}
+
+template <typename T, void (T::*Method)()>
+static void MethodTrampoline(void* obj) {
+    (static_cast<T*>(obj)->*Method)();
+}
+
+template <typename T, void (T::*Method)()>
+Func0 MkMethod0(T* obj) {
+    auto res = Func0{};
+    res.fn = (void*)&MethodTrampoline<T, Method>;
+    res.userData = (void*)obj;
     return res;
 }
 
@@ -698,12 +575,8 @@ struct Func1 {
     }
     ~Func1() = default;
 
-    bool IsValid() const {
-        return fn != nullptr;
-    }
-    bool IsEmpty() const {
-        return fn == nullptr;
-    }
+    bool IsValid() const { return fn != nullptr; }
+    bool IsEmpty() const { return fn == nullptr; }
     void Call(T arg) const {
         if (!fn) {
             return;
@@ -717,6 +590,20 @@ struct Func1 {
         fn(userData, arg);
     }
 };
+
+template <typename T, typename TArg, void (T::*Method)(TArg)>
+static void MethodTrampoline1(void* obj, TArg arg) {
+    (static_cast<T*>(obj)->*Method)(arg);
+}
+
+template <typename T, typename TArg, void (T::*Method)(TArg)>
+Func1<TArg> MkMethod1(T* obj) {
+    auto res = Func1<TArg>{};
+    using fptr = void (*)(void*, TArg);
+    res.fn = (fptr)&MethodTrampoline1<T, TArg, Method>;
+    res.userData = (void*)obj;
+    return res;
+}
 
 template <typename T1, typename T2>
 Func1<T2> MkFunc1(void (*fn)(T1*, T2), T1* d) {
@@ -745,29 +632,7 @@ Func1<T2>* NewFunc1(void (*fn)(T1*, T2), T1* d) {
     return res;
 }
 
-class AtomicBool {
-  public:
-    AtomicBool() = default;
-    ~AtomicBool() = default;
-    bool Get() const;
-    bool Set(bool newValue);
-
-  private:
-    volatile LONG val = 0;
-};
-
-struct AtomicRefCount {
-    AtomicRefCount() = default;
-    ~AtomicRefCount() = default;
-    int Add();
-    // returns true if counter reaches 0, meaning it has been released
-    // by all who held a reference to it
-    int Dec();
-
-  private:
-    // starts life as acquired
-    volatile LONG val = 1;
-};
+int setMinMax(int& v, int minVal, int maxVal);
 
 #define defer const auto& CONCAT(defer__, __LINE__) = ExitScopeHelp() + [&]()
 

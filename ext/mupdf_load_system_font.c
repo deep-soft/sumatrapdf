@@ -30,8 +30,7 @@ typedef uint32_t u32;
 
 #define MAX_FACENAME 256
 
-#define MAX_FONT_FILES 1024
-#define MAX_FONTS 4096
+#define GROW_BY 128
 
 typedef struct {
     const char* file_path;
@@ -46,13 +45,13 @@ typedef struct {
 } win_font_info;
 
 typedef struct {
-    win_font_info fontmap[MAX_FONTS];
+    win_font_info* fontmap;
     int len;
     int cap;
 } win_fonts;
 
 typedef struct {
-    font_file files[MAX_FONT_FILES];
+    font_file* files;
     int len;
     int cap;
 } font_files;
@@ -112,12 +111,101 @@ static struct {
     {"Times-Italic", "TimesNewRomanPS-ItalicMT"},
     {"Times-BoldItalic", "TimesNewRomanPS-BoldItalicMT"},
     {"Symbol", "SymbolMT"},
+    // CSS generic font families used in EPUB files
+    {"serif", "TimesNewRomanPSMT"},
+    {"sans-serif", "ArialMT"},
+    {"sans", "ArialMT"},
+    {"monospace", "CourierNewPSMT"},
+    {"cursive", "ComicSansMS"},
+    {"fantasy", "Impact"},
+    // fallbacks for fonts commonly used in EPUBs that may not be installed
+    {"DroidSansMono", "Consolas"},
+    {"SourceSansPro", "SegoeUI"},
+    {"SourceSansPro-Bold", "SegoeUI-Bold"},
+    {"SourceSansPro-Italic", "SegoeUI-Italic"},
+    {"SourceSansPro-BoldItalic", "SegoeUI-BoldItalic"},
+    {"SourceSansPro-Light", "SegoeUI-Light"},
+    {"SourceSansPro-Semibold", "SegoeUI-Semibold"},
+    {"HelveticaNeue", "ArialMT"},
+    {"HelveticaNeue-Bold", "Arial-BoldMT"},
+    {"HelveticaNeue-Italic", "Arial-ItalicMT"},
+    {"HelveticaNeue-BoldItalic", "Arial-BoldItalicMT"},
+    {"HelveticaNeue-Light", "ArialMT"},
+    {"HelveticaNeueLight", "ArialMT"},
+    {"LucidaSans", "SegoeUI"},
+    {"LucidaGrande", "SegoeUI"},
+    {"LucidaConsole", "Consolas"},
+    {"LucidaBright", "Georgia"},
+    {"Handwriting", "SegoeScript"},
+    {"Console", "Consolas"},
+    {"FuturaStd-Bold", "SegoeUI-Bold"},
+    {"DINPro", "SegoeUI"},
+    {"ACaslonPro-Regular", "Georgia"},
+    {"ACaslonPro-Italic", "Georgia-Italic"},
+    // Liberation Sans (Linux metrically compatible with Arial) fallbacks
+    {"LiberationSans", "ArialMT"},
+    {"LiberationSans-Bold", "Arial-BoldMT"},
+    {"LiberationSans-Italic", "Arial-ItalicMT"},
+    {"LiberationSans-BoldItalic", "Arial-BoldItalicMT"},
+    // Safari placeholder font
+    {"SafariFakeFont", "ArialMT"},
+    // PingFang SC (macOS/iOS Simplified Chinese) fallbacks
+    {"PingFangSC-Regular", "Microsoft YaHei"},
+    {"PingFangSC-Medium", "Microsoft YaHei"},
+    {"PingFangSC-Semibold", "Microsoft YaHei Bold"},
+    {"PingFangSC-Bold", "Microsoft YaHei Bold"},
+    {"PingFangSC-Light", "Microsoft YaHei Light"},
+    {"PingFangSC-Ultralight", "Microsoft YaHei Light"},
+    {"PingFangSC-Thin", "Microsoft YaHei Light"},
+    {"PingFang SC", "Microsoft YaHei"},
+    // Founder FangSong font fallback
+    {"FZFangSong-Z02", "FangSong"},
+    {"FZFangSong-Z02S", "FangSong"},
+    // Chinese Kai (regular script) font fallbacks
+    {"MKai PRC", "KaiTi"},
+    {"MKaiPRC-Regular", "KaiTi"},
+    {"MKaiPRC", "KaiTi"},
+    {"STKaiti", "KaiTi"},
+    {"STKaiti-Regular", "KaiTi"},
+    {"STKai", "KaiTi"},
+    {"Kai", "KaiTi"},
+    {"Kaiti_GB2312", "KaiTi"},
+    {"Kaiti SC", "KaiTi"},
+    {"Kaiti TC", "KaiTi"},
 };
 
-static win_fonts g_win_fonts;
+static win_fonts g_win_fonts = {0};
 
 static int did_init = 0;
 static CRITICAL_SECTION cs_fonts;
+
+// cache of font names that failed to load, to avoid repeated lookups
+// names are stored 0-separated in gFontsFailedToLoad
+static char gFontsFailedToLoad[256];
+static int gFontsFailedToLoadLen = 0;
+
+static int is_font_failed(const char* name) {
+    int nameLen = (int)strlen(name);
+    int pos = 0;
+    while (pos < gFontsFailedToLoadLen) {
+        const char* entry = gFontsFailedToLoad + pos;
+        int entryLen = (int)strlen(entry);
+        if (entryLen == nameLen && memcmp(entry, name, nameLen) == 0) {
+            return 1;
+        }
+        pos += entryLen + 1;
+    }
+    return 0;
+}
+
+static void add_font_failed(const char* name) {
+    int n = (int)strlen(name) + 1;
+    if (gFontsFailedToLoadLen + n > (int)sizeof(gFontsFailedToLoad)) {
+        return; // buffer full, just skip
+    }
+    memcpy(gFontsFailedToLoad + gFontsFailedToLoadLen, name, n);
+    gFontsFailedToLoadLen += n;
+}
 
 static int streq(const char* s1, const char* s2) {
     if (strcmp(s1, s2) == 0) {
@@ -151,8 +239,7 @@ static int cmp_font_name(const char* name1, const char* name2) {
 
     if (len1 != len2) {
         const char* rest = len1 > len2 ? name1 + len2 : name2 + len1;
-        if (',' == *rest || streqi(rest, "-roman"))
-            return _strnicmp(name1, name2, fz_mini(len1, len2));
+        if (',' == *rest || streqi(rest, "-roman")) return _strnicmp(name1, name2, fz_mini(len1, len2));
     }
 
     return _stricmp(name1, name2);
@@ -165,6 +252,12 @@ static int font_name_eq(const char* name1, const char* name2) {
 static int cmp_win_font_info(const void* el1, const void* el2) {
     win_font_info* i1 = (win_font_info*)el1;
     win_font_info* i2 = (win_font_info*)el2;
+    if (!i1->fontface) {
+        return i2->fontface ? -1 : 0;
+    }
+    if (!i2->fontface) {
+        return 1;
+    }
     return cmp_font_name(i1->fontface, i2->fontface);
 }
 
@@ -184,18 +277,15 @@ static void decode_unicode_BE(fz_context* ctx, char* source, int sourcelen, char
     WCHAR* tmp;
     int converted, i;
 
-    if (sourcelen % 2 != 0)
-        fz_throw(ctx, FZ_ERROR_GENERIC, "fonterror : invalid unicode string");
+    if (sourcelen % 2 != 0) fz_throw(ctx, FZ_ERROR_GENERIC, "fonterror : invalid unicode string");
 
     tmp = fz_malloc_array(ctx, sourcelen / 2 + 1, WCHAR);
-    for (i = 0; i < sourcelen / 2; i++)
-        tmp[i] = BEtoHs(((WCHAR*)source)[i]);
+    for (i = 0; i < sourcelen / 2; i++) tmp[i] = BEtoHs(((WCHAR*)source)[i]);
     tmp[sourcelen / 2] = '\0';
 
     converted = WideCharToMultiByte(CP_UTF8, 0, tmp, -1, dest, destlen, NULL, NULL);
     fz_free(ctx, tmp);
-    if (!converted)
-        fz_throw(ctx, FZ_ERROR_GENERIC, "fonterror : invalid unicode string");
+    if (!converted) fz_throw(ctx, FZ_ERROR_GENERIC, "fonterror : invalid unicode string");
 }
 
 static void decode_platform_string(fz_context* ctx, int platform, int enctype, char* source, int sourcelen, char* dest,
@@ -255,7 +345,14 @@ static int get_or_append_font_file(const char* file_path) {
         return i;
     }
     if (g_font_files.len >= g_font_files.cap) {
-        return -1;
+        int newCap = g_font_files.cap + GROW_BY;
+        font_file* newFiles = (font_file*)realloc(g_font_files.files, newCap * sizeof(font_file));
+        if (!newFiles) {
+            return -1;
+        }
+        memset(newFiles + g_font_files.cap, 0, GROW_BY * sizeof(font_file));
+        g_font_files.files = newFiles;
+        g_font_files.cap = newCap;
     }
     i = g_font_files.len;
     ff = &g_font_files.files[i];
@@ -274,14 +371,23 @@ static void append_mapping(fz_context* ctx, const char* facename, const char* pa
         return;
     }
     if (fl->len >= fl->cap) {
-        // fz_throw(ctx, FZ_ERROR_GENERIC, "fonterror : fontlist overflow");
-        return;
+        int newCap = fl->cap + GROW_BY;
+        win_font_info* newMap = (win_font_info*)realloc(fl->fontmap, newCap * sizeof(win_font_info));
+        if (!newMap) {
+            return;
+        }
+        memset(newMap + fl->cap, 0, GROW_BY * sizeof(win_font_info));
+        fl->fontmap = newMap;
+        fl->cap = newCap;
     }
 
     win_font_info* i = &fl->fontmap[fl->len];
     g_font_allocated += strlen(facename) + 1;
     // TODO: allocate facename and path from a pool allocator
     i->fontface = strdup(facename);
+    if (!i->fontface) {
+        return;
+    }
     i->file_idx = (u32)file_idx;
     i->index = (u32)index;
     fl->len++;
@@ -291,8 +397,7 @@ static void safe_read(fz_context* ctx, fz_stream* file, int offset, char* buf, i
     int n;
     fz_seek(ctx, file, offset, SEEK_SET);
     n = fz_read(ctx, file, (unsigned char*)buf, size);
-    if (n != size)
-        fz_throw(ctx, FZ_ERROR_GENERIC, "safe_read: read %d, expected %d", n, size);
+    if (n != size) fz_throw(ctx, FZ_ERROR_GENERIC, "safe_read: read %d, expected %d", n, size);
 }
 
 static void read_ttf_string(fz_context* ctx, fz_stream* file, int offset, TT_NAME_RECORD* ttRecordBE, char* buf,
@@ -300,8 +405,7 @@ static void read_ttf_string(fz_context* ctx, fz_stream* file, int offset, TT_NAM
     char szTemp[MAX_FACENAME * 2];
     // ignore empty and overlong strings
     int stringLength = BEtoHs(ttRecordBE->uStringLength);
-    if (stringLength == 0 || stringLength >= sizeof(szTemp))
-        return;
+    if (stringLength == 0 || stringLength >= sizeof(szTemp)) return;
 
     safe_read(ctx, file, offset + BEtoHs(ttRecordBE->uStringOffset), szTemp, stringLength);
     decode_platform_string(ctx, BEtoHs(ttRecordBE->uPlatformID), BEtoHs(ttRecordBE->uEncodingID), szTemp, stringLength,
@@ -499,7 +603,7 @@ static void extend_system_font_list(fz_context* ctx, const WCHAR* path) {
         if (!(FileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
             char szPathUtf8[MAX_PATH], *fileExt;
             int res;
-            lstrcpyn(lpFileName, FileData.cFileName, szPath + MAX_PATH - lpFileName);
+            lstrcpynW(lpFileName, FileData.cFileName, szPath + MAX_PATH - lpFileName);
             res = WideCharToMultiByte(CP_UTF8, 0, szPath, -1, szPathUtf8, sizeof(szPathUtf8), NULL, NULL);
             if (!res) {
                 fz_warn(ctx, "WideCharToMultiByte failed");
@@ -594,8 +698,7 @@ static void create_system_font_list(fz_context* ctx) {
 // TODO(port): replace the caller
 static void* fz_resize_array(fz_context* ctx, void* p, unsigned int count, unsigned int size) {
     void* np = fz_realloc(ctx, p, count * size);
-    if (!np)
-        fz_throw(ctx, FZ_ERROR_GENERIC, "resize array (%d x %d bytes) failed", count, size);
+    if (!np) fz_throw(ctx, FZ_ERROR_GENERIC, "resize array (%d x %d bytes) failed", count, size);
     return np;
 }
 
@@ -608,7 +711,7 @@ static fz_buffer* load_and_cache_font(fz_context* ctx, win_font_info* fi, const 
     ff = &g_font_files.files[file_idx];
     if (ff->data) {
         buffer = fz_new_buffer_from_shared_data(ctx, ff->data, ff->size);
-        fz_warn(ctx, "found cached font '%s' from '%s'", font_name, ff->file_path);
+        // fz_warn(ctx, "found cached font '%s' from '%s'", font_name, ff->file_path);
     }
     LeaveCriticalSection(&cs_fonts);
     if (buffer) {
@@ -622,12 +725,12 @@ static fz_buffer* load_and_cache_font(fz_context* ctx, win_font_info* fi, const 
     }
 
     EnterCriticalSection(&cs_fonts);
-    // TODO: free this data. will have to make a copy using allocator
-    // not bound to ctx
+    // ff->data is freed in destroy_system_font_list()
     ff->size = fz_buffer_extract(ctx, buffer, (unsigned char**)&ff->data);
+    fz_drop_buffer(ctx, buffer);
     buffer = fz_new_buffer_from_shared_data(ctx, ff->data, ff->size);
     LeaveCriticalSection(&cs_fonts);
-    fz_warn(ctx, "loaded font '%s' from '%s'", font_name, ff->file_path);
+    // fz_warn(ctx, "loaded font '%s' from '%s'", font_name, ff->file_path);
     return buffer;
 }
 
@@ -640,8 +743,12 @@ static int str_ends_with(const char* str, const char* end) {
 static fz_font* load_windows_font_by_name(fz_context* ctx, const char* orig_name) {
     win_font_info* found = NULL;
     char *comma, *fontname;
-    fz_font* font;
+    fz_font* font = NULL;
     fz_buffer* buffer;
+
+    if (is_font_failed(orig_name)) {
+        return NULL;
+    }
 
     EnterCriticalSection(&cs_fonts);
     if (g_win_fonts.len == 0) {
@@ -728,12 +835,22 @@ static fz_font* load_windows_font_by_name(fz_context* ctx, const char* orig_name
 Exit:
     fz_free(ctx, fontname);
     if (!found) {
-        fz_throw(ctx, FZ_ERROR_GENERIC, "couldn't find system font '%s'", orig_name);
+        fz_warn(ctx, "couldn't find system font '%s'", orig_name);
+        add_font_failed(orig_name);
+        return NULL;
     }
     buffer = load_and_cache_font(ctx, found, orig_name);
     int use_glyph_bbox = !streq(found->fontface, "DroidSansFallback");
-    font = fz_new_font_from_buffer(ctx, orig_name, buffer, found->index, use_glyph_bbox);
-    font->flags.ft_substitute = 1;
+    fz_try(ctx) {
+        font = fz_new_font_from_buffer(ctx, orig_name, buffer, found->index, use_glyph_bbox);
+        font->flags.ft_substitute = 1;
+    }
+    fz_always(ctx) {
+        fz_drop_buffer(ctx, buffer);
+    }
+    fz_catch(ctx) {
+        fz_rethrow(ctx);
+    }
     return font;
 }
 
@@ -762,17 +879,15 @@ static fz_font* load_windows_font(fz_context* ctx, const char* fontname, int bol
 
     if (needs_exact_metrics) {
         int len;
-        if (fz_lookup_base14_font(ctx, fontname, &len))
-            return NULL;
+        if (fz_lookup_base14_font(ctx, fontname, &len)) return NULL;
 
-        if (clean_name != fontname && !strncmp(clean_name, "Times-", 6))
-            return NULL;
+        if (clean_name != fontname && !strncmp(clean_name, "Times-", 6)) return NULL;
     }
 
     font = load_windows_font_by_name(ctx, fontname);
+    if (!font) return NULL;
     /* use the font's own metrics for base 14 fonts */
-    if (is_base_14)
-        font->flags.ft_substitute = 0;
+    if (is_base_14) font->flags.ft_substitute = 0;
     return font;
 }
 
@@ -780,14 +895,8 @@ static fz_font* load_windows_cjk_font(fz_context* ctx, const char* fontname, int
     fz_font* font = NULL;
 
     /* try to find a matching system font before falling back to an approximate one */
-    fz_try(ctx) {
-        font = load_windows_font_by_name(ctx, fontname);
-    }
-    fz_catch(ctx) {
-        fz_report_error(ctx);
-    }
-    if (font)
-        return font;
+    font = load_windows_font_by_name(ctx, fontname);
+    if (font) return font;
 
     /* try to fall back to a reasonable system font */
     fz_try(ctx) {
@@ -814,12 +923,9 @@ static fz_font* load_windows_cjk_font(fz_context* ctx, const char* fontname, int
                     font = load_windows_font_by_name(ctx, "DFKaiShu-SB-Estd-BF");
                     break;
                 case FZ_ADOBE_GB:
-                    fz_try(ctx) {
-                        font = load_windows_font_by_name(ctx, "KaiTi");
-                    }
-                    fz_catch(ctx) {
+                    font = load_windows_font_by_name(ctx, "KaiTi");
+                    if (!font) {
                         font = load_windows_font_by_name(ctx, "KaiTi_GB2312");
-                        fz_report_error(ctx);
                     }
                     break;
                 case FZ_ADOBE_JAPAN:
@@ -883,6 +989,56 @@ static fz_font* load_windows_fallback_font(fz_context* ctx, int script, int lang
                 font_name = "SegoeUI-Bold";
             }
         } break;
+        case UCDN_SCRIPT_ARABIC:
+        case UCDN_SCRIPT_SYRIAC:
+        case UCDN_SCRIPT_THAANA: {
+            font_name = "SegoeUI";
+            if (bold) {
+                font_name = "SegoeUI-Bold";
+            }
+        } break;
+        case UCDN_SCRIPT_THAI:
+        case UCDN_SCRIPT_LAO:
+        case UCDN_SCRIPT_KHMER:
+        case UCDN_SCRIPT_MYANMAR:
+        case UCDN_SCRIPT_TIBETAN: {
+            font_name = "MicrosoftSansSerif";
+        } break;
+        case UCDN_SCRIPT_HAN:
+        case UCDN_SCRIPT_BOPOMOFO: {
+            font_name = "MicrosoftYaHei";
+            if (bold) {
+                font_name = "MicrosoftYaHei-Bold";
+            }
+        } break;
+        case UCDN_SCRIPT_HIRAGANA:
+        case UCDN_SCRIPT_KATAKANA: {
+            font_name = "YuGothic-Regular";
+            if (bold) {
+                font_name = "YuGothic-Bold";
+            }
+        } break;
+        case UCDN_SCRIPT_HANGUL: {
+            font_name = "MalgunGothic";
+            if (bold) {
+                font_name = "MalgunGothicBold";
+            }
+        } break;
+        case UCDN_SCRIPT_ETHIOPIC: {
+            font_name = "NyalaSemiBold";
+        } break;
+        case UCDN_SCRIPT_CANADIAN_ABORIGINAL: {
+            font_name = "Gadugi";
+            if (bold) {
+                font_name = "Gadugi-Bold";
+            }
+        } break;
+        case UCDN_SCRIPT_MONGOLIAN: {
+            font_name = "MongolianBaiti";
+        } break;
+        case UCDN_SCRIPT_YI: {
+            font_name = "MicrosoftYiBaiti";
+        } break;
         case UCDN_SCRIPT_CYRILLIC:
         case UCDN_SCRIPT_GREEK:
         case UCDN_SCRIPT_ARMENIAN:
@@ -915,12 +1071,7 @@ static fz_font* load_windows_fallback_font(fz_context* ctx, int script, int lang
     }
 
     /* try to find a matching system font before falling back to an approximate one */
-    fz_try(ctx) {
-        font = load_windows_font_by_name(ctx, font_name);
-    }
-    fz_catch(ctx) {
-        fz_report_error(ctx);
-    }
+    font = load_windows_font_by_name(ctx, font_name);
     return font;
 }
 
@@ -930,19 +1081,56 @@ void init_system_font_list(void) {
         return;
     }
     InitializeCriticalSection(&cs_fonts);
+    g_win_fonts.fontmap = NULL;
     g_win_fonts.len = 0;
-    g_win_fonts.cap = MAX_FONTS;
+    g_win_fonts.cap = 0;
+    g_font_files.files = NULL;
     g_font_files.len = 0;
-    g_font_files.cap = MAX_FONT_FILES;
+    g_font_files.cap = 0;
     did_init = 1;
 }
 
 void destroy_system_font_list(void) {
-    // TODO: free names and file data
+    int i;
+    for (i = 0; i < g_win_fonts.len; i++) {
+        free((void*)g_win_fonts.fontmap[i].fontface);
+    }
+    free(g_win_fonts.fontmap);
+    g_win_fonts.fontmap = NULL;
+    g_win_fonts.len = 0;
+    g_win_fonts.cap = 0;
+    for (i = 0; i < g_font_files.len; i++) {
+        free((void*)g_font_files.files[i].file_path);
+        free(g_font_files.files[i].data);
+    }
+    free(g_font_files.files);
+    g_font_files.files = NULL;
+    g_font_files.len = 0;
+    g_font_files.cap = 0;
     DeleteCriticalSection(&cs_fonts);
 }
 
 void install_load_windows_font_funcs(fz_context* ctx) {
     init_system_font_list();
     fz_install_load_system_font_funcs(ctx, load_windows_font, load_windows_cjk_font, load_windows_fallback_font);
+}
+
+// Wrappers around harfbuzz allocators that use standard C malloc/free.
+// With HAVE_ATEXIT defined, harfbuzz registers atexit handlers to free
+// its singletons. During atexit, mupdf's fz_hb_lock hasn't been called
+// so fz_hb_secret (the fz_context) is NULL and fz_hb_free would crash.
+// We use plain malloc/free which is safe both during normal operation
+// (mupdf's default allocator is malloc/free) and during atexit cleanup.
+
+void* sumatra_hb_malloc(size_t size) {
+    return malloc(size);
+}
+void* sumatra_hb_calloc(size_t n, size_t size) {
+    return calloc(n, size);
+}
+void* sumatra_hb_realloc(void* ptr, size_t size) {
+    return realloc(ptr, size);
+}
+void sumatra_hb_free(void* ptr) {
+    free(ptr);
 }

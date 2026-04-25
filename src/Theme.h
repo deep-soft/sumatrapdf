@@ -7,6 +7,7 @@ void SelectNextTheme();
 void CreateThemeCommands();
 
 COLORREF ThemeDocumentColors(COLORREF&);
+COLORREF ThemePageRenderColors(COLORREF&);
 COLORREF ThemeMainWindowBackgroundColor();
 COLORREF ThemeControlBackgroundColor();
 COLORREF ThemeWindowBackgroundColor();
@@ -21,8 +22,10 @@ COLORREF ThemeNotificationsHighlightTextColor();
 COLORREF ThemeNotificationsProgressColor();
 bool ThemeColorizeControls();
 bool IsCurrentThemeDefault();
+COLORREF AccentColor(COLORREF col, int light, int dark = 0);
+void FreeThemes();
+bool UseDarkModeLib();
 
 extern int gFirstSetThemeCmdId;
 extern int gLastSetThemeCmdId;
 extern int gCurrSetThemeCmdId;
-extern bool gUseDarkModeLib;

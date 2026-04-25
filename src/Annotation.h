@@ -34,6 +34,7 @@ enum class AnnotationType {
     Watermark,
     ThreeD,
     Projection,
+    Last = Projection,
     Unknown = -1
 };
 
@@ -70,8 +71,19 @@ struct AnnotCreateArgs {
     AnnotationType annotType = AnnotationType::Unknown;
     // the following are set depending on type of the annotation
     ParsedColor col;
+    // bgCol for free text
+    ParsedColor bgCol;
+    // interior color (fill) for shapes like Square, Circle, Line
+    ParsedColor interiorCol;
+    // opacity for free text, 0-100, 0-fully transparent (invisible), 100-fully opaque
+    // if 100 we don't actually set it (it's the default)
+    int opacity = 100;
     bool copyToClipboard = false;
-    bool setContent = false;
+    // for free text, < 0 means not given
+    int textSize = -1;
+    // for free text, < 0 means not given
+    int borderWidth = -1;
+    bool setContentToSelection = false;
     TempStr content = nullptr;
 };
 
@@ -88,28 +100,37 @@ time_t ModificationDate(Annotation*);
 int PopupId(Annotation*); // -1 if not exist
 TempStr AnnotationReadableNameTemp(AnnotationType tp);
 AnnotationType Type(Annotation*);
+
 const char* DefaultAppearanceTextFont(Annotation*);
 PdfColor DefaultAppearanceTextColor(Annotation*);
 int DefaultAppearanceTextSize(Annotation*);
+TempStr Contents(Annotation*);
+PdfColor GetColor(Annotation*);      // kColorUnset if no color
+PdfColor InteriorColor(Annotation*); // kColorUnset if no color
+int Quadding(Annotation*);
+int BorderWidth(Annotation*);
+const char* IconName(Annotation*); // empty() if no icon
+int Opacity(Annotation*);
+void GetLineEndingStyles(Annotation*, int* start, int* end);
+
 void SetDefaultAppearanceTextFont(Annotation*, const char*);
 void SetDefaultAppearanceTextSize(Annotation*, int);
 void SetDefaultAppearanceTextColor(Annotation*, PdfColor);
-TempStr Contents(Annotation*);
-int Quadding(Annotation*);
-bool SetQuadding(Annotation*, int);
-int BorderWidth(Annotation*);
-void SetBorderWidth(Annotation*, int);
-void GetLineEndingStyles(Annotation*, int* start, int* end);
-const char* IconName(Annotation*);   // empty() if no icon
-PdfColor GetColor(Annotation*);      // kColorUnset if no color
-PdfColor InteriorColor(Annotation*); // kColorUnset if no color
-bool SetInteriorColor(Annotation*, PdfColor);
-int Opacity(Annotation*);
-void SetOpacity(Annotation*, int);
 bool SetContents(Annotation*, const char*);
-bool IsAnnotationEq(Annotation* a1, Annotation* a2);
-void PdfColorToFloat(PdfColor c, float rgb[3]);
-void SetIconName(Annotation*, const char*);
 bool SetColor(Annotation*, PdfColor);
+bool SetInteriorColor(Annotation*, PdfColor);
+bool SetQuadding(Annotation*, int);
+void SetBorderWidth(Annotation*, int);
+void SetOpacity(Annotation*, int);
+void SetIconName(Annotation*, const char*);
+void SetLineEndStyles(Annotation*, int end);
+void SetLineStartStyles(Annotation*, int start);
+
 void DeleteAnnotation(Annotation*);
-bool IsMoveableAnnotation(AnnotationType);
+bool AnnotationCanBeMoved(AnnotationType);
+bool AnnotationCanBeResized(AnnotationType);
+bool AnnotationSupportsColor(AnnotationType);
+bool AnnotationSupportsBorder(AnnotationType);
+bool AnnotationSupportsInteriorColor(AnnotationType);
+
+AnnotationType CmdIdToAnnotationType(int cmdId);

@@ -22,13 +22,9 @@ long g_lRefCount = 0;
 
 class FilterClassFactory : public IClassFactory {
   public:
-    explicit FilterClassFactory(REFCLSID rclsid) : m_lRef(1), m_clsid(rclsid) {
-        InterlockedIncrement(&g_lRefCount);
-    }
+    explicit FilterClassFactory(REFCLSID rclsid) : m_lRef(1), m_clsid(rclsid) { InterlockedIncrement(&g_lRefCount); }
 
-    ~FilterClassFactory() {
-        InterlockedDecrement(&g_lRefCount);
-    }
+    ~FilterClassFactory() { InterlockedDecrement(&g_lRefCount); }
 
     // IUnknown
     IFACEMETHODIMP QueryInterface(REFIID riid, void** ppv) {
@@ -36,9 +32,7 @@ class FilterClassFactory : public IClassFactory {
         return QISearch(this, qit, riid, ppv);
     }
 
-    IFACEMETHODIMP_(ULONG) AddRef() {
-        return InterlockedIncrement(&m_lRef);
-    }
+    IFACEMETHODIMP_(ULONG) AddRef() { return InterlockedIncrement(&m_lRef); }
 
     IFACEMETHODIMP_(ULONG) Release() {
         long cRef = InterlockedDecrement(&m_lRef);
@@ -119,7 +113,7 @@ STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID* ppv) {
 
 STDAPI DllRegisterServer() {
     log("DllRegisterServer\n");
-    TempStr dllPath = GetPathInExeDirTemp((const char*)nullptr);
+    TempStr dllPath = GetSelfExePathTemp();
     if (!dllPath) {
         return HRESULT_FROM_WIN32(GetLastError());
     }

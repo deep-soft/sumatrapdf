@@ -76,6 +76,9 @@ static Gdiplus::Bitmap* ImageFromJpegData(fz_context* ctx, const u8* data, int l
         fz_report_error(ctx);
     }
 
+#ifndef PixelFormat32bppCMYK
+#define PixelFormat32bppCMYK (15 | (32 << 8) | PixelFormatGDI)
+#endif
     Gdiplus::PixelFormat fmt = fz_device_rgb(ctx) == cs    ? PixelFormat24bppRGB
                                : fz_device_gray(ctx) == cs ? PixelFormat24bppRGB
                                : fz_device_cmyk(ctx) == cs ? PixelFormat32bppCMYK
@@ -228,7 +231,7 @@ static Gdiplus::Bitmap* ImageFromJp2Data(fz_context* ctx, const u8* data, int le
     return bmp.Clone(0, 0, w, h, pixelFormat);
 }
 
-Gdiplus::Bitmap* FzImageFromData(const ByteSlice& d) {
+static Gdiplus::Bitmap* FzImageFromData(const ByteSlice& d) {
     const u8* data = (const u8*)d.data();
     size_t len = d.size();
     if (len > INT_MAX || len < 12) {

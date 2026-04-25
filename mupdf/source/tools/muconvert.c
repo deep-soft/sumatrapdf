@@ -52,7 +52,7 @@ static int count;
 static int usage(void)
 {
 	fprintf(stderr,
-		"Usage: mutool convert [options] file [pages]\n"
+		"Usage: SumatraPDF convert [options] file [pages]\n"
 		"\t-p -\tpassword\n"
 		"\n"
 		"\t-b -\tuse named page box (MediaBox, CropBox, BleedBox, TrimBox, or ArtBox)\n"
@@ -136,6 +136,8 @@ int muconvert_main(int argc, char **argv)
 {
 	int i, c;
 	int retval = EXIT_SUCCESS;
+
+	fz_optind = 1;
 
 	while ((c = fz_getopt(argc, argv, "p:A:W:H:S:U:Xo:F:O:b:")) != -1)
 	{

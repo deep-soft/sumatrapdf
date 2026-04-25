@@ -39,10 +39,10 @@
 
 // The following functions allow crash handler to be used by both installer
 // and sumatra proper. They must be implemented for each app.
-extern void GetStressTestInfo(str::Str* s);
+extern void GetStressTestInfo(StrBuilder* s);
 extern bool CrashHandlerCanUseNet();
 extern void ShowCrashHandlerMessage();
-extern void GetProgramInfo(str::Str& s);
+extern void GetProgramInfo(StrBuilder& s);
 
 // in DEBUG we don't enable symbols download because they are not uploaded
 #if defined(DEBUG)
@@ -63,7 +63,7 @@ allocate memory. I assume it'll use GetProcessHeap() heap and further assume
 that CRT creates its own heap for malloc()/free() etc. so that while a deadlock
 is still possible, the probability should be greatly reduced. */
 
-static HeapAllocator* gCrashHandlerAllocator = nullptr;
+static Arena* gCrashHandlerAllocator = nullptr;
 
 // Note: intentionally not using ScopedMem<> to avoid
 // static initializers/destructors, which are bad
@@ -72,7 +72,6 @@ char* gCrashFilePath = nullptr;
 
 static char* gSymbolsUrl = nullptr;
 static char* gCrashDumpPath = nullptr;
-static char* gSymbolPath = nullptr;
 static char* gSystemInfo = nullptr;
 static char* gSettingsFile = nullptr;
 static char* gModulesInfo = nullptr;
@@ -86,7 +85,7 @@ static LPTOP_LEVEL_EXCEPTION_FILTER gPrevExceptionFilter = nullptr;
 
 // returns true if running on wine (winex11.drv is present)
 // it's not a logical, but convenient place to do it
-static bool GetModules(str::Str& s, bool additionalOnly) {
+static bool GetModules(StrBuilder& s, bool additionalOnly) {
     bool isWine = false;
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId());
     if (snap == INVALID_HANDLE_VALUE) {
@@ -116,16 +115,14 @@ static bool GetModules(str::Str& s, bool additionalOnly) {
     return isWine;
 }
 
-char* BuildCrashInfoText(const char* condStr, bool isCrash, bool captureCallstack) {
-    str::Str s(16 * 1024, gCrashHandlerAllocator);
+static char* BuildCrashInfoText(const char* condStr, const char* fileLine, bool isCrash, bool captureCallstack) {
+    StrBuilder s(16 * 1024, gCrashHandlerAllocator);
     if (!isCrash) {
         captureCallstack = true;
         s.Append("Type: debug report (not crash)\n");
     }
     if (condStr) {
-        s.Append("Cond: ");
-        s.Append(condStr);
-        s.Append("\n");
+        s.AppendFmt("Cond: %s @ %s\n", condStr, fileLine);
     }
     if (gSystemInfo) {
         s.Append(gSystemInfo);
@@ -148,7 +145,11 @@ char* BuildCrashInfoText(const char* condStr, bool isCrash, bool captureCallstac
     }
 
     s.Append("\n-------- Log -----------------\n\n");
-    s.Append(gLogBuf->LendData());
+    if (gLogBuf) {
+        s.Append(gLogBuf->LendData());
+    } else {
+        s.Append("(no log - crashed before initializing logging)\n");
+    }
 
     if (gSettingsFile) {
         s.Append("\n\n----- Settings file ----------\n\n");
@@ -172,8 +173,10 @@ char* BuildCrashInfoText(const char* condStr, bool isCrash, bool captureCallstac
 
 void SaveCrashInfo(const ByteSlice& d) {
     if (!gCrashFilePath) {
+        logf("SaveCrashInfo: skipping because !gCrashFilePath");
         return;
     }
+    logf("SaveCrashInfo: gCrashFilePath='%s'\n", gCrashFilePath);
     dir::CreateForFile(gCrashFilePath);
     file::WriteFile(gCrashFilePath, d);
 }
@@ -184,16 +187,16 @@ void UploadCrashReport(const ByteSlice& d) {
         return;
     }
 
-    str::Str headers(256, gCrashHandlerAllocator);
+    StrBuilder headers(256, gCrashHandlerAllocator);
     headers.AppendFmt("Content-Type: text/plain");
 
-    str::Str data(16 * 1024, gCrashHandlerAllocator);
+    StrBuilder data(16 * 1024, gCrashHandlerAllocator);
     data.AppendSlice(d);
 
     HttpPost(kCrashHandlerServer, kCrashHandlerServerPort, kCrashHandlerServerSubmitURL, &headers, &data);
 }
 
-static bool ExtractSymbols(const u8* archiveData, size_t dataSize, const char* dstDir, Allocator* allocator) {
+static bool ExtractSymbols(const u8* archiveData, size_t dataSize, const char* dstDir, Arena* allocator) {
     logf("ExtractSymbols: dir '%s', size: %d\n", dstDir, (int)dataSize);
     lzma::SimpleArchive archive;
     bool ok = ParseSimpleArchive(archiveData, dataSize, &archive);
@@ -216,11 +219,14 @@ static bool ExtractSymbols(const u8* archiveData, size_t dataSize, const char* d
         }
         ByteSlice d = {uncompressed, fi->uncompressedSize};
         ok = file::WriteFile(filePath, d);
-
-        Allocator::Free(allocator, filePath);
-        Allocator::Free(allocator, uncompressed);
         if (!ok) {
+            DWORD err = GetLastError();
             logf("ExtractSymbols: failed to write '%s'\n", filePath);
+            LogLastError(err);
+        }
+        Free(allocator, filePath);
+        Free(allocator, uncompressed);
+        if (!ok) {
             return false;
         }
     }
@@ -289,23 +295,81 @@ bool AreSymbolsDownloaded(const char* symDir) {
     return false;
 }
 
+/*
+https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/symbol-path
+http://p-nand-q.com/python/procmon.html
+https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/debugger-download-tools
+
+Setting symbol path:
+add GetEnvironmentVariableA("_NT_SYMBOL_PATH", ..., ...)
+add GetEnvironmentVariableA("_NT_ALT_SYMBOL_PATH ", ..., ...)
+add: cache*C:\MySymbols;srv*https://msdl.microsoft.com/download/symbols
+
+dbghelp.dll should be installed with os but might be outdated
+for symbols server symsrv.dll is needed, installed with debug tools for windows
+*/
+static bool gAddNtSymbolPath = false;
+static bool gAddSymbolServer = false;
+static bool gAddExeDir = false;
+
+static TempStr BuildSymbolPathTemp(const char* symDir) {
+    StrBuilder path(2048, GetTempAllocator());
+
+    bool symDirExists = dir::Exists(symDir);
+
+    // at this point symDir might not exist but we add it anyway
+    path.Append(symDir);
+    path.Append(";");
+
+    // in debug builds the symbols are in the same directory as .exe
+    if (gIsDebugBuild || gAddExeDir) {
+        TempStr dir = GetSelfExeDirTemp();
+        path.Append(dir);
+        path.Append(";");
+    }
+
+    if (gAddNtSymbolPath) {
+        TempStr ntSymPath = GetEnvVariableTemp("_NT_SYMBOL_PATH");
+        // internet talks about both _NT_ALT_SYMBOL_PATH and _NT_ALTERNATE_SYMBOL_PATH
+        if (str::IsEmpty(ntSymPath)) {
+            ntSymPath = GetEnvVariableTemp("_NT_ALT_SYMBOL_PATH");
+        }
+        if (str::IsEmpty(ntSymPath)) {
+            ntSymPath = GetEnvVariableTemp("_NT_ALTERNATE_SYMBOL_PATH");
+        }
+        if (!str::IsEmpty(ntSymPath)) {
+            path.Append(ntSymPath);
+            path.Append(";");
+        }
+    }
+    if (gAddSymbolServer && symDirExists) {
+        // this probably won't work as it needs symsrv.dll and that's not included with Windows
+        // TODO: maybe try to scan system directories for symsrv.dll and somehow add it?
+        path.AppendFmt("cache*%s;srv*https://msdl.microsoft.com/download/symbols;", symDir);
+    }
+
+    // remove ";" from the end
+    path.RemoveLast();
+    return (TempStr)path.StealData(GetTempAllocator());
+}
+
 bool InitializeDbgHelp(bool force) {
-    TempWStr ws = ToWStrTemp(gSymbolPath);
+    TempStr symPath = BuildSymbolPathTemp(gSymbolsDir);
+    TempWStr ws = ToWStrTemp(symPath);
     if (!dbghelp::Initialize(ws, force)) {
-        logf("InitializeDbgHelp: dbghelp::Initialize('%s'), force: %d failed\n", gSymbolPath, (int)force);
+        logf("InitializeDbgHelp: dbghelp::Initialize('%s'), force: %d failed\n", symPath, (int)force);
         return false;
     }
 
     if (!dbghelp::HasSymbols()) {
-        logf("InitializeDbgHelp(): dbghelp::HasSymbols(), gSymbolPath: '%s' force: %d failed\n", gSymbolPath,
-             (int)force);
+        logf("InitializeDbgHelp(): dbghelp::HasSymbols(), symPath: '%s' force: %d failed\n", symPath, (int)force);
         return false;
     }
-    log("InitializeDbgHelp(): did initialize ok\n");
+    logf("InitializeDbgHelp(): did initialize ok, symPath: '%s'\n", symPath);
     return true;
 }
 
-bool DownloadSymbolsIfNeeded() {
+static bool DownloadSymbolsIfNeededAndInitializeDbgHelp() {
     logf("DownloadSymbolsIfNeeded(), gSymbolsDir: '%s'\n", gSymbolsDir);
     if (!AreSymbolsDownloaded(gSymbolsDir)) {
         bool ok = CrashHandlerDownloadSymbols();
@@ -317,19 +381,42 @@ bool DownloadSymbolsIfNeeded() {
 }
 
 // like crash report, but can be triggered without a crash
-void _uploadDebugReport(const char* condStr, bool isCrash, bool captureCallstack) {
-    // in release builds ReportIf()/ReportIfQuick() will break if running under
+void _uploadDebugReport(const char* condStr, const char* fileLine, bool isCrash, bool captureCallstack) {
+    // in release builds ReportIf()/ReportIfFast() will break if running under
     // the debugger. In other builds it sends a debug report
-
-    bool shouldUpload = gIsDebugBuild || gIsPreReleaseBuild || gIsAsanBuild;
-    if (gIsStoreBuild && !isCrash) {
-        // those would probably be too frequent
-        shouldUpload = false;
+    if (condStr) {
+        logfa("_uploadDebugReport: %s %s\n", condStr, fileLine);
+    } else {
+        loga("_uploadDebugReport\n");
     }
+
+    bool shouldUpload = true;
+    // debug build is likely other people modyfing
+    bool downloadSymbols = true;
+    if (gIsDebugBuild || gIsAsanBuild) {
+        shouldUpload = false;
+        downloadSymbols = false;
+    }
+    if (!isCrash) {
+        // for non-crashes, don't upload in release builds (too much info)
+        shouldUpload = gIsPreReleaseBuild;
+    }
+
     if (!shouldUpload) {
         if (IsDebuggerPresent()) {
             DebugBreak();
+        } else {
+            InitializeDbgHelp(false);
+            auto s = BuildCrashInfoText(condStr, fileLine, isCrash, captureCallstack);
+            if (str::IsEmpty(s)) {
+                loga("_uploadDebugReport(): skipping because !BuildCrashInfoText()\n");
+                return;
+            }
+            ByteSlice d(s);
+            SaveCrashInfo(d);
+            log(s);
         }
+        log("_uploadDebugReport skipping because !shouldUpload\n");
         return;
     }
 
@@ -338,14 +425,9 @@ void _uploadDebugReport(const char* condStr, bool isCrash, bool captureCallstack
     // so only allow once submission in a given session
     static bool didSubmitDebugReport = false;
 
-    if (condStr) {
-        logfa("_uploadDebugReport: %s\n", condStr);
-    } else {
-        loga("_uploadDebugReport\n");
-    }
-
     // don't send report if this is me debugging
     if (IsDebuggerPresent()) {
+        log("_uploadDebugReport skipping because IsDebuggerPresent\n");
         DebugBreak();
         return;
     }
@@ -355,43 +437,28 @@ void _uploadDebugReport(const char* condStr, bool isCrash, bool captureCallstack
     }
     didSubmitDebugReport = true;
 
-    // no longer can happen i.e. we exclude non-crashes from release builds via #ifdef
-#if 0
-    if (!isCrash) {
-        if (!gIsPreReleaseBuild) {
-            // only enabled for pre-release builds, don't want lots of non-crash
-            // reports from official release
-            return;
-        }
-
-        if (gIsDebugBuild) {
-            // exclude debug builds. Those are most likely other people modyfing Sumatra
-            return;
-        }
-    }
-#endif
-
     if (!CrashHandlerCanUseNet()) {
+        log("_uploadDebugReport skipping because !CrashHandlerCanUseNet()\n");
         return;
     }
 
-    logfa("_uploadDebugReport: isCrash: %d, captureCallstack: %d, gSymbolPath: '%s'\n", (int)isCrash,
-          (int)captureCallstack, gSymbolPath);
+    logfa("_uploadDebugReport: isCrash: %d, captureCallstack: %d, gSymbolsDir: '%s'\n", (int)isCrash,
+          (int)captureCallstack, gSymbolsDir);
 
-    if (captureCallstack) {
+    if (captureCallstack && downloadSymbols) {
         // we proceed even if we fail to download symbols
-        DownloadSymbolsIfNeeded();
+        DownloadSymbolsIfNeededAndInitializeDbgHelp();
     }
 
-    auto s = BuildCrashInfoText(condStr, isCrash, captureCallstack);
+    auto s = BuildCrashInfoText(condStr, fileLine, isCrash, captureCallstack);
     if (str::IsEmpty(s)) {
         loga("_uploadDebugReport(): skipping because !BuildCrashInfoText()\n");
         return;
     }
-
     ByteSlice d(s);
-    UploadCrashReport(d);
     SaveCrashInfo(d);
+
+    UploadCrashReport(d);
     // gCrashHandlerAllocator->Free((const void*)d.data());
     loga(s);
     loga("_uploadDebugReport() finished\n");
@@ -404,7 +471,7 @@ static DWORD WINAPI CrashDumpThread(LPVOID) {
     }
 
     log("CrashDumpThread\n");
-    _uploadDebugReport(nullptr, true, true);
+    _uploadDebugReport(nullptr, "", true, true);
 
     // always write a MiniDump (for the latest crash only)
     // set the SUMATRAPDF_FULLDUMP environment variable for more complete dumps
@@ -482,7 +549,7 @@ static LONG WINAPI CrashDumpExceptionHandler(EXCEPTION_POINTERS* exceptionInfo) 
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
-static void GetOsVersion(str::Str& s) {
+static void GetOsVersion(StrBuilder& s) {
     OSVERSIONINFOEX ver{};
     bool ok = GetOsVersion(ver);
     ver.dwOSVersionInfoSize = sizeof(ver);
@@ -507,7 +574,7 @@ static void GetOsVersion(str::Str& s) {
     }
 }
 
-static void GetProcessorName(str::Str& s) {
+static void GetProcessorName(StrBuilder& s) {
     auto key = "HARDWARE\\DESCRIPTION\\System\\CentralProcessor";
     char* name = ReadRegStrTemp(HKEY_LOCAL_MACHINE, key, "ProcessorNameString");
     if (!name) {
@@ -522,7 +589,7 @@ static void GetProcessorName(str::Str& s) {
 
 #define GFX_DRIVER_KEY_FMT "SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}\\%04d"
 
-static void GetGraphicsDriverInfo(str::Str& s) {
+static void GetGraphicsDriverInfo(StrBuilder& s) {
     // the info is in registry in:
     // HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}\0000\
     //   Device Description REG_SZ (same as DriverDesc, so we don't read it)
@@ -553,7 +620,7 @@ static void GetGraphicsDriverInfo(str::Str& s) {
     }
 }
 
-static void GetSystemInfo(str::Str& s) {
+static void GetSystemInfo(StrBuilder& s) {
     SYSTEM_INFO si;
     GetSystemInfo(&si);
     s.AppendFmt("Number Of Processors: %d\n", si.dwNumberOfProcessors);
@@ -627,87 +694,35 @@ static void GetSystemInfo(str::Str& s) {
         if (cpu & kCpuAVX2) {
             s.Append("AVX2 ");
         }
+        if (cpu & kCpuNEON) {
+            s.Append("NEON ");
+        }
+        if (cpu & kCpuArmCrypto) {
+            s.Append("Crypto ");
+        }
+        if (cpu & kCpuArmAtomics) {
+            s.Append("Atomics ");
+        }
+        if (cpu & kCpuArmDotProd) {
+            s.Append("DotProd ");
+        }
     }
-
-    // Note: maybe more information, like:
-    // * processor capabilities (mmx, sse, sse2 etc.)
 }
 
 // returns true if running on wine
 static bool BuildModulesInfo() {
-    str::Str s(1024);
+    StrBuilder s(1024);
     bool isWine = GetModules(s, false);
     gModulesInfo = s.StealData();
     return isWine;
 }
 
 static void BuildSystemInfo() {
-    str::Str s(1024);
+    StrBuilder s(1024);
     GetProgramInfo(s);
     GetOsVersion(s);
     GetSystemInfo(s);
     gSystemInfo = s.StealData();
-}
-
-/*
-https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/symbol-path
-http://p-nand-q.com/python/procmon.html
-https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/debugger-download-tools
-
-Setting symbol path:
-add GetEnvironmentVariableA("_NT_SYMBOL_PATH", ..., ...)
-add GetEnvironmentVariableA("_NT_ALT_SYMBOL_PATH ", ..., ...)
-add: cache*C:\MySymbols;srv*https://msdl.microsoft.com/download/symbols
-
-dbghelp.dll should be installed with os but might be outdated
-for symbols server symsrv.dll is needed, installed with debug tools for windows
-*/
-
-static bool gAddNtSymbolPath = false;
-static bool gAddSymbolServer = false;
-static bool gAddExeDir = false;
-
-static void BuildSymbolPath(const char* symDir) {
-    str::Str path(1024);
-
-    bool symDirExists = dir::Exists(symDir);
-
-    // at this point symDir might not exist but we add it anyway
-    path.Append(symDir);
-    path.Append(";");
-
-    // in debug builds the symbols are in the same directory as .exe
-    if (gIsDebugBuild || gAddExeDir) {
-        TempStr dir = GetSelfExeDirTemp();
-        path.Append(dir);
-        path.Append(";");
-    }
-
-    if (gAddNtSymbolPath) {
-        TempStr ntSymPath = GetEnvVariableTemp("_NT_SYMBOL_PATH");
-        // internet talks about both _NT_ALT_SYMBOL_PATH and _NT_ALTERNATE_SYMBOL_PATH
-        if (str::IsEmpty(ntSymPath)) {
-            ntSymPath = GetEnvVariableTemp("_NT_ALT_SYMBOL_PATH");
-        }
-        if (str::IsEmpty(ntSymPath)) {
-            ntSymPath = GetEnvVariableTemp("_NT_ALTERNATE_SYMBOL_PATH");
-        }
-        if (!str::IsEmpty(ntSymPath)) {
-            path.Append(ntSymPath);
-            path.Append(";");
-        }
-    }
-    if (gAddSymbolServer && symDirExists) {
-        // this probably won't work as it needs symsrv.dll and that's not included with Windows
-        // TODO: maybe try to scan system directories for symsrv.dll and somehow add it?
-        path.AppendFmt("cache*%s;srv*https://msdl.microsoft.com/download/symbols;", symDir);
-    }
-
-    // remove ";" from the end
-    path.RemoveLast();
-
-    char* p = path.CStr();
-    str::ReplaceWithCopy(&gSymbolPath, p);
 }
 
 bool SetSymbolsDir(const char* symDir) {
@@ -715,7 +730,6 @@ bool SetSymbolsDir(const char* symDir) {
         return false;
     }
     str::ReplaceWithCopy(&gSymbolsDir, symDir);
-    BuildSymbolPath(gSymbolsDir);
     return true;
 }
 
@@ -751,7 +765,10 @@ static char* BuildSymbolsUrl() {
         const char* ver = QM(CURR_VERSION);
         urlBase = str::JoinTemp(urlBase, "rel/", ver, "/SumatraPDF-", ver);
     }
-    const char* suff = "-32.pdb.lzsa";
+    // TODO: ugly it's different between release and pre-release
+    const char* suff = ".pdb.lzsa";
+    if (gIsPreReleaseBuild) suff = "-32.pdb.lzsa";
+
 #if IS_ARM_64 == 1
     suff = "-arm64.pdb.lzsa";
 #elif IS_INTEL_64 == 1
@@ -796,7 +813,7 @@ void InstallCrashHandler(const char* crashDumpPath, const char* crashFilePath, c
     // we pre-allocate as much as possible to minimize allocations
     // when crash handler is invoked. It's ok to use standard
     // allocation functions here.
-    gCrashHandlerAllocator = new HeapAllocator();
+    gCrashHandlerAllocator = ArenaNew();
     gSymbolsUrl = BuildSymbolsUrl();
 
     TempStr path = GetSettingsPathTemp();
@@ -805,7 +822,7 @@ void InstallCrashHandler(const char* crashDumpPath, const char* crashFilePath, c
     if (!prefsData.empty()) {
         // serialize without FileStates info because it's the largest
         GlobalPrefs* gp = NewGlobalPrefs((const char*)prefsData.data());
-        delete gp->fileStates;
+        DeleteFileStates(gp->fileStates);
         gp->fileStates = new Vec<FileState*>();
         // TODO: also sessionData?
         ByteSlice d = SerializeGlobalPrefs(gp, nullptr);
@@ -857,11 +874,11 @@ void UninstallCrashHandler() {
     str::FreePtr(&gSymbolsUrl);
     str::FreePtr(&gSymbolsDir);
 
-    str::FreePtr(&gSymbolPath);
     str::FreePtr(&gSystemInfo);
     str::FreePtr(&gSettingsFile);
     str::FreePtr(&gModulesInfo);
-    delete gCrashHandlerAllocator;
+    str::FreePtr(&gCrashFilePath);
+    ArenaDelete(gCrashHandlerAllocator);
 }
 
 // Tests that various ways to crash will generate crash report.

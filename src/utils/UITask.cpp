@@ -14,15 +14,18 @@ static HWND gTaskDispatchHwnd = nullptr;
 
 UINT gExecuteTaskMessage = 0;
 
+static DWORD gMainUIThreadId = 0;
+
 static LRESULT CALLBACK WndProcTaskDispatch(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if (gExecuteTaskMessage == msg) {
         Kind kind = (Kind)wp;
         auto func = (Func0*)lp;
-        if (kind != nullptr) {
+        bool shouldLog = (kind != nullptr) && !str::Eq(kind, "RenderFinished");
+        if (shouldLog) {
             logf("uitask::WndProcTaskDispatch: will execute '%s', func 0x%p\n", kind, (void*)func);
         }
         func->Call();
-        if (kind != nullptr) {
+        if (shouldLog) {
             logf("uitask::WndProcTaskDispatch: did execute, will delete func 0x%p\n", (void*)func);
         }
         delete func;
@@ -34,6 +37,8 @@ static LRESULT CALLBACK WndProcTaskDispatch(HWND hwnd, UINT msg, WPARAM wp, LPAR
 constexpr const WCHAR* UITASK_CLASS_NAME = L"UITask_Wnd_Class";
 
 void Initialize() {
+    gMainUIThreadId = GetCurrentThreadId();
+
     ReportIf(gExecuteTaskMessage != 0);
     gExecuteTaskMessage = RegisterWindowMessageA("UITask_Msg_StdFunction");
     WNDCLASSEX wcex;
@@ -68,8 +73,12 @@ void Post(const Func0& f, Kind kind) {
     PostMessageW(gTaskDispatchHwnd, gExecuteTaskMessage, (WPARAM)kind, (LPARAM)func);
 } // NOLINT
 
+bool IsMainUIThread() {
+    return GetCurrentThreadId() == gMainUIThreadId;
+}
+
 void PostOptimized(const Func0& f, Kind kind) {
-    if (IsGUIThread(FALSE)) {
+    if (IsMainUIThread()) {
         // if we're already on ui thread, execute immediately
         // faster and easier to debug
         f.Call();

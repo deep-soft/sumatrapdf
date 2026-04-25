@@ -65,7 +65,7 @@ HWND SimpleBrowserWindow::Create(const SimpleBrowserCreateArgs& args) {
         cargs.pos = {10, 10, rc.dx - 20, rc.dy - 20};
         hwnd = webView->Create(cargs);
         if (!hwnd) {
-            // ReportIfQuick(!hwnd);
+            // ReportIfFast(!hwnd);
             return nullptr;
         }
         webView->SetIsVisible(true);
@@ -83,7 +83,7 @@ SimpleBrowserWindow* SimpleBrowserWindowCreate(const SimpleBrowserCreateArgs& ar
     }
     auto res = new SimpleBrowserWindow();
     auto hwnd = res->Create(args);
-    ReportIfQuick(!hwnd);
+    ReportIfFast(!hwnd);
     if (!hwnd) {
         delete res;
         return nullptr;

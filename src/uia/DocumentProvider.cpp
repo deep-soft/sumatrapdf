@@ -5,6 +5,10 @@
 #include <UIAutomationCore.h>
 #include <UIAutomationCoreApi.h>
 #include <OleAcc.h>
+#ifdef __GNUC__
+// mingw needs explicit UUID declaration for IAccIdentity
+__CRT_UUID_DECL(IAccIdentity, 0x7852B78D, 0x1CFD, 0x41C1, 0xA6, 0x15, 0x9C, 0x0C, 0x85, 0x96, 0x0B, 0x5F)
+#endif
 #include "utils/ScopedWin.h"
 #include "utils/WinUtil.h"
 
@@ -324,14 +328,14 @@ HRESULT STDMETHODCALLTYPE SumatraUIAutomationDocumentProvider::GetVisibleRanges(
     // return all pages' ranges that are even partially visible
     Vec<SumatraUIAutomationTextRange*> rangeArray;
     SumatraUIAutomationPageProvider* it = child_first;
-    while (it && rangeArray.size() > ULONG_MAX) {
-        if (it->dm->GetPageInfo(it->pageNum) && it->dm->GetPageInfo(it->pageNum)->shown &&
-            it->dm->GetPageInfo(it->pageNum)->visibleRatio > 0.0f) {
+    while (it && rangeArray.size() < (ULONG_MAX / 2)) {
+        PageInfo* pi = it->dm->GetPageInfo(it->pageNum);
+        if (pi && pi->isShown && pi->visibleRatio > 0.0f) {
             rangeArray.Append(new SumatraUIAutomationTextRange(this, it->pageNum));
         }
         it = it->sibling_next;
     }
-    ReportIf(ULONG_MAX == rangeArray.size());
+    ReportIf((ULONG_MAX / 2) == rangeArray.size());
 
     SAFEARRAY* psa = SafeArrayCreateVector(VT_UNKNOWN, 0, (ULONG)rangeArray.size());
     if (!psa) {

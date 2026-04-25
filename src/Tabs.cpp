@@ -17,7 +17,6 @@
 #include "Settings.h"
 #include "AppSettings.h"
 #include "DocController.h"
-#include "AppColors.h"
 #include "EngineBase.h"
 #include "EngineAll.h"
 #include "DisplayModel.h"
@@ -29,10 +28,12 @@
 #include "WindowTab.h"
 #include "resource.h"
 #include "Commands.h"
-#include "Caption.h"
 #include "Menu.h"
 #include "TableOfContents.h"
 #include "Tabs.h"
+#include "SumatraDialogs.h"
+#include "FileHistory.h"
+#include "Theme.h"
 #include "Translations.h"
 
 #include "utils/Log.h"
@@ -77,7 +78,7 @@ static void ShowTabBar(MainWindow* win, bool show) {
 
 void UpdateTabWidth(MainWindow* win) {
     int nTabs = (int)win->TabCount();
-    bool showSingleTab = gGlobalPrefs->useTabs || win->tabsInTitlebar;
+    bool showSingleTab = SettingsUseTabs() || win->tabsInTitlebar;
     bool showTabs = (nTabs > 1) || (showSingleTab && (nTabs > 0));
     int tabWidth = gGlobalPrefs->tabWidth;
     if (win->tabsCtrl) {
@@ -136,7 +137,11 @@ void RemoveTab(WindowTab* tab) {
     }
     win->tabsCtrl->SetSelected(newIdx);
     tab = win->CurrentTab();
-    LoadModelIntoTab(tab);
+    // seen in crash report that tab was WindowTab::Type::None
+    // TODO: don't know how it could have happened
+    if (tab && tab->type != WindowTab::Type::None) {
+        LoadModelIntoTab(tab);
+    }
 #endif
 }
 
@@ -147,11 +152,26 @@ static void CloseWindowIfNoDocuments(MainWindow* win) {
         }
     }
     // no tabs or only about tab
-    CloseWindow(win, true, true);
+    CloseWindow(win, true, false);
 }
 
-static void MigrateTab(WindowTab* tab, MainWindow* newWin) {
+static void MaybeMigrateTab(WindowTab* tab, MainWindow* newWin) {
     MainWindow* oldWin = tab->win;
+
+    // don't migrate if it's only one document tab and not
+    // dragging over a window
+    int nDocTabs = 0;
+    for (auto& t : oldWin->Tabs()) {
+        if (t->IsAboutTab()) continue;
+        nDocTabs++;
+    }
+    if (nDocTabs == 1 && !newWin) return;
+
+    auto engine = tab->GetEngine();
+    if (EngineHasUnsavedAnnotations(engine)) {
+        return;
+    }
+
     RemoveTab(tab);
 
     if (!newWin) {
@@ -176,6 +196,7 @@ static void MigrateTab(WindowTab* tab, MainWindow* newWin) {
     WindowTab* newTab = new WindowTab(newWin);
     newTab->SetFilePath(tab->filePath);
     newWin->currentTabTemp = AddTabToWindow(newWin, newTab);
+    newWin->ctrl = nullptr;
     LoadArgs args(tab->filePath, newWin);
     args.forceReuse = true;
     args.noSavePrefs = true;
@@ -239,6 +260,10 @@ static MenuDef menuDefContextTab[] = {
         CmdDuplicateInNewWindow,
     },
     {
+        _TRN("Set Tab Color"),
+        CmdSetTabColor,
+    },
+    {
         kMenuSeparator,
         0,
     },
@@ -261,6 +286,18 @@ static MenuDef menuDefContextTab[] = {
     {
         _TRN("Close All Tabs"),
         CmdCloseAllTabs,
+    },
+    {
+        kMenuSeparator,
+        0,
+    },
+    {
+        _TRN("Save Tab Group"),
+        CmdTabGroupSave,
+    },
+    {
+        _TRN("Restore Tab Group"),
+        CmdTabGroupRestore,
     },
     {
         nullptr,
@@ -330,6 +367,9 @@ static void TabsContextMenu(ContextMenuEvent* ev) {
     Vec<WindowTab*> toCloseLeft;
     CollectTabsToClose(win, tabUnderMouse, toCloseOther, toCloseRight, toCloseLeft);
 
+    if (!tabUnderMouse->ctrl) {
+        MenuSetEnabled(popup, CmdSetTabColor, false);
+    }
     if (toCloseOther.IsEmpty()) {
         MenuSetEnabled(popup, CmdCloseOtherTabs, false);
     }
@@ -339,56 +379,93 @@ static void TabsContextMenu(ContextMenuEvent* ev) {
     if (toCloseLeft.IsEmpty()) {
         MenuSetEnabled(popup, CmdCloseTabsToTheLeft, false);
     }
+    if (!HasOpenedDocuments(win)) {
+        MenuSetEnabled(popup, CmdTabGroupSave, false);
+    }
     MarkMenuOwnerDraw(popup);
     uint flags = TPM_RETURNCMD | TPM_RIGHTBUTTON;
-    int cmd = TrackPopupMenu(popup, flags, pt.x, pt.y, 0, win->hwndFrame, nullptr);
+    int cmdId = TrackPopupMenu(popup, flags, pt.x, pt.y, 0, win->hwndFrame, nullptr);
     FreeMenuOwnerDrawInfoData(popup);
     DestroyMenu(popup);
-    switch (cmd) {
-        case CmdClose:
+    switch (cmdId) {
+        case CmdClose: {
             CloseTab(tabUnderMouse, false);
-            break;
+            return;
+        }
 
         case CmdCloseAllTabs: {
             CloseAllTabs(win);
-            break;
+            return;
         }
         case CmdCloseOtherTabs: {
             for (WindowTab* t : toCloseOther) {
                 CloseTab(t, false);
             }
-            break;
+            return;
         }
         case CmdCloseTabsToTheRight: {
             for (WindowTab* t : toCloseRight) {
                 CloseTab(t, false);
             }
-            break;
+            return;
         }
         case CmdCloseTabsToTheLeft: {
             for (WindowTab* t : toCloseLeft) {
                 CloseTab(t, false);
             }
-            break;
+            return;
         }
         case CmdShowInFolder: {
-            SumatraOpenPathInExplorer(tabUnderMouse->filePath);
-            break;
+            SumatraOpenPathInDefaultFileManager(tabUnderMouse->filePath);
+            return;
         }
         case CmdCopyFilePath: {
             CopyFilePath(tabUnderMouse);
-            break;
+            return;
         }
         case CmdDuplicateInNewWindow: {
             DuplicateTabInNewWindow(tabUnderMouse);
-            break;
+            return;
         }
         case CmdProperties: {
-            bool extended = false;
-            ShowProperties(win->hwndFrame, tabUnderMouse->ctrl, extended);
-            break;
+            ShowProperties(win->hwndFrame, tabUnderMouse->ctrl);
+            return;
+        }
+        case CmdSetTabColor: {
+            COLORREF curColor = tabUnderMouse->tabColor;
+            bool isUnset = (curColor == kColorUnset);
+            if (isUnset) {
+                curColor = ThemeControlBackgroundColor();
+            }
+            COLORREF newColor;
+            bool newIsUnset;
+            if (!Dialog_SetTabColor(win->hwndFrame, curColor, isUnset, newColor, newIsUnset)) {
+                return;
+            }
+            tabUnderMouse->tabColor = newIsUnset ? kColorUnset : newColor;
+            // update TabInfo
+            TabInfo* ti = tabsCtrl->GetTab(tabIdx);
+            if (ti) {
+                ti->tabColor = tabUnderMouse->tabColor;
+            }
+            // persist to FileState
+            FileState* fs = gFileHistory.FindByPath(tabUnderMouse->filePath);
+            if (fs) {
+                if (newIsUnset) {
+                    str::ReplaceWithCopy(&fs->tabCol, "");
+                } else {
+                    TempStr colorStr = SerializeColorTemp(newColor);
+                    str::ReplaceWithCopy(&fs->tabCol, colorStr);
+                }
+                fs->tabColParsed.wasParsed = false;
+            }
+            SaveSettings();
+            tabsCtrl->ScheduleRepaint();
+            return;
         }
     }
+    // everything we forward to main window
+    HwndSendCommand(win->hwndFrame, cmdId);
 }
 
 static void MainWindowTabClosed(MainWindow* win, TabsCtrl::ClosedEvent* ev) {
@@ -427,24 +504,24 @@ static void MainWindowTabMigration(MainWindow* win, TabsCtrl::MigrationEvent* ev
         // don't re-add to the same window
         releaseWnd = nullptr;
     }
-    MigrateTab(tab, releaseWnd);
+    MaybeMigrateTab(tab, releaseWnd);
 }
 
 void CreateTabbar(MainWindow* win) {
-    TabsCtrl* tabsCtrl = new TabsCtrl();
-
-    tabsCtrl->onTabClosed = MkFunc1(MainWindowTabClosed, win);
-    tabsCtrl->onSelectionChanging = MkFunc1(MainWindowTabSelectionChanging, win);
-    tabsCtrl->onSelectionChanged = MkFunc1(MainWindowTabSelectionChanged, win);
-    tabsCtrl->onContextMenu = MkFunc1Void(TabsContextMenu);
-    tabsCtrl->onTabMigration = MkFunc1(MainWindowTabMigration, win);
-
     TabsCtrl::CreateArgs args;
     args.parent = win->hwndFrame;
     args.withToolTips = true;
     args.font = GetAppFont();
     int tabWidth = gGlobalPrefs->tabWidth;
     args.tabDefaultDx = tabWidth;
+    args.isRtl = IsUIRtl();
+
+    TabsCtrl* tabsCtrl = new TabsCtrl();
+    tabsCtrl->onTabClosed = MkFunc1(MainWindowTabClosed, win);
+    tabsCtrl->onSelectionChanging = MkFunc1(MainWindowTabSelectionChanging, win);
+    tabsCtrl->onSelectionChanged = MkFunc1(MainWindowTabSelectionChanged, win);
+    tabsCtrl->onContextMenu = MkFunc1Void(TabsContextMenu);
+    tabsCtrl->onTabMigration = MkFunc1(MainWindowTabMigration, win);
     tabsCtrl->Create(args);
     win->tabsCtrl = tabsCtrl;
     win->tabSelectionHistory = new Vec<WindowTab*>();
@@ -469,7 +546,7 @@ static NO_INLINE void VerifyWindowTab(MainWindow* win, WindowTab* tdata) {
             expectedTocVisibility = tdata->showTocPresentation;
         }
     }
-    ReportIf(win->tocVisible != expectedTocVisibility);
+    ReportDebugIf(win->tocVisible != expectedTocVisibility);
     ReportIf(tdata->canvasRc != win->canvasRc);
 }
 
@@ -477,6 +554,9 @@ static NO_INLINE void VerifyWindowTab(MainWindow* win, WindowTab* tdata) {
 // This happens when a new document is loaded or when another tab is selected.
 void SaveCurrentWindowTab(MainWindow* win) {
     if (!win) {
+        return;
+    }
+    if (!win->tabsCtrl) {
         return;
     }
 
@@ -489,7 +569,7 @@ void SaveCurrentWindowTab(MainWindow* win) {
     }
 
     WindowTab* tab = win->CurrentTab();
-    if (win->tocLoaded) {
+    if (win->tocLoaded && tab->ctrl) {
         TocTree* tocTree = tab->ctrl->GetToc();
         UpdateTocExpansionState(tab->tocState, win->tocTreeView, tocTree);
     }
@@ -505,10 +585,13 @@ WindowTab* AddTabToWindow(MainWindow* win, WindowTab* tab) {
     if (!win) {
         return nullptr;
     }
+    if (!win->tabsCtrl) {
+        return nullptr;
+    }
 
     auto tabs = win->tabsCtrl;
     int idx = win->TabCount();
-    bool useTabs = gGlobalPrefs->useTabs;
+    bool useTabs = SettingsUseTabs();
     bool noHomeTab = gGlobalPrefs->noHomeTab;
     bool createHomeTab = useTabs && !noHomeTab && (idx == 0);
     if (createHomeTab) {
@@ -531,6 +614,7 @@ WindowTab* AddTabToWindow(MainWindow* win, WindowTab* tab) {
     newTab->text = str::Dup(tab->GetTabTitle());
     newTab->tooltip = str::Dup(tab->filePath);
     newTab->userData = (UINT_PTR)tab;
+    newTab->tabColor = tab->tabColor;
 
     int insertedIdx = tabs->InsertTab(idx, newTab);
     ReportIf(insertedIdx == -1);
@@ -578,19 +662,8 @@ void SetTabsInTitlebar(MainWindow* win, bool inTitleBar) {
     }
     win->tabsInTitlebar = inTitleBar;
     win->tabsCtrl->inTitleBar = inTitleBar;
-    SetParent(win->tabsCtrl->hwnd, inTitleBar ? win->hwndCaption : win->hwndFrame);
-    ShowWindow(win->hwndCaption, inTitleBar ? SW_SHOW : SW_HIDE);
-    if (inTitleBar != win->isMenuHidden) {
-        ToggleMenuBar(win, false);
-    }
     if (inTitleBar) {
-        CaptionUpdateUI(win, win->caption);
         RelayoutCaption(win);
-    } else if (dwm::IsCompositionEnabled()) {
-        // remove the extended frame
-        MARGINS margins{};
-        dwm::ExtendFrameIntoClientArea(win->hwndFrame, &margins);
-        win->extendedFrameHeight = 0;
     }
     uint flags = SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOSIZE | SWP_NOMOVE;
     SetWindowPos(win->hwndFrame, nullptr, 0, 0, 0, 0, flags);

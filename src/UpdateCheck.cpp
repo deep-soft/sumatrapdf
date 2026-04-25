@@ -28,6 +28,8 @@
 #include "Notifications.h"
 #include "MainWindow.h"
 #include "SumatraDialogs.h"
+#include "HomePage.h"
+#include "Installer.h"
 #include "UpdateCheck.h"
 
 #include "utils/Log.h"
@@ -101,6 +103,13 @@ PortableExe64: https://www.sumatrapdfreader.org/dl/prerel/14276/SumatraPDF-prere
 PortableExe32: https://www.sumatrapdfreader.org/dl/prerel/14276/SumatraPDF-prerel.exe
 PortableZip64: https://www.sumatrapdfreader.org/dl/prerel/14276/SumatraPDF-prerel-64.zip
 PortableZip32: https://www.sumatrapdfreader.org/dl/prerel/14276/SumatraPDF-prerel.zip
+
+[Promo]
+[
+    Name = MarkLexis
+    URL = https://marklexis.arslexis.io
+    Info = Bookmarking web application
+]
 */
 static UpdateInfo* ParseUpdateInfo(const char* d) {
     // if a user configures os-wide proxy that is not a regular ie proxy
@@ -115,6 +124,13 @@ static UpdateInfo* ParseUpdateInfo(const char* d) {
         return nullptr;
     }
     AutoDelete delRoot(root);
+
+    {
+        auto promoString = SerializeSquareTreeNode(root->GetChild("Promo"));
+        SetPromoString(promoString);
+        str::Free(promoString);
+    }
+
     SquareTreeNode* node = root->GetChild("SumatraPDF");
     if (!node) {
         return nullptr;
@@ -151,10 +167,6 @@ static UpdateInfo* ParseUpdateInfo(const char* d) {
 }
 
 static bool ShouldCheckForUpdate(UpdateCheck updateCheckType) {
-    if (gIsStoreBuild) {
-        // I assume store will take care of updates
-        return false;
-    }
     if (gUpdateCheckInProgress) {
         logf("CheckForUpdate: skipping because gUpdateCheckInProgress\n");
         return false;
@@ -162,6 +174,7 @@ static bool ShouldCheckForUpdate(UpdateCheck updateCheckType) {
 
     // when forcing, we download pre-release, which shows greater version than our build
     // so we don't want to download during automatic check, only when user initiated
+
 #if defined(FORCE_AUTO_UPDATE)
     if (updateCheckType == UpdateCheck::UserInitiated) {
         return true;
@@ -215,75 +228,9 @@ static bool ShouldCheckForUpdate(UpdateCheck updateCheckType) {
     return checkUpdate;
 }
 
-static void NotifyUserOfUpdate(UpdateInfo* updateInfo) {
-    auto mainInstr = _TRA("New version available");
-    auto ver = updateInfo->latestVer;
-    auto fmt = _TRA("You have version '%s' and version '%s' is available.\nDo you want to install new version?");
-    auto content = str::Format(fmt, CURR_VERSION_STRA, ver);
-
-    constexpr int kBtnIdDontInstall = 100;
-    constexpr int kBtnIdInstall = 101;
-    auto title = _TRA("SumatraPDF Update");
-    TASKDIALOGCONFIG dialogConfig{};
-    TASKDIALOG_BUTTON buttons[2];
-
-    buttons[0].nButtonID = kBtnIdDontInstall;
-    auto s = _TRA("Don't install");
-    buttons[0].pszButtonText = ToWStrTemp(s);
-    buttons[1].nButtonID = kBtnIdInstall;
-    s = _TRA("Install and relaunch");
-    buttons[1].pszButtonText = ToWStrTemp(s);
-
-    DWORD flags =
-        TDF_ALLOW_DIALOG_CANCELLATION | TDF_SIZE_TO_CONTENT | TDF_ENABLE_HYPERLINKS | TDF_POSITION_RELATIVE_TO_WINDOW;
-    if (trans::IsCurrLangRtl()) {
-        flags |= TDF_RTL_LAYOUT;
-    }
-    dialogConfig.cbSize = sizeof(TASKDIALOGCONFIG);
-    dialogConfig.pszWindowTitle = ToWStrTemp(title);
-    dialogConfig.pszMainInstruction = ToWStrTemp(mainInstr);
-    dialogConfig.pszContent = ToWStrTemp(content);
-    s = _TRA("Skip this version");
-    dialogConfig.pszVerificationText = ToWStrTemp(s);
-    dialogConfig.nDefaultButton = kBtnIdInstall;
-    dialogConfig.dwFlags = flags;
-    dialogConfig.cxWidth = 0;
-    dialogConfig.pfCallback = nullptr;
-    dialogConfig.dwCommonButtons = 0;
-    dialogConfig.cButtons = dimof(buttons);
-    dialogConfig.pButtons = &buttons[0];
-    dialogConfig.pszMainIcon = TD_INFORMATION_ICON;
-    dialogConfig.hwndParent = updateInfo->hwndParent;
-
-    int buttonPressedId = 0;
-    BOOL verificationFlagChecked = false;
-
-    auto hr = TaskDialogIndirect(&dialogConfig, &buttonPressedId, nullptr, &verificationFlagChecked);
-    ReportIf(hr == E_INVALIDARG);
-    bool doInstall = (hr == S_OK) && (buttonPressedId == kBtnIdInstall);
-
-    auto installerPath = updateInfo->installerPath;
-    if (!doInstall && verificationFlagChecked) {
-        str::ReplaceWithCopy(&gGlobalPrefs->versionToSkip, updateInfo->latestVer);
-    }
-
-    // persist the versionToSkip and timeOfLastUpdateCheck
-    SaveSettings();
-    if (!doInstall) {
-        file::Delete(installerPath);
-        return;
-    }
-
-    // if installer not downloaded tell user to download from website
-    if (!installerPath || !file::Exists(installerPath)) {
-        SumatraLaunchBrowser(kWebisteDownloadPageURL);
-        return;
-    }
-
-    // TODO: we don't really handle a case when it's a dll build but not installed
-    // maybe in that case go to website
-    str::Str cmd;
-    if (IsDllBuild()) {
+void StartInstallerAutoUpgrade(const char* installerPath) {
+    StrBuilder cmd;
+    if (IsOurExeInstalled()) {
         // no need for sleep because it shows the installer dialog anyway
         if (gIsPreReleaseBuild) {
             cmd.Append(" -fast-install");
@@ -295,8 +242,75 @@ static void NotifyUserOfUpdate(UpdateInfo* updateInfo) {
         // our process to exit
         cmd.AppendFmt(R"( -sleep-ms 500 -exit-when-done -update-self-to "%s")", GetSelfExePathTemp());
     }
-    logf("NotifyUserOfUpdate: installer cmd: '%s'\n", cmd.Get());
+    logf("StartInstallerAutoUpgrade: installer cmd: '%s'\n", cmd.Get());
     CreateProcessHelper(installerPath, cmd.Get());
+}
+
+static void NotifyUserOfUpdate(UpdateInfo* updateInfo) {
+    auto mainInstr = _TRA("New version available");
+    auto ver = updateInfo->latestVer;
+    auto fmt = _TRA("You have version '%s' and version '%s' is available.\nDo you want to install new version?");
+    auto content = str::Format(fmt, CURR_VERSION_STRA, ver);
+
+    auto installerPath = updateInfo->installerPath;
+    bool didDownloadInstaller = file::Exists(installerPath);
+
+    constexpr int kBtnIdDontInstall = 100;
+    constexpr int kBtnIdInstall = 101;
+    auto title = _TRA("SumatraPDF Update");
+    TASKDIALOGCONFIG dialogConfig{};
+    TASKDIALOG_BUTTON buttons[2];
+
+    buttons[0].nButtonID = kBtnIdDontInstall;
+    auto s = _TRA("Don't install");
+    buttons[0].pszButtonText = ToWStrTemp(s);
+    buttons[1].nButtonID = kBtnIdInstall;
+    if (didDownloadInstaller) {
+        s = _TRA("Install and relaunch");
+    } else {
+        s = _TRA("Download update");
+    }
+    buttons[1].pszButtonText = ToWStrTemp(s);
+
+    DWORD flags =
+        TDF_ALLOW_DIALOG_CANCELLATION | TDF_SIZE_TO_CONTENT | TDF_ENABLE_HYPERLINKS | TDF_POSITION_RELATIVE_TO_WINDOW;
+    if (trans::IsCurrLangRtl()) {
+        flags |= TDF_RTL_LAYOUT;
+    }
+    dialogConfig.cbSize = sizeof(TASKDIALOGCONFIG);
+    dialogConfig.pszWindowTitle = ToWStrTemp(title);
+    dialogConfig.pszMainInstruction = ToWStrTemp(mainInstr);
+    dialogConfig.pszContent = ToWStrTemp(content);
+    dialogConfig.nDefaultButton = kBtnIdInstall;
+    dialogConfig.dwFlags = flags;
+    dialogConfig.cxWidth = 0;
+    dialogConfig.pfCallback = nullptr;
+    dialogConfig.dwCommonButtons = 0;
+    dialogConfig.cButtons = dimof(buttons);
+    dialogConfig.pButtons = &buttons[0];
+    dialogConfig.pszMainIcon = TD_INFORMATION_ICON;
+    dialogConfig.hwndParent = updateInfo->hwndParent;
+
+    int buttonPressedId = 0;
+
+    auto hr = TaskDialogIndirect(&dialogConfig, &buttonPressedId, nullptr, nullptr);
+    ReportIf(hr == E_INVALIDARG);
+    bool doInstall = (hr == S_OK) && (buttonPressedId == kBtnIdInstall);
+
+    // persist timeOfLastUpdateCheck
+    SaveSettings();
+    if (!doInstall) {
+        file::Delete(installerPath);
+        return;
+    }
+
+    // if installer not downloaded tell user to download from website
+    if (!didDownloadInstaller) {
+        SumatraLaunchBrowser(kWebisteDownloadPageURL);
+        return;
+    }
+
+    StartInstallerAutoUpgrade(installerPath);
     PostQuitMessage(0);
 }
 
@@ -311,9 +325,7 @@ struct DownloadUpdateAsyncData {
     HttpProgress httpProgress = {};
 
     DownloadUpdateAsyncData() = default;
-    ~DownloadUpdateAsyncData() {
-        delete updateInfo;
-    }
+    ~DownloadUpdateAsyncData() { delete updateInfo; }
 };
 
 static void DownloadUpdateFinish(DownloadUpdateAsyncData* data) {
@@ -372,32 +384,81 @@ static void DownloadUpdateAsync(DownloadUpdateAsyncData* data) {
 }
 
 static bool ShouldDownloadUpdate(UpdateInfo* updateInfo, UpdateCheck updateCheckType) {
+    if (gIsStoreBuild) {
+        // I assume store will take care of updates
+        return false;
+    }
     auto latestVer = updateInfo->latestVer;
     const char* myVer = UPDATE_CHECK_VERA;
-    // myVer = L"3.1"; // for ad-hoc debugging of auto-update code
-    bool hasUpdate = CompareProgramVersion(latestVer, myVer) > 0;
     if (gIsDebugBuild) {
-        // for easier testing, in debug build update check is never triggered
-        // by automatic update check and always triggers by user-initiated
-        // user can cancel the update
-        hasUpdate = updateCheckType == UpdateCheck::UserInitiated;
+        // in debug build we compare against pre-rel version, like "17616"
+        // but our version is like "3.6" so it triggers update
+        myVer = "50000";
     }
-    if (hasUpdate && updateCheckType == UpdateCheck::Automatic) {
-        // if user wanted to skip this version, we skip it in automated check
-        if (str::EqI(gGlobalPrefs->versionToSkip, latestVer)) {
-            logf("ShowAutoUpdateDialog: skipping auto-update of ver '%s' because of gGlobalPrefs->versionToSkip\n",
-                 latestVer);
-            return false;
-        }
-    }
+    bool hasUpdate = CompareProgramVersion(latestVer, myVer) > 0;
     return hasUpdate;
+}
+
+static HRESULT CALLBACK TaskDialogHyperlinkCallback(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                                    LONG_PTR lpRefData) {
+    if (msg == TDN_HYPERLINK_CLICKED) {
+        WCHAR* url = (WCHAR*)lParam;
+        SumatraLaunchBrowser(ToUtf8Temp(url));
+    }
+    return S_OK;
+}
+
+constexpr const char* kExpectedDlHost = "https://www.sumatrapdfreader.org/";
+
+static void NotifySuspiciousUpdate(HWND hwndParent, const char* dlURL) {
+    logf("NotifySuspiciousUpdate: suspicious download url '%s'\n", dlURL);
+    ReportIfFast(true);
+    auto title = _TRA("SumatraPDF Update");
+    auto content = str::FormatTemp(
+        "Suspicious update.\n"
+        "\n"
+        "Download link should come from <a href=\"%s\">%s</a> but is %s.\n"
+        "\n"
+        "Visit <a href=\"%s\">%s</a> to download the latest version.",
+        kExpectedDlHost, kExpectedDlHost, dlURL, kExpectedDlHost, kExpectedDlHost);
+
+    TASKDIALOGCONFIG dialogConfig{};
+    DWORD flags =
+        TDF_ALLOW_DIALOG_CANCELLATION | TDF_SIZE_TO_CONTENT | TDF_ENABLE_HYPERLINKS | TDF_POSITION_RELATIVE_TO_WINDOW;
+    if (trans::IsCurrLangRtl()) {
+        flags |= TDF_RTL_LAYOUT;
+    }
+
+    constexpr int kBtnIdVisitWebsite = 100;
+    TASKDIALOG_BUTTON buttons[1];
+    buttons[0].nButtonID = kBtnIdVisitWebsite;
+    buttons[0].pszButtonText = ToWStrTemp(_TRA("Visit &Website"));
+
+    dialogConfig.cbSize = sizeof(TASKDIALOGCONFIG);
+    dialogConfig.pszWindowTitle = ToWStrTemp(title);
+    dialogConfig.pszContent = ToWStrTemp(content);
+    dialogConfig.dwFlags = flags;
+    dialogConfig.dwCommonButtons = TDCBF_CLOSE_BUTTON;
+    dialogConfig.cButtons = dimof(buttons);
+    dialogConfig.pButtons = buttons;
+    dialogConfig.nDefaultButton = kBtnIdVisitWebsite;
+    dialogConfig.pszMainIcon = TD_WARNING_ICON;
+    dialogConfig.hwndParent = hwndParent;
+    dialogConfig.pfCallback = TaskDialogHyperlinkCallback;
+    int buttonPressedId = 0;
+    TaskDialogIndirect(&dialogConfig, &buttonPressedId, nullptr, nullptr);
+    if (buttonPressedId == kBtnIdVisitWebsite) {
+        SumatraLaunchBrowser(kExpectedDlHost);
+    }
 }
 
 static DWORD MaybeStartUpdateDownload(HWND hwndParent, HttpRsp* rsp, UpdateCheck updateCheckType) {
     // for store builds we do update check but ignore the result
+#if 0
     if (gIsStoreBuild) {
         return 0;
     }
+#endif
 
     const char* url = rsp->url.Get();
 
@@ -415,7 +476,7 @@ static DWORD MaybeStartUpdateDownload(HWND hwndParent, HttpRsp* rsp, UpdateCheck
         logf("ShowAutoUpdateDialog: '%s' is not a valid url\n", url);
         return ERROR_INTERNET_INVALID_URL;
     }
-    str::Str* data = &rsp->data;
+    StrBuilder* data = &rsp->data;
     if (0 == data->size()) {
         logf("ShowAutoUpdateDialog: empty response from url '%s'\n", url);
         return ERROR_INTERNET_CONNECTION_ABORTED;
@@ -439,10 +500,12 @@ static DWORD MaybeStartUpdateDownload(HWND hwndParent, HttpRsp* rsp, UpdateCheck
         logf("ShowAutoUpdateDialog: myVer >= latestVer ('%s' >= '%s')\n", myVer, updateInfo->latestVer);
         /* if automated => don't notify that there is no new version */
         if (updateCheckType == UpdateCheck::UserInitiated) {
-            RemoveNotificationsForGroup(hwndForNotif, kNotifUpdateCheckInProgress);
-            uint flags = MB_ICONINFORMATION | MB_OK | MB_SETFOREGROUND | MB_TOPMOST;
-            MsgBox(hwndParent, _TRA("You have the latest version."), _TRA("SumatraPDF Update"), flags);
+            auto wnd = GetNotificationForGroup(hwndForNotif, kNotifUpdateCheckInProgress);
+            if (wnd) {
+                NotificationUpdateMessage(wnd, _TRA("You have the latest version."), 5 * 1000, true);
+            }
         }
+        delete updateInfo;
         return 0;
     }
 
@@ -451,6 +514,14 @@ static DWORD MaybeStartUpdateDownload(HWND hwndParent, HttpRsp* rsp, UpdateCheck
         logf("ShowAutoUpdateDialog: didn't find download url. Auto update data:\n%s\n", data->Get());
         RemoveNotificationsForGroup(win->hwndCanvas, kNotifUpdateCheckInProgress);
         NotifyUserOfUpdate(updateInfo);
+        delete updateInfo;
+        return 0;
+    }
+
+    if (!str::StartsWith(updateInfo->dlURL, kExpectedDlHost)) {
+        RemoveNotificationsForGroup(win->hwndCanvas, kNotifUpdateCheckInProgress);
+        NotifySuspiciousUpdate(hwndParent, updateInfo->dlURL);
+        delete updateInfo;
         return 0;
     }
 
@@ -466,7 +537,7 @@ static DWORD MaybeStartUpdateDownload(HWND hwndParent, HttpRsp* rsp, UpdateCheck
     return 0;
 }
 
-static void BuildUpdateURL(str::Str& url, const char* baseURL, UpdateCheck updateCheckType) {
+static void BuildUpdateURL(StrBuilder& url, const char* baseURL, UpdateCheck updateCheckType) {
     url = baseURL;
     url.Append("?v=");
     url.Append(UPDATE_CHECK_VERA);
@@ -488,6 +559,9 @@ static void BuildUpdateURL(str::Str& url, const char* baseURL, UpdateCheck updat
     if (gIsStoreBuild) {
         url.Append("&store");
     }
+    url.Append("&simd=");
+    url.Append(LatestSupportedSIMD());
+    url.Append("&withPromo");
     if (UpdateCheck::UserInitiated == updateCheckType) {
         url.Append("&force");
     }
@@ -498,9 +572,7 @@ struct UpdateCheckAsyncData {
     UpdateCheck updateCheckType = UpdateCheck::Automatic;
     HttpRsp* rsp = nullptr;
     UpdateCheckAsyncData() = default;
-    ~UpdateCheckAsyncData() {
-        delete rsp;
-    }
+    ~UpdateCheckAsyncData() { delete rsp; }
 };
 
 static void UpdateCheckFinish(UpdateCheckAsyncData* data) {
@@ -534,7 +606,7 @@ static void UpdateCheckFinish(UpdateCheckAsyncData* data) {
 
 static void UpdateCheckAsync(UpdateCheckAsyncData* data) {
     auto updateCheckType = data->updateCheckType;
-    str::Str url;
+    StrBuilder url;
     BuildUpdateURL(url, kUpdateInfoURL, updateCheckType);
     char* uri = url.Get();
     HttpRsp* rsp = new HttpRsp;

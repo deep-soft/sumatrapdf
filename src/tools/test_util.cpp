@@ -30,6 +30,14 @@ extern void WinUtilTest();
 extern void StrFormatTest();
 extern void StrVecTest();
 
+void GetPrintersInfo(struct StrBuilder&) {
+    /* stub: do nothing */
+}
+
+void MaybeDelayedWarningNotification(const char*, ...) {
+    // a stub to make this compile
+}
+
 int main(int, char**) {
     printf("Running unit tests\n");
 

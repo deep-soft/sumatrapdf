@@ -62,8 +62,7 @@ void DictTestMapStrToInt() {
         char* k = GenRandomString();
         ok = d.Insert(k, i, nullptr);
         // no guarantee that the string is unique, so Insert() doesn't always succeeds
-        if (!ok)
-            continue;
+        if (!ok) continue;
         toRemove.Append(str::Dup(k));
         utassert(toRemove.size() == d.Count());
         ok = d.Get(k, &val);

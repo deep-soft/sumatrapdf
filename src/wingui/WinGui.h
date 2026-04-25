@@ -42,6 +42,7 @@ struct CreateControlArgs {
     bool visible = true;
     HFONT font = nullptr;
     const char* text = nullptr;
+    bool isRtl = false;
 };
 
 struct CreateCustomArgs {
@@ -58,6 +59,7 @@ struct CreateCustomArgs {
     HFONT font = nullptr;
     HICON icon = nullptr;
     COLORREF bgColor = kColorUnset;
+    bool isRtl = false;
 };
 
 struct WmEvent {
@@ -84,7 +86,7 @@ struct Wnd : ILayout {
 
     Wnd();
     Wnd(HWND hwnd);
-    virtual ~Wnd() override;
+    ~Wnd() override;
     void Destroy();
 
     HWND CreateCustom(const CreateCustomArgs&);
@@ -186,6 +188,7 @@ struct Wnd : ILayout {
 };
 
 bool PreTranslateMessage(MSG& msg);
+void SizeToIdealSize(Wnd* wnd);
 
 //--- Static
 
@@ -194,6 +197,7 @@ struct Static : Wnd {
         HWND parent = nullptr;
         HFONT font = nullptr;
         const char* text = nullptr;
+        bool isRtl = false;
     };
 
     Static();
@@ -215,6 +219,7 @@ struct Button : Wnd {
         HWND parent = nullptr;
         HFONT font = nullptr;
         const char* text = nullptr;
+        bool isRtl = false;
     };
 
     Func0 onClick{};
@@ -231,8 +236,8 @@ struct Button : Wnd {
     bool OnCommand(WPARAM wparam, LPARAM lparam) override;
 };
 
-Button* CreateButton(HWND parent, const char* s, const Func0& onClick);
-Button* CreateDefaultButton(HWND parent, const char* s);
+Button* CreateButton(HWND parent, const char* s, const Func0& onClick, bool isRtl);
+Button* CreateDefaultButton(HWND parent, const char* s, bool isRtl);
 
 //--- Tooltip
 
@@ -241,6 +246,7 @@ struct Tooltip : Wnd {
     struct CreateArgs {
         HWND parent = nullptr;
         HFONT font = nullptr;
+        bool isRtl = false;
     };
 
     Tooltip();
@@ -266,6 +272,16 @@ struct Tooltip : Wnd {
     Vec<int> tooltipIds;
 };
 
+struct TooltipInfo {
+    const char* s;
+    Rect r;
+    int id;
+};
+
+int TooltipGetCount(HWND hwnd);
+void TooltipRemoveAll(HWND hwnd);
+void TooltipAddTools(HWND hwnd, HWND owner, TooltipInfo* tools, int nTools);
+
 //--- Edit
 using TextChangedHandler = Func0;
 
@@ -278,6 +294,7 @@ struct Edit : Wnd {
         const char* text = nullptr;
         int idealSizeLines = 1;
         HFONT font = nullptr;
+        bool isRtl = false;
     };
 
     TextChangedHandler onTextChanged;
@@ -297,6 +314,7 @@ struct Edit : Wnd {
     Size GetIdealSize() override;
 
     void SetSelection(int start, int end);
+    void SelectAll();
     void SetCursorPosition(int pos);
     void SetCursorPositionAtEnd();
     bool HasBorder();
@@ -309,20 +327,31 @@ struct ListBox : Wnd {
         HWND parent = nullptr;
         int idealSizeLines = 0;
         HFONT font = nullptr;
+        bool isRtl = false;
+    };
+
+    struct DrawItemEvent {
+        ListBox* listBox = nullptr;
+        HDC hdc = nullptr;
+        RECT itemRect{};
+        int itemIndex = -1;
+        bool selected = false;
     };
 
     using SelectionChangedHandler = Func0;
     using DoubleClickHandler = Func0;
+    using DrawItemHandler = Func1<DrawItemEvent*>;
 
     ListBoxModel* model = nullptr;
     SelectionChangedHandler onSelectionChanged;
     DoubleClickHandler onDoubleClick;
+    DrawItemHandler onDrawItem;
 
     Size idealSize = {};
     int idealSizeLines = 0;
 
     ListBox();
-    virtual ~ListBox() override;
+    ~ListBox() override;
 
     HWND Create(const CreateArgs&);
 
@@ -352,6 +381,7 @@ struct Checkbox : Wnd {
         HWND parent = nullptr;
         const char* text = nullptr;
         State initialState = State::Unchecked;
+        bool isRtl = false;
     };
 
     using StateChangedHandler = Func0;
@@ -379,6 +409,7 @@ struct Progress : Wnd {
     struct CreateArgs {
         HWND parent = nullptr;
         int initialMax = 0;
+        bool isRtl = false;
     };
 
     Progress();
@@ -402,6 +433,7 @@ struct DropDown : Wnd {
     struct CreateArgs {
         HWND parent = nullptr;
         HFONT font = nullptr;
+        bool isRtl = false;
         // TODO: model or items
     };
 
@@ -430,6 +462,15 @@ struct DropDown : Wnd {
 struct Trackbar;
 
 struct Trackbar : Wnd {
+    struct CreateArgs {
+        HWND parent = nullptr;
+        bool isHorizontal = true;
+        int rangeMin = 1;
+        int rangeMax = 5;
+        HFONT font = nullptr;
+        bool isRtl = false;
+    };
+
     struct PositionChangingEvent {
         Trackbar* trackbar = nullptr;
         int pos = -1;
@@ -437,14 +478,6 @@ struct Trackbar : Wnd {
     };
 
     using PositionChangingHandler = Func1<PositionChangingEvent*>;
-
-    struct CreateArgs {
-        HWND parent = nullptr;
-        bool isHorizontal = true;
-        int rangeMin = 1;
-        int rangeMax = 5;
-        HFONT font = nullptr;
-    };
 
     Size idealSize{};
 
@@ -477,6 +510,13 @@ enum class SplitterType {
 struct Splitter;
 
 struct Splitter : Wnd {
+    struct CreateArgs {
+        HWND parent = nullptr;
+        SplitterType type = SplitterType::Horiz;
+        bool isLive = true;
+        COLORREF backgroundColor = kColorUnset;
+    };
+
     // called when user drags the splitter ('finishedDragging' is false) and when drag is finished ('finishedDragging'
     // is true). the owner can constrain splitter by using current cursor position and setting resizeAllowed to false if
     // it's not allowed to go there
@@ -488,13 +528,6 @@ struct Splitter : Wnd {
     };
 
     using MoveHandler = Func1<MoveEvent*>;
-
-    struct CreateArgs {
-        HWND parent = nullptr;
-        SplitterType type = SplitterType::Horiz;
-        bool isLive = true;
-        COLORREF backgroundColor = kColorUnset;
-    };
 
     SplitterType type = SplitterType::Horiz;
     bool isLive = true;
@@ -508,6 +541,8 @@ struct Splitter : Wnd {
     // non-live resize, we need to remove WS_CLIPCHILDREN style from
     // parent and restore it when we're done
     bool parentClipsChildren = false;
+    bool isMouseOver = false;
+    bool mouseTracking = false;
 
     Splitter();
     ~Splitter() override;
@@ -526,6 +561,7 @@ struct TreeView : Wnd {
         HFONT font = nullptr;
         DWORD exStyle = 0; // additional flags, will be OR with the rest
         bool fullRowSelect = false;
+        bool isRtl = false;
     };
 
     struct GetTooltipEvent {
@@ -654,19 +690,31 @@ struct TabInfo {
     char* tooltip = nullptr;
     bool isPinned = false;
     bool canClose = true; // TODO: same as !isPinned?
+    bool isDirty = false;
     UINT_PTR userData = 0;
+    COLORREF tabColor = (COLORREF)(0xfeffffff); // kColorUnset; use default tab color
 
     TabInfo() = default;
     ~TabInfo();
 
     // for internal use
     Rect r;
-    Rect rClose;
+    Rect rClose;    // visual close button
+    Rect rCloseHit; // expanded hit test area for close
     Size titleSize;
     Point titlePos;
 };
 
 struct TabsCtrl : Wnd {
+    struct CreateArgs {
+        HWND parent = nullptr;
+        HFONT font = nullptr;
+        bool withToolTips = false;
+        int ctrlID = 0;
+        int tabDefaultDx = 300;
+        bool isRtl = false;
+    };
+
     struct MouseState {
         int tabIdx = -1;
         bool overClose = false;
@@ -711,14 +759,6 @@ struct TabsCtrl : Wnd {
     using MigrationHandler = Func1<MigrationEvent*>;
     using DraggedHandler = Func1<DraggedEvent*>;
 
-    struct CreateArgs {
-        HWND parent = nullptr;
-        HFONT font = nullptr;
-        bool withToolTips = false;
-        int ctrlID = 0;
-        int tabDefaultDx = 300;
-    };
-
     int ctrlID = 0;
     bool withToolTips = false;
     bool inTitleBar = false;
@@ -738,6 +778,10 @@ struct TabsCtrl : Wnd {
 
     // if >= 0 will paint this tab as selected vs. the real selected
     int tabForceShowSelected = -1;
+
+    // Chrome-like close: keep tab widths frozen briefly after closing via close button
+    bool tabWidthFrozen = false;
+    int frozenTabDx = 0;
 
     ClosedHandler onTabClosed;
     SelectionChangingHandler onSelectionChanging;
@@ -780,6 +824,7 @@ struct TabsCtrl : Wnd {
     void SwapTabs(int idx1, int idx2);
 
     void SetTextAndTooltip(int idx, const char* text, const char* tooltip);
+    void SetTabDirty(int idx, bool isDirty);
 
     int TabCount();
 
@@ -836,6 +881,9 @@ struct DrawCloseButtonArgs {
     COLORREF colHoverBg = kColCloseXHoverBg;
     COLORREF colX = kColCloseX;
     COLORREF colXHover = kColCloseXHover;
+    COLORREF colBg = kColorNoChange;
+    bool noMirror = false;
+    DrawCloseButtonArgs() = default;
 };
 
 void DrawCloseButton(const DrawCloseButtonArgs& args);

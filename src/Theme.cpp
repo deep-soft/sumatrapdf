@@ -24,6 +24,10 @@ bool gUseDarkModeLib = true;
 bool gUseDarkModeLib = false;
 #endif
 
+bool UseDarkModeLib() {
+    return gUseDarkModeLib;
+}
+
 /*
 preserve those translations:
 _TRN("Dark")
@@ -146,16 +150,25 @@ static int gThemeCount;
 static int gCurrThemeIndex = 0;
 static Theme* gCurrentTheme = nullptr;
 static Theme* gThemeLight = nullptr;
+static Themes* gParsedThemes = nullptr;
 
 bool IsCurrentThemeDefault() {
     return gCurrThemeIndex == 0;
 }
 
+void FreeThemes() {
+    delete gThemes; // no need to free members, they are owned by gParsedThemes
+    gThemes = nullptr;
+    FreeParsedThemes(gParsedThemes);
+    gParsedThemes = nullptr;
+}
+
 void CreateThemeCommands() {
-    delete gThemes;
+    FreeThemes();
+
     gThemes = new Vec<Theme*>();
-    auto themes = ParseThemes(themesTxt);
-    for (Theme* theme : *themes->themes) {
+    gParsedThemes = ParseThemes(themesTxt);
+    for (Theme* theme : *gParsedThemes->themes) {
         gThemes->Append(theme);
     }
 
@@ -176,7 +189,7 @@ void CreateThemeCommands() {
         const char* themeName = theme->name;
         auto args = NewStringArg(kCmdArgTheme, themeName);
         cmd = CreateCustomCommand(themeName, CmdSetTheme, args);
-        cmd->name = str::Format("Set theme '%s'", themeName);
+        cmd->name = str::Format(_TRA("Set theme '%s'"), themeName);
         if (i == 0) {
             gFirstSetThemeCmdId = cmd->id;
         } else if (i == gThemeCount - 1) {
@@ -191,11 +204,12 @@ void SetThemeByIndex(int themeIdx) {
     if (themeIdx >= gThemeCount) {
         themeIdx = 0;
     }
+    bool themeChanged = (gCurrThemeIndex != themeIdx);
     gCurrThemeIndex = themeIdx;
     gCurrSetThemeCmdId = gFirstSetThemeCmdId + themeIdx;
     gCurrentTheme = gThemes->At(gCurrThemeIndex);
     str::ReplaceWithCopy(&gGlobalPrefs->theme, gCurrentTheme->name);
-    if (gUseDarkModeLib) {
+    if (UseDarkModeLib()) {
         // TODO: we should apply themes to every theme other than 0
         // but in Solarized Light in Find dialog's input field text is invisible i.e. black
         // UINT mode = themeIdx == 0 ? kModeClassic : kModeDark;
@@ -203,25 +217,35 @@ void SetThemeByIndex(int themeIdx) {
         const UINT mode = static_cast<UINT>(isDarkCol         ? DarkMode::DarkModeType::dark
                                             : (themeIdx == 0) ? DarkMode::DarkModeType::classic
                                                               : DarkMode::DarkModeType::light);
-        DarkMode::setDarkModeConfig(mode);
+        DarkMode::setDarkModeConfigEx(mode);
         DarkMode::setDefaultColors(false);
 
         DarkMode::setBackgroundColor(ThemeWindowBackgroundColor());
+        DarkMode::setCtrlBackgroundColor(ThemeWindowControlBackgroundColor());
+        COLORREF ctrlBg = ThemeWindowControlBackgroundColor();
+        COLORREF hotBg = AccentColor(ctrlBg, 20);
+        COLORREF edgeCol = AccentColor(ctrlBg, 40);
+        DarkMode::setHotBackgroundColor(hotBg);
         DarkMode::setTextColor(ThemeWindowTextColor());
         DarkMode::setDisabledTextColor(ThemeWindowTextDisabledColor());
-        DarkMode::setDlgBackgroundColor(ThemeWindowControlBackgroundColor());
+        DarkMode::setDlgBackgroundColor(ctrlBg);
         DarkMode::setLinkTextColor(ThemeWindowLinkColor());
+        DarkMode::setEdgeColor(edgeCol);
         DarkMode::updateThemeBrushesAndPens();
 
         DarkMode::setViewTextColor(ThemeWindowTextColor());
         DarkMode::setViewBackgroundColor(ThemeWindowControlBackgroundColor());
         DarkMode::calculateTreeViewStyle();
 
-        UpdateAfterThemeChange();
+        if (themeChanged) {
+            UpdateAfterThemeChange();
+        }
 
         DarkMode::setPrevTreeViewStyle();
     } else {
-        UpdateAfterThemeChange();
+        if (themeChanged) {
+            UpdateAfterThemeChange();
+        }
     }
 };
 
@@ -272,19 +296,39 @@ void SetCurrentThemeFromSettings() {
     }
 }
 
-// if is dark, makes lighter, if light, makes darker
-static COLORREF AdjustLightOrDark(COLORREF col, float n) {
-    if (IsLightColor(col)) {
-        col = AdjustLightness2(col, -n);
-    } else {
-        col = AdjustLightness2(col, n);
+COLORREF AccentColor(COLORREF col, int light, int dark) {
+    if (dark == 0) {
+        dark = light;
     }
-    return col;
+    if (IsLightColor(col)) {
+        return AdjustLightness2(col, -light);
+    }
+    return AdjustLightness2(col, dark);
 }
 
 #define GetThemeCol(name, def) GetParsedCOLORREF(name, name##Parsed, def)
 
+// canvas/window background color around the document pages
+// not affected by FixedPageUI.TextColor/BackgroundColor (those affect page rendering)
 COLORREF ThemeDocumentColors(COLORREF& bg) {
+    bg = ThemeMainWindowBackgroundColor();
+
+    if (!gGlobalPrefs->fixedPageUI.invertColors) {
+        return ThemeWindowTextColor();
+    }
+
+    COLORREF text = ThemeWindowTextColor();
+    bg = ThemeMainWindowBackgroundColor();
+
+    if (gCurrThemeIndex < 3) {
+        bg = AccentColor(bg, 8);
+    }
+    return text;
+}
+
+// colors for page bitmap recoloring (render cache)
+// TextColor substitutes black, BackgroundColor substitutes white in rendered pages
+COLORREF ThemePageRenderColors(COLORREF& bg) {
     COLORREF text = kColBlack;
     bg = kColWhite;
 
@@ -322,11 +366,7 @@ COLORREF ThemeDocumentColors(COLORREF& bg) {
     bg = ThemeMainWindowBackgroundColor();
 
     if (gCurrThemeIndex < 3) {
-        // https://github.com/sumatrapdfreader/sumatrapdf/issues/4465
-        // this is probably not expected for custom colors but we used to do
-        // it for built-in themes
-        // so do it for legacy themes but not for custom themes or new Dark theme
-        bg = AdjustLightOrDark(bg, 8);
+        bg = AccentColor(bg, 8);
     }
     return text;
 }
@@ -360,10 +400,14 @@ COLORREF ThemeWindowTextColor() {
 }
 
 COLORREF ThemeWindowTextDisabledColor() {
-    auto col = ThemeWindowTextColor();
-    // TODO: probably add textDisabledColor
-    auto col2 = AdjustLightOrDark(col, 0x7f);
-    return col2;
+    // blend text color halfway toward background so disabled text
+    // is visible but clearly muted on both light and dark themes
+    COLORREF txt = ThemeWindowTextColor();
+    COLORREF bg = ThemeMainWindowBackgroundColor();
+    u8 r = (u8)((GetRValue(txt) + GetRValue(bg)) / 2);
+    u8 g = (u8)((GetGValue(txt) + GetGValue(bg)) / 2);
+    u8 b = (u8)((GetBValue(txt) + GetBValue(bg)) / 2);
+    return RGB(r, g, b);
 }
 
 COLORREF ThemeWindowControlBackgroundColor() {
@@ -388,7 +432,7 @@ COLORREF ThemeNotificationsTextColor() {
 COLORREF ThemeNotificationsHighlightColor() {
     if (gCurrentTheme->colorizeControls) {
         auto col = ThemeWindowBackgroundColor();
-        return AdjustLightOrDark(col, 20);
+        return AccentColor(col, 20);
     }
     return RgbToCOLORREF(0xFFEE70); // yellowish
 }
@@ -396,7 +440,7 @@ COLORREF ThemeNotificationsHighlightColor() {
 COLORREF ThemeNotificationsHighlightTextColor() {
     if (gCurrentTheme->colorizeControls) {
         auto col = ThemeWindowTextColor();
-        return AdjustLightOrDark(col, 20);
+        return AccentColor(col, 20);
     }
     return RgbToCOLORREF(0x8d0801); // reddish
 }

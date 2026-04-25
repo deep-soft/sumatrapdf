@@ -8,7 +8,7 @@ Available options:
 - `-s`, `-silent` : silent installation, doesn't show UI
 - `-d <directory>` e.g. `Sumatra-install.exe -install -d "c:\Sumatra PDF"`
     set directory where program is installed. The default is `%LOCALAPPDATA%\SumatraPDF` or `%PROGRAMFILES%\SumatraPDF` with `-all-users`
-- `-x` : don't  install, extract the files
+- `-x` : don't install, extract the files
     extracts files to current directory or directory provided with `-d` option
 - `-with-filter` : install search filter
 - `-with-preview` : install shell preview for PDF files

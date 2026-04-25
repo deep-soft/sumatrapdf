@@ -28,10 +28,12 @@
 #define HAVE_ALIGNED_MALLOC 1
 
 /* SumatraPDF */
+#ifndef HAVE_ASM
 #if defined(_M_ARM64)
 #define HAVE_ASM 0
 #else
 #define HAVE_ASM 1
+#endif
 #endif
 
 #define HAVE_IO_H 1
@@ -48,6 +50,8 @@
 
 #define __USE_MINGW_ANSI_STDIO 1
 
+/* Only redefine for MSVC; mingw provides fseeko/ftello natively */
+#if defined(_MSC_VER)
 #define fseeko _fseeki64
-
 #define ftello _ftelli64
+#endif

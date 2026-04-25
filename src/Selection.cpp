@@ -54,13 +54,13 @@ Vec<SelectionOnPage>* SelectionOnPage::FromRectangle(DisplayModel* dm, Rect rect
     Vec<SelectionOnPage>* sel = new Vec<SelectionOnPage>();
 
     for (int pageNo = dm->GetEngine()->PageCount(); pageNo >= 1; --pageNo) {
-        PageInfo* pageInfo = dm->GetPageInfo(pageNo);
-        ReportIf(!(!pageInfo || 0.0 == pageInfo->visibleRatio || pageInfo->shown));
-        if (!pageInfo || !pageInfo->shown) {
+        PageInfo* pi = dm->GetPageInfo(pageNo);
+        ReportIf(!(!pi || 0.0 == pi->visibleRatio || pi->isShown));
+        if (!pi || !pi->isShown) {
             continue;
         }
 
-        Rect intersect = rect.Intersect(pageInfo->pageOnScreen);
+        Rect intersect = rect.Intersect(pi->pageOnScreen);
         if (intersect.IsEmpty()) {
             continue;
         }
@@ -233,6 +233,10 @@ TempStr GetSelectedTextTemp(WindowTab* tab, const char* lineSep, bool& isTextOnl
     }
     StrVec selections;
     for (SelectionOnPage& sel : *tab->selectionOnPage) {
+        // selection may reference pages that no longer exist after a reload
+        if (!dm->ValidPageNo(sel.pageNo)) {
+            continue;
+        }
         char* text = dm->GetTextInRegion(sel.pageNo, sel.rect);
         if (!str::IsEmpty(text)) {
             selections.Append(text);
@@ -284,6 +288,9 @@ void CopySelectionToClipboard(MainWindow* win) {
     }
     /* also copy a screenshot of the current selection to the clipboard */
     SelectionOnPage* selOnPage = &tab->selectionOnPage->at(0);
+    if (!dm->ValidPageNo(selOnPage->pageNo)) {
+        return;
+    }
     float zoom = dm->GetZoomReal(selOnPage->pageNo);
     int rotation = dm->GetRotation();
     RenderPageArgs args(selOnPage->pageNo, zoom, rotation, &selOnPage->rect, RenderTarget::Export);
@@ -315,11 +322,11 @@ void OnSelectAll(MainWindow* win, bool textOnly) {
     DisplayModel* dm = win->AsFixed();
     if (textOnly) {
         int pageNo;
-        for (pageNo = 1; !dm->GetPageInfo(pageNo)->shown; pageNo++) {
+        for (pageNo = 1; !dm->PageShown(pageNo); pageNo++) {
             ;
         }
         dm->textSelection->StartAt(pageNo, 0);
-        for (pageNo = win->ctrl->PageCount(); !dm->GetPageInfo(pageNo)->shown; pageNo--) {
+        for (pageNo = win->ctrl->PageCount(); !dm->PageShown(pageNo); pageNo--) {
             ;
         }
         dm->textSelection->SelectUpTo(pageNo, -1);

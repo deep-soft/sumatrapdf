@@ -20,11 +20,13 @@
 #include "Version.h"
 #include "AppTools.h"
 
+bool NeedsWindowEmbeddingHacks();
+
 #include "utils/Log.h"
 
 /* Returns true, if a Registry entry indicates that this executable has been
    created by an installer (and should be updated through an installer) */
-bool HasBeenInstalled() {
+static bool HasBeenInstalled() {
     // see GetDefaultInstallationDir() in Installer.cpp
     TempStr regPathUninst = str::JoinTemp("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\", kAppName);
     TempStr installedPath = LoggedReadRegStr2Temp(regPathUninst, "InstallLocation");
@@ -104,13 +106,24 @@ bool IsDllBuild() {
     return resSrc != nullptr;
 }
 
-// TODO: leaks
 static char* gAppDataDir = nullptr;
+
+void DeleteAppTools() {
+    str::FreePtr(&gAppDataDir);
+}
 
 void SetAppDataDir(const char* dir) {
     dir = path::NormalizeTemp(dir);
-    bool ok = dir::CreateAll(dir);
-    ReportIf(!ok);
+    // don't try to create root directories like d:\ (CreateAll would fail)
+    bool isRootDir = str::Len(dir) == 3 && dir[1] == ':' && dir[2] == '\\';
+    if (!isRootDir) {
+        bool ok = dir::CreateAll(dir);
+        if (!ok) {
+            logf("SetAppDataDir: failed to create directory '%s'\n", dir);
+            LogLastError();
+            ReportIf(true);
+        }
+    }
     str::ReplaceWithCopy(&gAppDataDir, dir);
 }
 
@@ -118,19 +131,27 @@ TempStr GetAppDataDirTemp() {
     if (gAppDataDir) {
         return gAppDataDir;
     }
-
-    TempStr dir;
-    if (IsRunningInPortableMode()) {
+    bool isPortable = IsRunningInPortableMode();
+    TempStr dir = nullptr;
+    if (isPortable) {
         dir = GetSelfExeDirTemp();
-    } else {
+        // sometimes people put executable in directory like c:\windows
+        // and we can't write to it. in that case we'll fall back to %APPDATA%
+        if (!dir::HasWriteAccess(dir)) {
+            logf("GetAppDataDirTemp: no write access to '%s'\n", dir);
+            dir = nullptr;
+        }
+    }
+    if (!dir) {
         dir = GetSpecialFolderTemp(CSIDL_LOCAL_APPDATA, true);
         if (!dir) {
+            LogLastError();
             ReportIf(true);
             dir = GetTempDirTemp(); // shouldn't happen, last chance thing
         }
         dir = path::JoinTemp(dir, kAppName);
     }
-    logf("GetAppDataDirTemp(): '%s'\n", dir);
+    logf("GetAppDataDirTemp(): '%s'%s\n", dir, isPortable ? " (portable)" : "(installed)");
     SetAppDataDir(dir);
     return gAppDataDir;
 }
@@ -307,11 +328,9 @@ static TextEditor editorRules[] = {
     {
         "notepad.exe",
         "\"%f\"",
-        RegType::None,
-        nullptr,
-        nullptr,
-        "notepad.exe",
-        "notepad.exe \"%f\""
+        RegType::BinaryDir,
+        "Software\\Microsoft\\Windows NT\\CurrentVersion",
+        "SystemRoot",
     }
 };
 
@@ -381,7 +400,7 @@ void DetectTextEditors(Vec<TextEditor*>& res) {
 // the caller must free() the result
 char* BuildOpenFileCmd(const char* pattern, const char* path, int line, int col) {
     const char* perc;
-    str::Str cmdline(256);
+    StrBuilder cmdline(256);
 
     logf("BuildOpenFileCmd: path: '%s', pattern: '%s'\n", path, pattern);
     const char* s = pattern;
@@ -419,6 +438,19 @@ bool ExtendedEditWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM) {
     switch (msg) {
         case WM_LBUTTONDOWN:
             delayFocus = !HwndIsFocused(hwnd);
+            if (delayFocus && NeedsWindowEmbeddingHacks()) {
+                HWND hwndFg = GetForegroundWindow();
+                DWORD fgTid = hwndFg ? GetWindowThreadProcessId(hwndFg, nullptr) : 0;
+                DWORD ourTid = GetCurrentThreadId();
+                bool attached = false;
+                if (fgTid && fgTid != ourTid) {
+                    attached = AttachThreadInput(ourTid, fgTid, TRUE) != 0;
+                }
+                SetFocus(hwnd);
+                if (attached) {
+                    AttachThreadInput(ourTid, fgTid, FALSE);
+                }
+            }
             return true;
 
         case WM_LBUTTONUP: {
@@ -662,10 +694,12 @@ bool LaunchFileIfExists(const char* path) {
         return false;
     }
     if (!file::Exists(path)) {
+        logf("LaunchFileIfExists: !file::Exists('%s')\n", path);
         return false;
     }
     if (gIsStoreBuild) {
         path = path::GetNonVirtualTemp(path);
+        logf("LaunchFileIfExists: gIsStoreBuild, path='%s'\n", path);
     }
     LaunchFileShell(path, nullptr, "open");
     return true;
@@ -725,30 +759,4 @@ bool IsUntrustedFile(const char* filePath, const char* fileURL) {
     }
 
     return false;
-}
-
-// Draws the 'x' close button in regular state or onhover state
-// Tries to mimic visual style of Chrome tab close button
-void DrawCloseButton(HDC hdc, Rect& r, bool isHover) {
-    DrawCloseButtonArgs args;
-    args.hdc = hdc;
-    args.r = r;
-    args.isHover = isHover;
-    DrawCloseButton(args);
-}
-
-// -1 : didn't check
-// 0  : checked and not signed
-// 1  : checked and signed
-static int gIsSigned = -1;
-
-bool IsSumatraSigned() {
-    if (gIsSigned < 0) {
-        gIsSigned = 0;
-        TempStr filePath = GetSelfExePathTemp();
-        if (IsPEFileSigned(filePath)) {
-            gIsSigned = 1;
-        }
-    }
-    return gIsSigned ? true : false;
 }

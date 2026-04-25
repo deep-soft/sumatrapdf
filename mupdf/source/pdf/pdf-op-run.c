@@ -145,6 +145,7 @@ struct pdf_run_processor
 	pdf_obj *pending_mcid_pop;
 
 	int struct_parent;
+	pdf_obj *mcids;
 	int broken_struct_tree;
 
 	/* Pending begin layers */
@@ -160,6 +161,9 @@ struct pdf_run_processor
 	 * position. */
 	int nest_depth;
 	int nest_mark[1024];
+
+	int process_layers;
+	int process_structure;
 };
 
 /* Forward definition */
@@ -188,6 +192,9 @@ static void
 flush_begin_layer(fz_context *ctx, pdf_run_processor *proc)
 {
 	begin_layer_stack *s;
+
+	if (!proc->process_layers)
+		return;
 
 	while (proc->begin_layer)
 	{
@@ -225,6 +232,9 @@ static void nest_layer_clip(fz_context *ctx, pdf_run_processor *proc)
 static void
 do_end_layer(fz_context *ctx, pdf_run_processor *proc)
 {
+	if (!proc->process_layers)
+		return;
+
 	if (proc->nest_depth > 0 && proc->nest_mark[proc->nest_depth-1] == proc->mc_depth)
 	{
 		fz_end_layer(ctx, proc->dev);
@@ -1271,9 +1281,22 @@ pdf_show_char(fz_context *ctx, pdf_run_processor *pr, int cid, fz_text_language 
 			stroke_gstate = pr->gstate + gstate->stroke.gstate_num;
 		pdf_drop_font(ctx, gstate->text.font);
 		gstate->text.font = NULL; /* don't inherit the current font... */
+		/* SumatraPDF: speculative fix for https://github.com/sumatrapdfreader/sumatrapdf/issues/5285 */
+#if 0   /* original code */
 		fz_render_t3_glyph_direct(ctx, pr->dev, fontdesc->font, gid, composed, gstate, pr->default_cs, fill_gstate, stroke_gstate);
 		pr->dev->flags = old_flags;
 		pdf_grestore(ctx, pr);
+#else   /* fix */
+		fz_try(ctx)
+			fz_render_t3_glyph_direct(ctx, pr->dev, fontdesc->font, gid, composed, gstate, pr->default_cs, fill_gstate, stroke_gstate);
+		fz_always(ctx)
+		{
+			pr->dev->flags = old_flags;
+			pdf_grestore(ctx, pr);
+		}
+		fz_catch(ctx)
+			fz_rethrow(ctx);
+#endif
 		/* Render text invisibly so that it can still be extracted. */
 		pr->tos.text_mode = 3;
 	}
@@ -1379,7 +1402,6 @@ lookup_mcid(fz_context *ctx, pdf_run_processor *proc, pdf_obj *val)
 {
 	pdf_obj *mcid;
 	int id;
-	pdf_obj *mcids;
 
 	if (proc->struct_parent == -1)
 		return NULL;
@@ -1392,8 +1414,7 @@ lookup_mcid(fz_context *ctx, pdf_run_processor *proc, pdf_obj *val)
 		return NULL;
 
 	id = pdf_to_int(ctx, mcid);
-	mcids = pdf_lookup_number(ctx, pdf_dict_getl(ctx, pdf_trailer(ctx, proc->doc), PDF_NAME(Root), PDF_NAME(StructTreeRoot), PDF_NAME(ParentTree), NULL), proc->struct_parent);
-	return pdf_lookup_mcid_in_mcids(ctx, id, mcids);
+	return pdf_lookup_mcid_in_mcids(ctx, id, proc->mcids);
 }
 
 static fz_text_language
@@ -1854,7 +1875,7 @@ pop_structure_to(fz_context *ctx, pdf_run_processor *proc, pdf_obj *common)
 static void
 pop_any_pending_mcid_changes(fz_context *ctx, pdf_run_processor *pr)
 {
-	if (pr->pending_mcid_pop == NULL)
+	if (!pr->process_structure || pr->pending_mcid_pop == NULL)
 		return;
 
 	pop_structure_to(ctx, pr, pr->pending_mcid_pop);
@@ -2091,6 +2112,9 @@ push_marked_content(fz_context *ctx, pdf_run_processor *proc, const char *tagstr
 		/* Check to see if val contains an MCID. */
 		mc_dict = lookup_mcid(ctx, proc, val);
 
+		/* No point in layer processing unnecessarily */
+		if (proc->process_layers)
+		{
 		/* Start any optional content layers. */
 		if (pdf_name_eq(ctx, tag, PDF_NAME(OC)))
 			begin_oc(ctx, proc, val, NULL);
@@ -2098,9 +2122,10 @@ push_marked_content(fz_context *ctx, pdf_run_processor *proc, const char *tagstr
 		/* Special handling for common non-spec extension. */
 		if (pdf_name_eq(ctx, tag, PDF_NAME(Layer)))
 			begin_layer(ctx, proc, val);
+		}
 
 		/* Structure */
-		if (mc_dict && !proc->broken_struct_tree)
+		if (proc->process_structure && mc_dict && !proc->broken_struct_tree)
 		{
 			fz_try(ctx)
 				mc->structure_pushed = send_begin_structure(ctx, proc, mc_dict);
@@ -2241,6 +2266,14 @@ clear_marked_content(fz_context *ctx, pdf_run_processor *pr)
 }
 
 static void
+set_struct_parent(fz_context *ctx, pdf_run_processor *pr, int sp)
+{
+	pr->struct_parent = sp;
+	pr->mcids = NULL;
+	pr->mcids = pdf_lookup_number(ctx, pdf_dict_getl(ctx, pdf_trailer(ctx, pr->doc), PDF_NAME(Root), PDF_NAME(StructTreeRoot), PDF_NAME(ParentTree), NULL), sp);
+}
+
+static void
 pdf_run_xobject(fz_context *ctx, pdf_run_processor *pr, pdf_obj *xobj, pdf_obj *page_resources, fz_matrix transform, int is_smask)
 {
 	pdf_cycle_list cycle_here;
@@ -2261,6 +2294,7 @@ pdf_run_xobject(fz_context *ctx, pdf_run_processor *pr, pdf_obj *xobj, pdf_obj *
 	marked_content_stack *save_marked_content = NULL;
 	int save_struct_parent;
 	pdf_obj *oc;
+	pdf_obj *save_mcids;
 
 	/* Avoid infinite recursion */
 	pdf_cycle_list *cycle_up = pr->cycle;
@@ -2282,10 +2316,11 @@ pdf_run_xobject(fz_context *ctx, pdf_run_processor *pr, pdf_obj *xobj, pdf_obj *
 	save_marked_content = pr->marked_content;
 	pr->marked_content = NULL;
 	save_struct_parent = pr->struct_parent;
+	save_mcids = pr->mcids;
 
 	fz_try(ctx)
 	{
-		pr->struct_parent = pdf_dict_get_int_default(ctx, xobj, PDF_NAME(StructParent), -1);
+		set_struct_parent(ctx, pr, pdf_dict_get_int_default(ctx, xobj, PDF_NAME(StructParent), -1));
 
 		oc = pdf_dict_get(ctx, xobj, PDF_NAME(OC));
 		if (oc)
@@ -2410,6 +2445,7 @@ pdf_run_xobject(fz_context *ctx, pdf_run_processor *pr, pdf_obj *xobj, pdf_obj *
 		fz_drop_colorspace(ctx, cs);
 		pr->cycle = cycle_up;
 		pr->struct_parent = save_struct_parent;
+		pr->mcids = save_mcids;
 	}
 	fz_catch(ctx)
 	{
@@ -3147,6 +3183,7 @@ pdf_close_run_processor(fz_context *ctx, pdf_processor *proc)
 		}
 	}
 
+	if (pr->process_structure)
 	pop_structure_to(ctx, pr, NULL);
 
 	clear_marked_content(ctx, pr);
@@ -3359,6 +3396,12 @@ pdf_new_run_processor(fz_context *ctx, pdf_document *doc, fz_device *dev, fz_mat
 
 	proc->next_begin_layer = &proc->begin_layer;
 
+	if (dev->begin_layer || dev->end_layer)
+		proc->process_layers = 1;
+	if (dev->begin_structure || dev->end_structure)
+		proc->process_structure = 1;
+
+
 	fz_try(ctx)
 	{
 		proc->path = fz_new_path(ctx);
@@ -3399,12 +3442,12 @@ pdf_new_run_processor(fz_context *ctx, pdf_document *doc, fz_device *dev, fz_mat
 		/* Structure details */
 		{
 			pdf_obj *struct_tree_root = pdf_dict_getl(ctx, pdf_trailer(ctx, doc), PDF_NAME(Root), PDF_NAME(StructTreeRoot), NULL);
-			proc->struct_parent = struct_parent;
+			set_struct_parent(ctx, proc, struct_parent);
 			proc->role_map = pdf_keep_obj(ctx, pdf_dict_get(ctx, struct_tree_root, PDF_NAME(RoleMap)));
 
 			/* Annotations and XObjects can be their own content items. We spot this by
 			 * the struct_parent looking up to be a singular object. */
-			if (struct_parent != -1 && struct_tree_root)
+			if (proc->process_structure && struct_parent != -1 && struct_tree_root)
 			{
 				pdf_obj *struct_obj = pdf_lookup_number(ctx, pdf_dict_get(ctx, struct_tree_root, PDF_NAME(ParentTree)), struct_parent);
 				if (pdf_is_dict(ctx, struct_obj))

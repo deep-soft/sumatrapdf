@@ -24,24 +24,14 @@ static struct {
     bool skip = false;
 } gPreviewers[] = {
     {kPdfPreviewClsid, ".pdf"},
-    {kCbxPreviewClsid, ".cbz"},
-    {kCbxPreviewClsid, ".cbr"},
-    {kCbxPreviewClsid, ".cb7"},
-    {kCbxPreviewClsid, ".cbt"},
+    {kCbxPreviewClsid, ".cbz", ".cbr"},
+    {kCbxPreviewClsid, ".cb7", ".cbt"},
     {kTgaPreviewClsid, ".tga"},
     {kDjVuPreviewClsid, ".djvu"},
-#ifdef BUILD_XPS_PREVIEW
     {kXpsPreviewClsid, ".xps", ".oxps"},
-#endif
-#ifdef BUILD_EPUB_PREVIEW
     {kEpubPreviewClsid, ".epub"},
-#endif
-#ifdef BUILD_FB2_PREVIEW
     {kFb2PreviewClsid, ".fb2", ".fb2z"},
-#endif
-#ifdef BUILD_MOBI_PREVIEW
     {kMobiPreviewClsid, ".mobi"},
-#endif
 };
 // clang-format on
 

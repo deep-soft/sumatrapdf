@@ -38,8 +38,12 @@ bool IsEngineImageDirSupportedFile(const char* fileName, bool sniff = false);
 EngineBase* CreateEngineImageDirFromFile(const char* fileName);
 
 bool IsEngineCbxSupportedFileType(Kind kind);
-EngineBase* CreateEngineCbxFromFile(const char* path);
+EngineBase* CreateEngineCbxFromFile(const char* path, PasswordUI* pwdUI = nullptr, Kind hintKind = nullptr,
+                                    const char* realPath = nullptr);
 EngineBase* CreateEngineCbxFromStream(IStream* stream);
+
+bool IsEngineImages(EngineBase*);
+void EngineImagesGetImageProperties(EngineBase*, int pageNo, StrVec& keyValOut);
 
 /* EngineMupdf.cpp */
 
@@ -55,9 +59,14 @@ Annotation* EngineMupdfCreateAnnotation(EngineBase*, int pageNo, PointF pos, Ann
 void EngineMupdfGetAnnotations(EngineBase*, Vec<Annotation*>&);
 bool EngineMupdfHasUnsavedAnnotations(EngineBase*);
 bool EngineMupdfSupportsAnnotations(EngineBase*);
+bool EngineMupdfIsEncrypted(EngineBase* engine);
+const char* EngineMupdfGetPassword(EngineBase* engine);
 bool EngineMupdfSaveUpdated(EngineBase* engine, const char* path, const ShowErrorCb& showErrorFunc);
 Annotation* EngineMupdfGetAnnotationAtPos(EngineBase*, int pageNo, PointF pos, Annotation*);
 ByteSlice EngineMupdfLoadAttachment(EngineBase*, int attachmentNo);
+ByteSlice EngineMupdfLoadAnnotAttachment(EngineBase*, int objNum);
+TempStr EngineMupdfGetPdfInfo(const char* path);
+TempStr EngineMupdfGetPdfOutline(const char* path);
 
 /* EnginePs.cpp */
 

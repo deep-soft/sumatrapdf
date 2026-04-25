@@ -1,220 +1,238 @@
 /* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
-/*
-COMMANDS() define commands.
-A command is represented by a unique number, defined as
-Cmd* enum (e.g. CmdOpen) and a human-readable name (not used yet).
-*/
-#define COMMANDS(V)                                                                \
-    V(CmdOpenFile, "Open File...")                                                 \
-    V(CmdClose, "Close Document")                                                  \
-    V(CmdCloseCurrentDocument, "Close Current Document")                           \
-    V(CmdCloseOtherTabs, "Close Other Tabs")                                       \
-    V(CmdCloseTabsToTheRight, "Close Tabs To The Right")                           \
-    V(CmdCloseTabsToTheLeft, "Close Tabs To The Left")                             \
-    V(CmdCloseAllTabs, "Close All Tabs")                                           \
-    V(CmdSaveAs, "Save File As...")                                                \
-    V(CmdPrint, "Print Document...")                                               \
-    V(CmdShowInFolder, "Show File In Folder...")                                   \
-    V(CmdRenameFile, "Rename File...")                                             \
-    V(CmdDeleteFile, "Delete File")                                                \
-    V(CmdExit, "Exit Application")                                                 \
-    V(CmdReloadDocument, "Reload Document")                                        \
-    V(CmdCreateShortcutToFile, "Create .lnk Shortcut")                             \
-    V(CmdSendByEmail, "Send Document By Email...")                                 \
-    V(CmdProperties, "Show Document Properties...")                                \
-    V(CmdSinglePageView, "Single Page View")                                       \
-    V(CmdFacingView, "Facing View")                                                \
-    V(CmdBookView, "Book View")                                                    \
-    V(CmdToggleContinuousView, "Toggle Continuous View")                           \
-    V(CmdToggleMangaMode, "Toggle Manga Mode")                                     \
-    V(CmdRotateLeft, "Rotate Left")                                                \
-    V(CmdRotateRight, "Rotate Right")                                              \
-    V(CmdToggleBookmarks, "Toggle Bookmarks")                                      \
-    V(CmdToggleTableOfContents, "Toggle Table Of Contents")                        \
-    V(CmdToggleFullscreen, "Toggle Fullscreen")                                    \
-    V(CmdPresentationWhiteBackground, "Presentation White Background")             \
-    V(CmdPresentationBlackBackground, "Presentation Black Background")             \
-    V(CmdTogglePresentationMode, "View: Presentation Mode")                        \
-    V(CmdToggleToolbar, "Toggle Toolbar")                                          \
-    V(CmdToggleScrollbars, "Toggle Scrollbars")                                    \
-    V(CmdToggleMenuBar, "Toggle Menu Bar")                                         \
-    V(CmdCopySelection, "Copy Selection")                                          \
-    V(CmdTranslateSelectionWithGoogle, "Translate Selection with Google")          \
-    V(CmdTranslateSelectionWithDeepL, "Translate Selection With DeepL")            \
-    V(CmdSearchSelectionWithGoogle, "Search Selection with Google")                \
-    V(CmdSearchSelectionWithBing, "Search Selection with Bing")                    \
-    V(CmdSearchSelectionWithWikipedia, "Search Selection with Wikipedia")          \
-    V(CmdSearchSelectionWithGoogleScholar, "Search Selection with Google Scholar") \
-    V(CmdSelectAll, "Select All")                                                  \
-    V(CmdNewWindow, "Open New SumatraPDF Window")                                  \
-    V(CmdDuplicateInNewWindow, "Open Current Document In New Window")              \
-    V(CmdCopyImage, "Copy Image")                                                  \
-    V(CmdCopyLinkTarget, "Copy Link Target")                                       \
-    V(CmdCopyComment, "Copy Comment")                                              \
-    V(CmdCopyFilePath, "Copy File Path")                                           \
-    V(CmdScrollUp, "Scroll Up")                                                    \
-    V(CmdScrollDown, "Scroll Down")                                                \
-    V(CmdScrollLeft, "Scroll Left")                                                \
-    V(CmdScrollRight, "Scroll Right")                                              \
-    V(CmdScrollLeftPage, "Scroll Left By Page")                                    \
-    V(CmdScrollRightPage, "Scroll Right By Page")                                  \
-    V(CmdScrollUpPage, "Scroll Up By Page")                                        \
-    V(CmdScrollDownPage, "Scroll Down By Page")                                    \
-    V(CmdScrollDownHalfPage, "Scroll Down By Half Page")                           \
-    V(CmdScrollUpHalfPage, "Scroll Up By Half Page")                               \
-    V(CmdGoToNextPage, "Next Page")                                                \
-    V(CmdGoToPrevPage, "Previous Page")                                            \
-    V(CmdGoToFirstPage, "First Page")                                              \
-    V(CmdGoToLastPage, "Last Page")                                                \
-    V(CmdGoToPage, "Go to Page...")                                                \
-    V(CmdFindFirst, "Find")                                                        \
-    V(CmdFindNext, "Find Next")                                                    \
-    V(CmdFindPrev, "Find Previous")                                                \
-    V(CmdFindNextSel, "Find Next Selection")                                       \
-    V(CmdFindPrevSel, "Find Previous Selection")                                   \
-    V(CmdFindMatch, "Find: Match Case")                                            \
-    V(CmdSaveAnnotations, "Save Annotations to existing PDF")                      \
-    V(CmdSaveAnnotationsNewFile, "Save Annotations to a new PDF")                  \
-    V(CmdEditAnnotations, "Edit Annotations")                                      \
-    V(CmdDeleteAnnotation, "Delete Annotation")                                    \
-    V(CmdZoomFitPage, "Zoom: Fit Page")                                            \
-    V(CmdZoomActualSize, "Zoom: Actual Size")                                      \
-    V(CmdZoomFitWidth, "Zoom: Fit Width")                                          \
-    V(CmdZoom6400, "Zoom: 6400%")                                                  \
-    V(CmdZoom3200, "Zoom: 3200%")                                                  \
-    V(CmdZoom1600, "Zoom: 1600%")                                                  \
-    V(CmdZoom800, "Zoom: 800%")                                                    \
-    V(CmdZoom400, "Zoom: 400%")                                                    \
-    V(CmdZoom200, "Zoom: 200%")                                                    \
-    V(CmdZoom150, "Zoom: 150%")                                                    \
-    V(CmdZoom125, "Zoom: 125%")                                                    \
-    V(CmdZoom100, "Zoom: 100%")                                                    \
-    V(CmdZoom50, "Zoom: 50%")                                                      \
-    V(CmdZoom25, "Zoom: 25%")                                                      \
-    V(CmdZoom12_5, "Zoom: 12.5%")                                                  \
-    V(CmdZoom8_33, "Zoom: 8.33%")                                                  \
-    V(CmdZoomFitContent, "Zoom: Fit Content")                                      \
-    V(CmdZoomCustom, "Zoom: Custom...")                                            \
-    V(CmdZoomIn, "Zoom In")                                                        \
-    V(CmdZoomOut, "Zoom Out")                                                      \
-    V(CmdZoomFitWidthAndContinuous, "Zoom: Fit Width And Continuous")              \
-    V(CmdZoomFitPageAndSinglePage, "Zoom: Fit Page and Single Page")               \
-    V(CmdContributeTranslation, "Contribute Translation")                          \
-    V(CmdOpenWithKnownExternalViewerFirst, "don't use")                            \
-    V(CmdOpenWithExplorer, "Open Directory In Explorer")                           \
-    V(CmdOpenWithDirectoryOpus, "Open Directory In Directory Opus")                \
-    V(CmdOpenWithTotalCommander, "Open Directory In Total Commander")              \
-    V(CmdOpenWithDoubleCommander, "Open Directory In Double Commander")            \
-    V(CmdOpenWithAcrobat, "Open in Adobe Acrobat")                                 \
-    V(CmdOpenWithFoxIt, "Open in Foxit Reader")                                    \
-    V(CmdOpenWithFoxItPhantom, "Open in Foxit PhantomPDF")                         \
-    V(CmdOpenWithPdfXchange, "Open in PDF-XChange")                                \
-    V(CmdOpenWithXpsViewer, "Open in Microsoft Xps Viewer")                        \
-    V(CmdOpenWithHtmlHelp, "Open in Microsoft HTML Help")                          \
-    V(CmdOpenWithPdfDjvuBookmarker, "Open With Pdf&Djvu Bookmarker")               \
-    V(CmdOpenWithKnownExternalViewerLast, "don't use")                             \
-    V(CmdOpenSelectedDocument, "Open Selected Document")                           \
-    V(CmdPinSelectedDocument, "Pin Selected Document")                             \
-    V(CmdForgetSelectedDocument, "Remove Selected Document From History")          \
-    V(CmdExpandAll, "Expand All")                                                  \
-    V(CmdCollapseAll, "Collapse All")                                              \
-    V(CmdSaveEmbeddedFile, "Save Embedded File...")                                \
-    V(CmdOpenEmbeddedPDF, "Open Embedded PDF")                                     \
-    V(CmdSaveAttachment, "Save Attachment...")                                     \
-    V(CmdOpenAttachment, "Open Attachment")                                        \
-    V(CmdOptions, "Options...")                                                    \
-    V(CmdAdvancedOptions, "Advanced Options...")                                   \
-    V(CmdAdvancedSettings, "Advanced Settings...")                                 \
-    V(CmdChangeLanguage, "Change Language...")                                     \
-    V(CmdCheckUpdate, "Check For Updates")                                         \
-    V(CmdHelpOpenManual, "Help: Manual")                                           \
-    V(CmdHelpOpenManualOnWebsite, "Help: Manual On Website")                       \
-    V(CmdHelpOpenKeyboardShortcuts, "Help: Keyboard Shortcuts")                    \
-    V(CmdHelpVisitWebsite, "Help: SumatraPDF Website")                             \
-    V(CmdHelpAbout, "Help: About SumatraPDF")                                      \
-    V(CmdMoveFrameFocus, "Move Frame Focus")                                       \
-    V(CmdFavoriteAdd, "Add Favorite")                                              \
-    V(CmdFavoriteDel, "Delete Favorite")                                           \
-    V(CmdFavoriteToggle, "Toggle Favorites")                                       \
-    V(CmdToggleLinks, "Toggle Show Links")                                         \
-    V(CmdCreateAnnotText, "Create Text Annotation")                                \
-    V(CmdCreateAnnotLink, "Create Link Annotation")                                \
-    V(CmdCreateAnnotFreeText, "Create Free Text Annotation")                       \
-    V(CmdCreateAnnotLine, "Create Line Annotation")                                \
-    V(CmdCreateAnnotSquare, "Create Square Annotation")                            \
-    V(CmdCreateAnnotCircle, "Create Circle Annotation")                            \
-    V(CmdCreateAnnotPolygon, "Create Polygon Annotation")                          \
-    V(CmdCreateAnnotPolyLine, "Create Poly Line Annotation")                       \
-    V(CmdCreateAnnotHighlight, "Create Highlight Annotation")                      \
-    V(CmdCreateAnnotUnderline, "Create Underline Annotation")                      \
-    V(CmdCreateAnnotSquiggly, "Create Squiggly Annotation")                        \
-    V(CmdCreateAnnotStrikeOut, "Create Strike Out Annotation")                     \
-    V(CmdCreateAnnotRedact, "Create Redact Annotation")                            \
-    V(CmdCreateAnnotStamp, "Create Stamp Annotation")                              \
-    V(CmdCreateAnnotCaret, "Create Caret Annotation")                              \
-    V(CmdCreateAnnotInk, "Create Ink Annotation")                                  \
-    V(CmdCreateAnnotPopup, "Create Popup Annotation")                              \
-    V(CmdCreateAnnotFileAttachment, "Create File Attachment Annotation")           \
-    V(CmdInvertColors, "Invert Colors")                                            \
-    V(CmdTogglePageInfo, "Toggle Page Info")                                       \
-    V(CmdToggleZoom, "Toggle Zoom")                                                \
-    V(CmdNavigateBack, "Navigate Back")                                            \
-    V(CmdNavigateForward, "Navigate Forward")                                      \
-    V(CmdToggleCursorPosition, "Toggle Cursor Position")                           \
-    V(CmdOpenNextFileInFolder, "Open Next File In Folder")                         \
-    V(CmdOpenPrevFileInFolder, "Open Previous File In Folder")                     \
-    V(CmdCommandPalette, "Command Palette")                                        \
-    V(CmdShowLog, "Show Logs")                                                     \
-    V(CmdClearHistory, "Clear History")                                            \
-    V(CmdReopenLastClosedFile, "Reopen Last Closed")                               \
-    V(CmdNextTab, "Next Tab")                                                      \
-    V(CmdPrevTab, "Previous Tab")                                                  \
-    V(CmdNextTabSmart, "Smart Next Tab")                                           \
-    V(CmdPrevTabSmart, "Smart Next Tab")                                           \
-    V(CmdMoveTabLeft, "Move Tab Left")                                             \
-    V(CmdMoveTabRight, "Move Tab Right")                                           \
-    V(CmdSelectNextTheme, "Select next theme")                                     \
-    V(CmdToggleFrequentlyRead, "Toggle Frequently Read")                           \
-    V(CmdInvokeInverseSearch, "Invoke Inverse Search")                             \
-    V(CmdExec, "Execute a program")                                                \
-    V(CmdViewWithExternalViewer, "View With Custom External Viewer")               \
-    V(CmdSelectionHandler, "Launch a browser or run command with selection")       \
-    V(CmdSetTheme, "Set theme")                                                    \
-    V(CmdDebugCorruptMemory, "Debug: Corrupt Memory")                              \
-    V(CmdDebugCrashMe, "Debug: Crash Me")                                          \
-    V(CmdDebugDownloadSymbols, "Debug: Download Symbols")                          \
-    V(CmdDebugTestApp, "Debug: Test App")                                          \
-    V(CmdDebugShowNotif, "Debug: Show Notification")                               \
-    V(CmdDebugStartStressTest, "Debug: Start Stress Test")                         \
-    V(CmdDebugTogglePredictiveRender, "Debug: Toggle Predictive Rendering")        \
-    V(CmdDebugToggleRtl, "Debug: Toggle Rtl")                                      \
-    V(CmdDebugDelayCloseWindow, "Debug: Delay Close Window")                       \
-    V(CmdNone, "Do nothing")
-
-// order of CreateAnnot* must be the same as enum AnnotationType
-/*
-    TOOD: maybe add commands for those annotations
-    Sound,
-    Movie,
-    Widget,
-    Screen,
-    PrinterMark,
-    TrapNet,
-    Watermark,
-    ThreeD,
-*/
-
-#define DEF_CMD(id, s) id,
-
+// @gen-start cmd-enum
+// clang-format off
 enum {
     // commands are integers sent with WM_COMMAND so start them
     // at some number higher than 0
     CmdFirst = 200,
     CmdSeparator = CmdFirst,
 
-    COMMANDS(DEF_CMD)
+    CmdOpenFile = 201,
+    CmdClose = 202,
+    CmdCloseCurrentDocument = 203,
+    CmdCloseOtherTabs = 204,
+    CmdCloseTabsToTheRight = 205,
+    CmdCloseTabsToTheLeft = 206,
+    CmdCloseAllTabs = 207,
+    CmdSaveAs = 208,
+    CmdPrint = 209,
+    CmdShowInFolder = 210,
+    CmdRenameFile = 211,
+    CmdDeleteFile = 212,
+    CmdExit = 213,
+    CmdReloadDocument = 214,
+    CmdCreateShortcutToFile = 215,
+    CmdSendByEmail = 216,
+    CmdProperties = 217,
+    CmdSinglePageView = 218,
+    CmdFacingView = 219,
+    CmdBookView = 220,
+    CmdToggleContinuousView = 221,
+    CmdToggleMangaMode = 222,
+    CmdRotateLeft = 223,
+    CmdRotateRight = 224,
+    CmdToggleBookmarks = 225,
+    CmdToggleTableOfContents = 226,
+    CmdToggleFullscreen = 227,
+    CmdPresentationWhiteBackground = 228,
+    CmdPresentationBlackBackground = 229,
+    CmdTogglePresentationMode = 230,
+    CmdToggleToolbar = 231,
+    CmdChangeScrollbar = 232,
+    CmdToggleMenuBar = 233,
+    CmdToggleUseTabs = 234,
+    CmdToggleTabsMru = 235,
+    CmdCopySelection = 236,
+    CmdTranslateSelectionWithGoogle = 237,
+    CmdTranslateSelectionWithDeepL = 238,
+    CmdSearchSelectionWithGoogle = 239,
+    CmdSearchSelectionWithBing = 240,
+    CmdSearchSelectionWithWikipedia = 241,
+    CmdSearchSelectionWithGoogleScholar = 242,
+    CmdSelectAll = 243,
+    CmdNewWindow = 244,
+    CmdDuplicateInNewWindow = 245,
+    CmdDuplicateInNewTab = 246,
+    CmdCopyImage = 247,
+    CmdCopyLinkTarget = 248,
+    CmdCopyComment = 249,
+    CmdCopyFilePath = 250,
+    CmdScrollUp = 251,
+    CmdScrollDown = 252,
+    CmdScrollLeft = 253,
+    CmdScrollRight = 254,
+    CmdScrollLeftPage = 255,
+    CmdScrollRightPage = 256,
+    CmdScrollUpPage = 257,
+    CmdScrollDownPage = 258,
+    CmdScrollDownHalfPage = 259,
+    CmdScrollUpHalfPage = 260,
+    CmdGoToNextPage = 261,
+    CmdGoToPrevPage = 262,
+    CmdGoToFirstPage = 263,
+    CmdGoToLastPage = 264,
+    CmdGoToPage = 265,
+    CmdFindFirst = 266,
+    CmdFindNext = 267,
+    CmdFindPrev = 268,
+    CmdFindNextSel = 269,
+    CmdFindPrevSel = 270,
+    CmdFindToggleMatchCase = 271,
+    CmdSaveAnnotations = 272,
+    CmdSaveAnnotationsNewFile = 273,
+    CmdEditAnnotations = 274,
+    CmdDeleteAnnotation = 275,
+    CmdZoomFitPage = 276,
+    CmdZoomActualSize = 277,
+    CmdZoomFitWidth = 278,
+    CmdZoom6400 = 279,
+    CmdZoom3200 = 280,
+    CmdZoom1600 = 281,
+    CmdZoom800 = 282,
+    CmdZoom400 = 283,
+    CmdZoom200 = 284,
+    CmdZoom150 = 285,
+    CmdZoom125 = 286,
+    CmdZoom100 = 287,
+    CmdZoom50 = 288,
+    CmdZoom25 = 289,
+    CmdZoom12_5 = 290,
+    CmdZoom8_33 = 291,
+    CmdZoomFitContent = 292,
+    CmdZoomShrinkToFit = 293,
+    CmdZoomCustom = 294,
+    CmdZoomIn = 295,
+    CmdZoomOut = 296,
+    CmdZoomFitWidthAndContinuous = 297,
+    CmdZoomFitPageAndSinglePage = 298,
+    CmdContributeTranslation = 299,
+    CmdOpenWithKnownExternalViewerFirst = 300,
+    CmdOpenWithExplorer = 301,
+    CmdOpenWithDirectoryOpus = 302,
+    CmdOpenWithTotalCommander = 303,
+    CmdOpenWithDoubleCommander = 304,
+    CmdOpenWithAcrobat = 305,
+    CmdOpenWithFoxIt = 306,
+    CmdOpenWithFoxItPhantom = 307,
+    CmdOpenWithPdfXchange = 308,
+    CmdOpenWithXpsViewer = 309,
+    CmdOpenWithHtmlHelp = 310,
+    CmdOpenWithPdfDjvuBookmarker = 311,
+    CmdOpenWithKnownExternalViewerLast = 312,
+    CmdOpenSelectedDocument = 313,
+    CmdPinSelectedDocument = 314,
+    CmdForgetSelectedDocument = 315,
+    CmdExpandAll = 316,
+    CmdCollapseAll = 317,
+    CmdSaveEmbeddedFile = 318,
+    CmdOpenEmbeddedPDF = 319,
+    CmdSaveAttachment = 320,
+    CmdOpenAttachment = 321,
+    CmdOptions = 322,
+    CmdAdvancedOptions = 323,
+    CmdAdvancedSettings = 324,
+    CmdChangeLanguage = 325,
+    CmdCheckUpdate = 326,
+    CmdHelpOpenManual = 327,
+    CmdHelpOpenManualOnWebsite = 328,
+    CmdHelpOpenKeyboardShortcuts = 329,
+    CmdHelpVisitWebsite = 330,
+    CmdHelpAbout = 331,
+    CmdMoveFrameFocus = 332,
+    CmdFavoriteAdd = 333,
+    CmdFavoriteDel = 334,
+    CmdFavoriteToggle = 335,
+    CmdToggleLinks = 336,
+    CmdToggleShowAnnotations = 337,
+    CmdShowAnnotations = 338,
+    CmdHideAnnotations = 339,
+    CmdCreateAnnotText = 340,
+    CmdCreateAnnotLink = 341,
+    CmdCreateAnnotFreeText = 342,
+    CmdCreateAnnotLine = 343,
+    CmdCreateAnnotSquare = 344,
+    CmdCreateAnnotCircle = 345,
+    CmdCreateAnnotPolygon = 346,
+    CmdCreateAnnotPolyLine = 347,
+    CmdCreateAnnotHighlight = 348,
+    CmdCreateAnnotUnderline = 349,
+    CmdCreateAnnotSquiggly = 350,
+    CmdCreateAnnotStrikeOut = 351,
+    CmdCreateAnnotRedact = 352,
+    CmdCreateAnnotStamp = 353,
+    CmdCreateAnnotCaret = 354,
+    CmdCreateAnnotInk = 355,
+    CmdCreateAnnotPopup = 356,
+    CmdCreateAnnotFileAttachment = 357,
+    CmdInvertColors = 358,
+    CmdTogglePageInfo = 359,
+    CmdToggleZoom = 360,
+    CmdNavigateBack = 361,
+    CmdNavigateForward = 362,
+    CmdToggleCursorPosition = 363,
+    CmdOpenNextFileInFolder = 364,
+    CmdOpenPrevFileInFolder = 365,
+    CmdCommandPalette = 366,
+    CmdShowLog = 367,
+    CmdShowErrors = 368,
+    CmdClearHistory = 369,
+    CmdReopenLastClosedFile = 370,
+    CmdNextTab = 371,
+    CmdPrevTab = 372,
+    CmdNextTabSmart = 373,
+    CmdPrevTabSmart = 374,
+    CmdMoveTabLeft = 375,
+    CmdMoveTabRight = 376,
+    CmdSelectNextTheme = 377,
+    CmdToggleFrequentlyRead = 378,
+    CmdInvokeInverseSearch = 379,
+    CmdExec = 380,
+    CmdViewWithExternalViewer = 381,
+    CmdSelectionHandler = 382,
+    CmdSetTheme = 383,
+    CmdToggleInverseSearch = 384,
+    CmdDebugCorruptMemory = 385,
+    CmdDebugCrashMe = 386,
+    CmdDebugDownloadSymbols = 387,
+    CmdDebugTestApp = 388,
+    CmdDebugShowNotif = 389,
+    CmdDebugStartStressTest = 390,
+    CmdDebugTogglePredictiveRender = 391,
+    CmdDebugToggleRtl = 392,
+    CmdToggleAntiAlias = 393,
+    CmdToggleSmoothScroll = 394,
+    CmdToggleScrollbarInSinglePage = 395,
+    CmdToggleLazyLoading = 396,
+    CmdToggleEscToExit = 397,
+    CmdListPrinters = 398,
+    CmdToggleWindowsPreviewer = 399,
+    CmdToggleWindowsSearchFilter = 400,
+    CmdScreenshot = 401,
+    CmdCropImage = 402,
+    CmdResizeImage = 403,
+    CmdSaveImage = 404,
+    CmdPasteClipboardImage = 405,
+    CmdTabGroupSave = 406,
+    CmdTabGroupRestore = 407,
+    CmdToggleTips = 408,
+    CmdChangeBackgroundColor = 409,
+    CmdSetTabColor = 410,
+    CmdPdfCompress = 411,
+    CmdPdfDecompress = 412,
+    CmdPdfDeletePages = 413,
+    CmdPdfExtractPages = 414,
+    CmdPdfEncrypt = 415,
+    CmdPdfDecrypt = 416,
+    CmdPdfBake = 417,
+    CmdPdShowInfo = 418,
+    CmdDocumentExtractText = 419,
+    CmdDocumentShowOutline = 420,
+    CmdSetScreenshotHotkey = 421,
+    CmdToggleReuseInstance = 422,
+    CmdToggleChmUI = 423,
+    CmdNone = 424,
 
     /* range for file history */
     CmdFileHistoryFirst,
@@ -237,8 +255,21 @@ enum {
     CmdCreateAnnotFirst = CmdCreateAnnotText,
     CmdCreateAnnotLast = CmdCreateAnnotFileAttachment,
 };
+// clang-format on
+// @gen-end cmd-enum
 
-#undef DEF_CMD
+// order of CreateAnnot* must be the same as enum AnnotationType
+/*
+TOOD: maybe add commands for those annotations
+Sound,
+Movie,
+Widget,
+Screen,
+PrinterMark,
+TrapNet,
+Watermark,
+ThreeD,
+*/
 
 struct CommandArg {
     enum class Type : u16 {
@@ -322,7 +353,13 @@ const char* GetCommandStringArg(CustomCommand* cmd, const char* name, const char
 void GetCommandsWithOrigId(Vec<CustomCommand*>& commands, int origId);
 
 constexpr const char* kCmdArgColor = "color";
+constexpr const char* kCmdArgBgColor = "bgcolor";
+constexpr const char* kCmdArgOpacity = "opacity";
 constexpr const char* kCmdArgOpenEdit = "openedit";
+constexpr const char* kCmdArgTextSize = "textsize";
+constexpr const char* kCmdArgBorderWidth = "borderwidth";
+constexpr const char* kCmdArgInteriorColor = "interiorcolor";
+
 constexpr const char* kCmdArgCopyToClipboard = "copytoclipboard";
 constexpr const char* kCmdArgSetContent = "setcontent";
 constexpr const char* kCmdArgExe = "exe";
@@ -334,3 +371,5 @@ constexpr const char* kCmdArgMode = "mode";
 constexpr const char* kCmdArgTheme = "theme";
 constexpr const char* kCmdArgCommandLine = "cmdline";
 constexpr const char* kCmdArgToolbarText = "toolbartext";
+constexpr const char* kCmdArgFocusEdit = "focusedit";
+constexpr const char* kCmdArgFocusList = "focuslist";

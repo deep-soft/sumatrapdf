@@ -14,14 +14,15 @@
 
 // All registry manipulation needed for installer / uninstaller
 
-// clang-format off
 // list of supported file extensions for which SumatraPDF.exe will
 // be registered as a candidate for the Open With dialog's suggestions
+// clang-format off
 static SeqStrings gSupportedExts = 
     ".pdf\0.xps\0.oxps\0.cbz\0.cbr\0.cb7\0.cbt\0" \
     ".djvu\0.chm\0.mobi\0.epub\0.azw\0.azw3\0.azw4\0" \
     ".fb2\0.fb2z\0.prc\0.tif\0.tiff\0.jp2\0.png\0" \
-    ".jpg\0.jpeg\0.tga\0.gif\0.avif\0.heic\0.webp\0";
+    ".jpg\0.jpeg\0.tga\0.gif\0.avif\0.heic\0.heif\0" \
+    ".jfif\0.webp\0";
 // clang-format on
 
 // notifies Shell that file associations changed.
@@ -103,7 +104,7 @@ bool WriteUninstallerRegistryInfo(HKEY hkey, bool allUsers, const char* installD
 
 // https://msdn.microsoft.com/en-us/library/windows/desktop/cc144154(v=vs.85).aspx
 // http://www.tenforums.com/software-apps/23509-how-add-my-own-program-list-default-programs.html#post407794
-static bool RegisterForDefaultPrograms(HKEY hkey) {
+static bool RegisterForDefaultPrograms(HKEY hkey, const char* installedExePath) {
     bool ok = true;
 
     // L"SOFTWARE\\SumatraPDF\\Capabilities"
@@ -113,13 +114,20 @@ static bool RegisterForDefaultPrograms(HKEY hkey) {
     ok &= LoggedWriteRegStr(hkey, appCapabilityPath, "ApplicationDescription", desc);
     const char* appLongName = "SumatraPDF Reader";
     ok &= LoggedWriteRegStr(hkey, appCapabilityPath, "ApplicationName", appLongName);
+    // icon shown next to the app in Settings > Default Apps
+    char* appIcon = str::JoinTemp("\"", installedExePath, "\",0");
+    ok &= LoggedWriteRegStr(hkey, appCapabilityPath, "ApplicationIcon", appIcon);
 
     // L"SOFTWARE\\SumatraPDF\\Capabilities\\FileAssociations"
     char* keyAssoc = str::JoinTemp(appCapabilityPath, "\\FileAssociations");
 
     auto ext = gSupportedExts;
     while (ext) {
-        ok &= LoggedWriteRegStr(hkey, keyAssoc, ext, kAppName);
+        // must match the per-extension ProgID created by RegisterForOpenWith
+        // (e.g. "SumatraPDF.pdf"); Default Apps UI hides the app if the
+        // FileAssociations ProgID can't be resolved under HKCR
+        char* progIDName = str::JoinTemp(kAppName, ext);
+        ok &= LoggedWriteRegStr(hkey, keyAssoc, ext, progIDName);
         seqstrings::Next(ext);
     }
 
@@ -173,11 +181,15 @@ static bool RegisterForOpenWith(HKEY hkey, const char* installedExePath) {
         // ",-${n}" => n is icon with resource id
         char* iconPath;
         if (str::Eq(ext, ".epub")) {
-            iconPath = str::JoinTemp(exePathQuoted, ",2");
+            iconPath = str::JoinTemp(exePathQuoted, ",-3");
         } else if (str::Eq(ext, ".cbr") || str::Eq(ext, ".cbz") || str::Eq(ext, ".cbt") || str::Eq(ext, ".cb7")) {
-            iconPath = str::JoinTemp(exePathQuoted, ",3");
+            iconPath = str::JoinTemp(exePathQuoted, ",-4");
+        } else if (str::Eq(ext, ".chm")) {
+            iconPath = str::JoinTemp(exePathQuoted, ",-5");
+        } else if (str::Eq(ext, ".djvu")) {
+            iconPath = str::JoinTemp(exePathQuoted, ",-6");
         } else {
-            iconPath = str::JoinTemp(exePathQuoted, ",1");
+            iconPath = str::JoinTemp(exePathQuoted, ",-2");
         }
 
         key = str::JoinTemp(progIDKey, "\\Application");
@@ -473,7 +485,7 @@ bool WriteExtendedFileExtensionInfo(HKEY hkey, const char* installedExePath) {
     // ok &= OldWriteFileAssoc(hkey);
 
     if (IsWindows10OrGreater()) {
-        ok &= RegisterForDefaultPrograms(hkey);
+        ok &= RegisterForDefaultPrograms(hkey, installedExePath);
     }
     ok &= RegisterForOpenWith(hkey, installedExePath);
 

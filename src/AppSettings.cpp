@@ -36,6 +36,7 @@
 #include "Theme.h"
 
 #include "utils/Log.h"
+#include <Notifications.h>
 
 // workaround for OnMenuExit
 // if this flag is set, CloseWindow will not save prefs before closing the window.
@@ -92,15 +93,6 @@ static void setMin(int& i, int minVal) {
     }
 }
 
-static void setMinMax(int& i, int minVal, int maxVal) {
-    if (i < minVal) {
-        i = minVal;
-    }
-    if (i > maxVal) {
-        i = maxVal;
-    }
-}
-
 static void SetCommandNameAndShortcut(CustomCommand* cmd, const char* name, const char* key) {
     if (!cmd) {
         return;
@@ -111,6 +103,7 @@ static void SetCommandNameAndShortcut(CustomCommand* cmd, const char* name, cons
     }
     if (!IsValidShortcutString(key)) {
         logf("SetCommandNameAndShortcut: '%s' is not a valid shortcut for '%s'\n", key, cmd->definition);
+        MaybeDelayedWarningNotification("'%s' is not a valid shortcut for '%s'", key, cmd->definition);
         return;
     }
     cmd->key = str::Dup(key);
@@ -149,6 +142,10 @@ static void CreateExternalViewersCommands() {
             auto arg = NewStringArg(kCmdArgFilter, ev->filter);
             InsertArg(&args, arg);
         }
+        if (!str::IsEmptyOrWhiteSpace(ev->toolbarText)) {
+            auto arg = NewStringArg(kCmdArgToolbarText, ev->toolbarText);
+            InsertArg(&args, arg);
+        }
         auto cmd = CreateCustomCommand("", CmdViewWithExternalViewer, args);
         SetCommandNameAndShortcut(cmd, ev->name, ev->key);
     }
@@ -177,6 +174,11 @@ static void CreateCustomShortcuts() {
         if (!cmd) {
             continue;
         }
+        // if command already has a key bound (from a previous shortcut entry),
+        // create a separate command so both shortcuts work
+        if (cmd->key && !str::IsEmptyOrWhiteSpace(shortcut->key)) {
+            cmd = CreateCustomCommand(shortcut->cmd, cmd->origId, nullptr);
+        }
         shortcut->cmdId = cmd->id;
         SetCommandNameAndShortcut(cmd, shortcut->name, shortcut->key);
     }
@@ -199,14 +201,20 @@ bool LoadSettings() {
         prefsData.Free();
     }
 
-    if (!gprefs->uiLanguage || !trans::ValidateLangCode(gprefs->uiLanguage)) {
+    if (trans::ValidateLangCode(gprefs->uiLanguage)) {
+        SetCurrentLang(gprefs->uiLanguage);
+    } else {
         // guess the ui language on first start
         str::ReplaceWithCopy(&gprefs->uiLanguage, trans::DetectUserLang());
     }
+
     gprefs->lastPrefUpdate = file::GetModificationTime(settingsPath);
     gprefs->defaultDisplayModeEnum = DisplayModeFromString(gprefs->defaultDisplayMode, DisplayMode::Automatic);
     gprefs->defaultZoomFloat = ZoomFromString(gprefs->defaultZoom, kZoomActualSize);
     ReportIf(!IsValidZoom(gprefs->defaultZoomFloat));
+    if (gprefs->imageUI.defaultZoom) {
+        gprefs->imageUI.defaultZoomFloat = ZoomFromString(gprefs->imageUI.defaultZoom, 0);
+    }
 
     int weekDiff = GetWeekCount() - gprefs->openCountWeek;
     gprefs->openCountWeek = GetWeekCount();
@@ -260,6 +268,11 @@ bool LoadSettings() {
         gprefs->toolbarSize = 18; // same as kDefaultIconSize in Toolbar.cpp
     }
     setMinMax(gprefs->toolbarSize, 8, 64);
+    setMinMax(gprefs->annotations.freeTextOpacity, 0, 100);
+
+    if (seqstrings::StrToIdxIS(gScrollbarModeNames, gprefs->scrollbars) < 0) {
+        str::ReplaceWithCopy(&gprefs->scrollbars, "windows");
+    }
 
     if (!gprefs->treeFontName) {
         gprefs->treeFontName = const_cast<char*>("automatic");
@@ -285,9 +298,13 @@ bool LoadSettings() {
     FreeAcceleratorTables();
     CreateSumatraAcceleratorTable();
 
-    ReCreateToolbars();
-
     SetCurrentThemeFromSettings();
+    for (MainWindow* win : gWindows) {
+        ReCreateToolbar(win);
+        RelayoutWindow(win);
+        win->RedrawAll(true);
+    }
+
     if (!file::Exists(settingsPath)) {
         SaveSettings();
     }
@@ -313,9 +330,9 @@ Vec<SessionData*>* gInitialSessionData = nullptr;
 
 static void RememberSessionState() {
     Vec<SessionData*>* sessionState = gGlobalPrefs->sessionData;
-    FreeSessionState(sessionState);
+    FreeSessionDataVec(sessionState);
 
-    if (!gGlobalPrefs->rememberOpenedFiles) {
+    if (!SettingsRememberOpenedFiles()) {
         return;
     }
 
@@ -332,8 +349,11 @@ static void RememberSessionState() {
                 // use the saved state from previous session
                 // note: might stil have issues if multiple tabs with same file
                 bool didFind = false;
+                if (!gInitialSessionData) {
+                    continue;
+                }
                 int nWindows = gInitialSessionData->Size();
-                for (int i = 0; i < nWindows; i++) {
+                for (int i = 0; i < nWindows && !didFind; i++) {
                     SessionData* psd = gInitialSessionData->At(i);
                     int nTabs = psd->tabStates->Size();
                     for (int j = 0; j < nTabs; j++) {
@@ -346,18 +366,21 @@ static void RememberSessionState() {
                         }
                     }
                 }
-                ReportIf(!didFind);
+                if (!didFind) {
+                    logf("RememberSessionState: didn't find state for file '%s'\n", fp ? fp : "(none)");
+                }
                 continue;
             }
-            FileState* fs = NewDisplayState(fp);
+            FileState* fs = NewFileState(fp);
             tab->ctrl->GetDisplayState(fs);
             fs->showToc = tab->showToc;
             *fs->tocState = tab->tocState;
             TabState* ts = NewTabState(fs);
             windowState->tabStates->Append(ts);
-            DeleteDisplayState(fs);
+            DeleteFileState(fs);
         }
         if (windowState->tabStates->Size() == 0) {
+            FreeSessionData(windowState);
             continue;
         }
         windowState->tabIndex = win->GetTabIdx(win->CurrentTab()) + 1;
@@ -403,6 +426,9 @@ bool SaveSettings() {
     // update display mode and zoom fields from internal values
     str::ReplaceWithCopy(&gGlobalPrefs->defaultDisplayMode, DisplayModeToString(gGlobalPrefs->defaultDisplayModeEnum));
     ZoomToString(&gGlobalPrefs->defaultZoom, gGlobalPrefs->defaultZoomFloat, nullptr);
+    if (gGlobalPrefs->imageUI.defaultZoomFloat != 0) {
+        ZoomToString(&gGlobalPrefs->imageUI.defaultZoom, gGlobalPrefs->imageUI.defaultZoomFloat, nullptr);
+    }
 
     TempStr path = GetSettingsPathTemp();
     ReportIf(!path);
@@ -517,7 +543,7 @@ void RegisterSettingsForFileChanges() {
     ReportIf(gWatchedSettingsFile); // only call me once
     TempStr path = GetSettingsPathTemp();
     auto fn = MkFunc0Void(SchedulePrefsReload);
-    gWatchedSettingsFile = FileWatcherSubscribe(path, fn);
+    gWatchedSettingsFile = FileWatcherSubscribe(path, fn, true);
 }
 
 void UnregisterSettingsForFileChanges() {

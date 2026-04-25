@@ -26,8 +26,8 @@ Launch SumatraPDF from TeXStudio enabling forward and backward search:
 
 Configure viewer in [output profiles](https://texniccenter.sourceforge.net/configuration.html#viewer-tab).
 
-- press Alt+F7 (Build > Define Output Profiles)
-- for any one of the PDF Profiles e.g. LaTeX > PDF
+- press `Alt + F7` (`Build` > `Define Output Profiles`)
+- for any one of the PDF Profiles e.g. `LaTeX` > `PDF`
 - for Executable path it should have something like:
   - `C:\Program Files\SumatraPDF\SumatraPDF.exe -inverse-search "\"C:\Program Files (x86)\TeXnicCenter\TeXnicCenter.exe\" /ddecmd \"[goto('%f','%l')]\""`
   - `SumatraPDF.exe` path might be different on your computer
@@ -50,11 +50,11 @@ UseTabs = true
 
 Now a double click in the PDF should take you back to TeXnicCenter either in an included file or the main file. IF not, check the syntax of the InverseSearchCmdLine = matches YOUR location for TeXnicCenter
 
-Back in the editor press Alt+F7 (Build > Define Output Profiles) and for each of the PDF options select viewer
+Back in the editor press `Alt + F7` (`Build` > `Define Output Profiles`) and for each of the PDF options select viewer
 
-In the 1Executable path1 section REMOVE any thing after the .exe
+In the `Executable path` section REMOVE anything after the .exe
 
-In the 1View project's Output1 select `Command line argument` and check it is `"%bm.pdf"`
+In the `View project's Output` select `Command line argument` and check it is `"%bm.pdf"`
 
 In Forward search change it to `-forward-search "%Wc" %l "%bm.pdf"`
 
@@ -65,7 +65,7 @@ function that is triggered on backward-search event, i.e. when you double
 click somewhere on the pdf.
 
 It is suggested to write such functions in `C:\Users\<your_user_id>\vimfiles\after\ftplugin\tex.vim` file
-so that they exists only in `tex` filetypes, but you are free to define them
+so that they exist only in `tex` filetypes, but you are free to define them
 in your `.vimrc` as well, although the first option is preferred.
 
 ### forward-search
@@ -80,7 +80,7 @@ def ForwardSearch()
 enddef
 ```
 
-Feel free to replace `SumatraPDF.exe` with the correct executable filename,
+Replace `SumatraPDF.exe` with the correct executable filename,
 e.g. `SumatraPDFv3-4-5.exe`.
 
 Next, you should map this function to some key, for example you could use the
@@ -90,7 +90,7 @@ following.
 nnoremap <buffer> <F5> <Scriptcmd>ForwardSearch()<cr>
 ```
 
-Now, `<F5>` will perform a forward-search. Feel free to replace `<F5>` with
+Now, `<F5>` will perform a forward-search. You can replace `<F5>` with
 the key that you prefer.
 
 ### backward-search

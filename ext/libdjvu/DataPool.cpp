@@ -1175,8 +1175,7 @@ DataPool::get_data(void * buffer, int offset, int sz, int level)
        if (sz<0)
          sz=0;
        
-       GP<OpenFiles_File> f=fstream;
-       if (!f)
+       GP<OpenFiles_File> f;
          {
            GCriticalSectionLock lock(&class_stream_lock);
            f=fstream;
@@ -1185,8 +1184,10 @@ DataPool::get_data(void * buffer, int offset, int sz, int level)
                fstream=f=OpenFiles::get()->request_stream(furl, this);
              }
          }
+       if (!f)
+         return 0;
        GCriticalSectionLock lock2(&(f->stream_lock));
-       f->stream->seek(start+offset, SEEK_SET); 
+       f->stream->seek(start+offset, SEEK_SET);
        return f->stream->readall(buffer, sz);
      } 
    else
@@ -1398,6 +1399,8 @@ DataPool::load_file(void)
       {
         fstream=f=OpenFiles::get()->request_stream(furl, this);
       }
+      if (!f)
+        return;
       {  // Scope to de-allocate lock2 before stream gets released
          GCriticalSectionLock lock2(&(f->stream_lock));
 

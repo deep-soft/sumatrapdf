@@ -15,7 +15,7 @@
 #include "mc_tmpl.c"
 #include "recon_tmpl.c"
 
-#if !defined(_M_ARM64)
+#if !defined(_M_ARM64) && HAVE_ASM
 #include "x86/cdef_init_tmpl.c"
 #include "x86/filmgrain_init_tmpl.c"
 #include "x86/ipred_init_tmpl.c"

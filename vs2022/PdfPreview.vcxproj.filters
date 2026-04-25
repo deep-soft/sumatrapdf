@@ -20,6 +20,7 @@
     <ClInclude Include="..\src\EngineBase.h" />
     <ClInclude Include="..\src\EngineMupdf.h" />
     <ClInclude Include="..\src\FzImgReader.h" />
+    <ClInclude Include="..\src\GumboHelpers.h" />
     <ClInclude Include="..\src\HtmlFormatter.h" />
     <ClInclude Include="..\src\MobiDoc.h" />
     <ClInclude Include="..\src\PalmDbReader.h" />
@@ -32,8 +33,11 @@
     <ClInclude Include="..\src\mui\TextRender.h">
       <Filter>mui</Filter>
     </ClInclude>
-    <ClInclude Include="..\src\previewer\PdfPreviewBase.h">
+    <ClInclude Include="..\src\previewer\PdfPreview.h">
       <Filter>previewer</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\utils\Archive.h">
+      <Filter>utils</Filter>
     </ClInclude>
     <ClInclude Include="..\src\utils\Log.h">
       <Filter>utils</Filter>
@@ -51,6 +55,7 @@
     <ClCompile Include="..\src\EngineImages.cpp" />
     <ClCompile Include="..\src\EngineMupdf.cpp" />
     <ClCompile Include="..\src\FzImgReader.cpp" />
+    <ClCompile Include="..\src\GumboHelpers.cpp" />
     <ClCompile Include="..\src\HtmlFormatter.cpp" />
     <ClCompile Include="..\src\MUPDF_Exports.cpp" />
     <ClCompile Include="..\src\MobiDoc.cpp" />
@@ -69,6 +74,9 @@
     </ClCompile>
     <ClCompile Include="..\src\previewer\PdfPreviewDll.cpp">
       <Filter>previewer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\utils\Archive.cpp">
+      <Filter>utils</Filter>
     </ClCompile>
     <ClCompile Include="..\src\utils\Log.cpp">
       <Filter>utils</Filter>

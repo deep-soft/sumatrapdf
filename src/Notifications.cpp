@@ -27,6 +27,16 @@ using Gdiplus::Graphics;
 using Gdiplus::Pen;
 using Gdiplus::SolidBrush;
 
+// defined in MainWindow.cpp
+HWND GetHwndForNotification();
+
+struct StrNode {
+    StrNode* next;
+    const char* s;
+};
+
+static StrNode* gDelayedNotifications = nullptr;
+
 Kind kNotifCursorPos = "cursorPosHelper";
 Kind kNotifActionResponse = "responseToAction";
 Kind kNotifPageInfo = "pageInfoHelper";
@@ -37,10 +47,11 @@ constexpr int kPadding = 6;
 constexpr int kTopLeftMargin = 8;
 
 constexpr UINT_PTR kNotifTimerTimeoutId = 1;
+constexpr UINT_PTR kNotifTimerDelayId = 2;
 
 struct NotificationWnd : Wnd {
     NotificationWnd() = default;
-    virtual ~NotificationWnd() override;
+    ~NotificationWnd() override;
 
     HWND Create(const NotificationCreateArgs&);
 
@@ -50,14 +61,13 @@ struct NotificationWnd : Wnd {
 
     void UpdateMessage(const char* msg, int timeoutMs = 0, bool highlight = false);
 
-    bool HasProgress() const {
-        return progressPerc >= 0;
-    }
+    bool HasProgress() const { return progressPerc >= 0; }
     void Layout(const char* message);
 
     int timeoutMs = kNotifDefaultTimeOut; // 0 means no timeout
 
     bool highlight = false; // TODO: should really be a color
+    bool noClose = false;
 
     NotificationWndRemoved wndRemovedCb;
 
@@ -69,39 +79,49 @@ struct NotificationWnd : Wnd {
     float shrinkLimit = 1.0f;
 
     int progressPerc = -1;
+    int delayInMs = 0;
+    UINT_PTR delayTimerId = 0;
 
     Rect rTxt;
     Rect rClose;
     Rect rProgress;
 };
 
-Vec<NotificationWnd*> gNotifs;
+constexpr int kMaxNotifs = 128;
+static NotificationWnd* gNotifs[kMaxNotifs];
+static int gNotifsCount = 0;
 
-static void GetForHwnd(HWND hwnd, Vec<NotificationWnd*>& v) {
-    for (auto* wnd : gNotifs) {
+static int GetForHwnd(HWND hwnd, NotificationWnd* wnds[kMaxNotifs]) {
+    int n = 0;
+    for (int i = 0; i < gNotifsCount; i++) {
+        auto* wnd = gNotifs[i];
         HWND parent = HwndGetParent(wnd->hwnd);
         if (parent == hwnd) {
-            v.Append(wnd);
+            wnds[n++] = wnd;
         }
     }
+    return n;
 }
 
-// notification can be removed due to a timeout or manual closing
-bool IsNotificationValid(NotificationWnd* wnd) {
-    bool exists = gNotifs.Contains(wnd);
-    return exists;
+static int NotificationIndexOf(NotificationWnd* wnd) {
+    for (int i = 0; i < gNotifsCount; i++) {
+        if (gNotifs[i] == wnd) {
+            return i;
+        }
+    }
+    return -1;
 }
 
-static void GetForSameHwnd(NotificationWnd* wnd, Vec<NotificationWnd*>& v) {
+static int GetForSameHwnd(NotificationWnd* wnd, NotificationWnd* wnds[kMaxNotifs]) {
     HWND parent = GetParent(wnd->hwnd);
-    GetForHwnd(parent, v);
+    return GetForHwnd(parent, wnds);
 }
 
 void RelayoutNotifications(HWND hwnd) {
-    Vec<NotificationWnd*> wnds;
+    NotificationWnd* wnds[kMaxNotifs];
     HWND parent = HwndGetParent(hwnd);
-    GetForHwnd(parent, wnds);
-    if (wnds.IsEmpty()) {
+    int nWnds = GetForHwnd(parent, wnds);
+    if (nWnds == 0) {
         return;
     }
 
@@ -111,7 +131,12 @@ void RelayoutNotifications(HWND hwnd) {
     int topLeftMargin = DpiScale(hwndCanvas, kTopLeftMargin);
     int dyPadding = DpiScale(hwndCanvas, kPadding);
     int y = topLeftMargin;
-    for (NotificationWnd* wnd : wnds) {
+    for (int i = 0; i < nWnds; i++) {
+        NotificationWnd* wnd = wnds[i];
+        if (wnd->delayTimerId != 0) {
+            // still in delay period, not yet visible
+            continue;
+        }
         Rect rect = WindowRect(wnd->hwnd);
         rect = MapRectToWindow(rect, HWND_DESKTOP, hwndCanvas);
         if (IsUIRtl()) {
@@ -127,10 +152,15 @@ void RelayoutNotifications(HWND hwnd) {
 }
 
 static void NotifsRemoveNotification(NotificationWnd* wnd) {
-    int pos = gNotifs.Remove(wnd);
+    int pos = NotificationIndexOf(wnd);
     if (pos < 0) {
         return;
     }
+    gNotifsCount--;
+    if (pos < gNotifsCount) {
+        gNotifs[pos] = gNotifs[gNotifsCount];
+    }
+    gNotifs[gNotifsCount] = nullptr;
     RelayoutNotifications(wnd->hwnd);
     delete wnd;
 }
@@ -142,10 +172,16 @@ int GetWndX(NotificationWnd* wnd) {
 }
 
 NotificationWnd::~NotificationWnd() {
+    if (delayTimerId != 0) {
+        KillTimer(hwnd, delayTimerId);
+        delayTimerId = 0;
+    }
 }
 
 HWND NotificationWnd::Create(const NotificationCreateArgs& args) {
     highlight = args.warning;
+    noClose = args.noClose;
+    ReportIf(noClose && args.timeoutMs <= 0);
     shrinkLimit = args.shrinkLimit;
     if (shrinkLimit < 0.2f) {
         ReportIf(shrinkLimit < 0.2f);
@@ -170,15 +206,24 @@ HWND NotificationWnd::Create(const NotificationCreateArgs& args) {
         cargs.font = GetAppBiggerFont();
     }
     cargs.pos = Rect(0, 0, 0, 0);
+    cargs.visible = args.delayInMs == 0;
+    cargs.isRtl = IsUIRtl();
 
     CreateCustom(cargs);
+    if (!hwnd) {
+        return nullptr;
+    }
 
-    HwndSetRtl(hwnd, IsUIRtl());
     Layout(args.msg);
-    ShowWindow(hwnd, SW_SHOW);
-
-    if (timeoutMs != 0) {
-        SetTimer(hwnd, kNotifTimerTimeoutId, timeoutMs, nullptr);
+    delayInMs = args.delayInMs;
+    if (delayInMs > 0) {
+        // create hidden, will show after delay
+        delayTimerId = SetTimer(hwnd, kNotifTimerDelayId, delayInMs, nullptr);
+    } else {
+        ShowWindow(hwnd, SW_SHOW);
+        if (timeoutMs != 0) {
+            SetTimer(hwnd, kNotifTimerTimeoutId, timeoutMs, nullptr);
+        }
     }
     return hwnd;
 }
@@ -211,12 +256,16 @@ void NotificationWnd::Layout(const char* message) {
     int dx = padX + szText.dx + padX;
     int dy = padY + szText.dy + padY;
     rTxt = {padX, padY, szText.dx, szText.dy};
-    int closeDx = DpiScale(hwnd, 16);
-    int leftMargin = DpiScale(hwnd, kCloseLeftMargin - padX);
-    rClose = {dx + leftMargin, padY, closeDx, closeDx + 2};
-
-    // close button
-    dx += leftMargin + closeDx + padX;
+    if (!noClose) {
+        int closeDx = DpiScale(hwnd, 16);
+        int leftMargin = DpiScale(hwnd, kCloseLeftMargin - padX);
+        rClose = {dx + leftMargin, padY, closeDx, closeDx + 2};
+        // close button
+        dx += leftMargin + closeDx + padX;
+    } else {
+        rClose = {};
+        dx += padX;
+    }
     int progressDy = DpiScale(hwnd, kProgressDy);
     rProgress = {padX, dy, szText.dx, progressDy};
     if (HasProgress()) {
@@ -245,7 +294,10 @@ void NotificationWnd::Layout(const char* message) {
 #endif
 
     // y-center close
-    rClose.y = ((dy - closeDx) / 2) + 1;
+    if (!noClose) {
+        int closeDx = rClose.dx;
+        rClose.y = ((dy - closeDx) / 2) + 1;
+    }
 
     if (dx == rCurr.dx && dy == rCurr.dy) {
         return;
@@ -305,9 +357,14 @@ void NotificationWnd::OnPaint(HDC hdcIn, PAINTSTRUCT* ps) {
     RECT rTmp = ToRECT(rTxt);
     HdcDrawText(hdc, text, &rTmp, format);
 
-    Point curPos = HwndGetCursorPos(hwnd);
-    bool isHover = rClose.Contains(curPos);
-    DrawCloseButton(hdc, rClose, isHover);
+    if (!noClose) {
+        Point curPos = HwndGetCursorPos(hwnd);
+        DrawCloseButtonArgs args;
+        args.hdc = hdc;
+        args.r = rClose;
+        args.isHover = rClose.Contains(curPos);
+        DrawCloseButton(args);
+    }
 #if 0
     DrawCloseButtonArgs args;
     args.hdc = hdc;
@@ -352,7 +409,7 @@ void NotificationWnd::UpdateMessage(const char* msg, int timeoutMs, bool highlig
 }
 
 bool UpdateNotificationProgress(NotificationWnd* wnd, const char* msg, int perc) {
-    if (!IsNotificationValid(wnd)) {
+    if (NotificationIndexOf(wnd) < 0) {
         return false;
     }
     ReportIf(perc < 0 || perc > 100);
@@ -370,6 +427,18 @@ static void NotifDelete(NotificationWnd* wnd) {
 }
 
 void NotificationWnd::OnTimer(UINT_PTR timerId) {
+    if (timerId == kNotifTimerDelayId) {
+        // delay elapsed, now show the notification
+        KillTimer(hwnd, delayTimerId);
+        delayTimerId = 0;
+        BringWindowToTop(hwnd);
+        ShowWindow(hwnd, SW_SHOW);
+        RelayoutNotifications(hwnd);
+        if (timeoutMs != 0) {
+            SetTimer(hwnd, kNotifTimerTimeoutId, timeoutMs, nullptr);
+        }
+        return;
+    }
     ReportIf(kNotifTimerTimeoutId != timerId);
     // TODO a better way to delete myself
     if (wndRemovedCb.IsValid()) {
@@ -382,7 +451,7 @@ void NotificationWnd::OnTimer(UINT_PTR timerId) {
 }
 
 LRESULT NotificationWnd::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
-    if (WM_SETCURSOR == msg) {
+    if (WM_SETCURSOR == msg && !noClose) {
         Point pt = HwndGetCursorPos(hwnd);
         if (!pt.IsEmpty() && rClose.Contains(pt)) {
             SetCursorCached(IDC_HAND);
@@ -398,7 +467,7 @@ LRESULT NotificationWnd::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if (WM_MOUSEMOVE == msg) {
         HwndScheduleRepaint(hwnd);
 
-        if (IsMouseOverRect(hwnd, rClose)) {
+        if (!noClose && IsMouseOverRect(hwnd, rClose)) {
             TrackMouseLeave(hwnd);
         }
         goto DoDefault;
@@ -411,7 +480,7 @@ LRESULT NotificationWnd::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
     if (WM_LBUTTONUP) {
         Point pt = Point(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
-        if (rClose.Contains(pt)) {
+        if (!noClose && rClose.Contains(pt)) {
             // TODO a better way to delete myself
             if (wndRemovedCb.IsValid()) {
                 auto fn = MkFunc0<NotificationWnd>(NotifRemove, this);
@@ -428,41 +497,47 @@ DoDefault:
     return WndProcDefault(hwnd, msg, wp, lp);
 }
 
-static int NotifsRemoveForGroup(Vec<NotificationWnd*>& wnds, Kind groupId) {
+static int NotifsRemoveForGroup(NotificationWnd** wnds, int nWnds, Kind groupId) {
     ReportIf(groupId == nullptr);
-    Vec<NotificationWnd*> toRemove;
-    for (auto* wnd : wnds) {
-        if (wnd->groupId == groupId) {
-            toRemove.Append(wnd);
+    NotificationWnd* toRemove[kMaxNotifs];
+    int nRemove = 0;
+    for (int i = 0; i < nWnds; i++) {
+        if (wnds[i]->groupId == groupId) {
+            toRemove[nRemove++] = wnds[i];
         }
     }
-    for (auto* wnd : toRemove) {
-        NotifsRemoveNotification(wnd);
+    for (int i = 0; i < nRemove; i++) {
+        NotifsRemoveNotification(toRemove[i]);
     }
-    return toRemove.Size();
+    return nRemove;
 }
 
-static void NotifsAdd(Vec<NotificationWnd*>& wnds, NotificationWnd* wnd, Kind groupId) {
+static bool NotifsAdd(NotificationWnd** wnds, int nWnds, NotificationWnd* wnd, Kind groupId) {
     bool skipRemove = (groupId == nullptr) || (groupId == kNotifAdHoc);
     if (!skipRemove) {
-        NotifsRemoveForGroup(wnds, groupId);
+        NotifsRemoveForGroup(wnds, nWnds, groupId);
+    }
+    if (gNotifsCount >= kMaxNotifs) {
+        return false;
     }
     wnd->groupId = groupId;
-    gNotifs.Append(wnd);
+    gNotifs[gNotifsCount] = wnd;
+    gNotifsCount++;
     RelayoutNotifications(wnd->hwnd);
+    return true;
 }
 
-static void NotifsAdd(NotificationWnd* wnd, Kind groupId) {
-    Vec<NotificationWnd*> wnds;
-    GetForSameHwnd(wnd, wnds);
-    NotifsAdd(wnds, wnd, groupId);
+static bool NotifsAdd(NotificationWnd* wnd, Kind groupId) {
+    NotificationWnd* wnds[kMaxNotifs];
+    int nWnds = GetForSameHwnd(wnd, wnds);
+    return NotifsAdd(wnds, nWnds, wnd, groupId);
 }
 
-NotificationWnd* NotifsGetForGroup(Vec<NotificationWnd*>& wnds, Kind groupId) {
+NotificationWnd* NotifsGetForGroup(NotificationWnd** wnds, int nWnds, Kind groupId) {
     ReportIf(!groupId);
-    for (auto* wnd : wnds) {
-        if (wnd->groupId == groupId) {
-            return wnd;
+    for (int i = 0; i < nWnds; i++) {
+        if (wnds[i]->groupId == groupId) {
+            return wnds[i];
         }
     }
     return nullptr;
@@ -477,8 +552,14 @@ NotificationWnd* ShowNotification(const NotificationCreateArgs& args) {
         delete wnd;
         return nullptr;
     }
-    BringWindowToTop(wnd->hwnd);
-    NotifsAdd(wnd, args.groupId);
+    if (wnd->delayTimerId == 0) {
+        BringWindowToTop(wnd->hwnd);
+    }
+    bool ok = NotifsAdd(wnd, args.groupId);
+    if (!ok) {
+        delete wnd;
+        return nullptr;
+    }
     return wnd;
 }
 
@@ -507,6 +588,9 @@ NotificationWnd* ShowWarningNotification(HWND hwndParent, const char* msg, int t
 }
 
 void NotificationUpdateMessage(NotificationWnd* wnd, const char* msg, int timeoutMs, bool highlight) {
+    if (!wnd) {
+        return;
+    }
     wnd->UpdateMessage(msg, timeoutMs, highlight);
 }
 
@@ -515,14 +599,55 @@ void RemoveNotification(NotificationWnd* wnd) {
 }
 
 bool RemoveNotificationsForGroup(HWND hwnd, Kind kind) {
-    Vec<NotificationWnd*> wnds;
-    GetForHwnd(hwnd, wnds);
-    int n = NotifsRemoveForGroup(wnds, kind);
+    NotificationWnd* wnds[kMaxNotifs];
+    int nWnds = GetForHwnd(hwnd, wnds);
+    int n = NotifsRemoveForGroup(wnds, nWnds, kind);
     return n > 0;
 }
 
 NotificationWnd* GetNotificationForGroup(HWND hwnd, Kind kind) {
-    Vec<NotificationWnd*> wnds;
-    GetForHwnd(hwnd, wnds);
-    return NotifsGetForGroup(wnds, kind);
+    NotificationWnd* wnds[kMaxNotifs];
+    int nWnds = GetForHwnd(hwnd, wnds);
+    return NotifsGetForGroup(wnds, nWnds, kind);
+}
+
+static StrNode* AllocStrNode(const char* s) {
+    size_t n = str::Len(s) + 1;
+    size_t cbAlloc = sizeof(StrNode) + n;
+    auto* node = (StrNode*)malloc(cbAlloc);
+    char* dst = (char*)node + sizeof(StrNode);
+    memcpy(dst, s, n);
+    node->next = nullptr;
+    node->s = dst;
+    return node;
+}
+
+void MaybeDelayedWarningNotification(const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    char* msg = str::FmtV(fmt, args);
+    va_end(args);
+
+    log(msg);
+
+    HWND hwnd = GetHwndForNotification();
+    if (hwnd) {
+        ShowWarningNotification(hwnd, msg, kNotifNoTimeout);
+    } else {
+        StrNode* node = AllocStrNode(msg);
+        ListInsertFront(&gDelayedNotifications, node);
+    }
+    str::Free(msg);
+}
+
+void ShowMaybeDelayedNotifications(HWND hwndParent) {
+    // reverse so notifications show in the order they were added
+    ListReverse(&gDelayedNotifications);
+    StrNode* curr = gDelayedNotifications;
+    while (curr) {
+        ShowWarningNotification(hwndParent, curr->s, kNotifNoTimeout);
+        curr = curr->next;
+    }
+    ListDelete(gDelayedNotifications);
+    gDelayedNotifications = nullptr;
 }

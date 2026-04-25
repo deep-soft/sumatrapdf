@@ -30,19 +30,19 @@ You can use [issue tracker](https://github.com/sumatrapdfreader/sumatrapdf/issue
 
 Info to orient new developers to Sumatra code base.
 
-You should install Go ([https://golang.org/dl/](https://golang.org/dl/)).
+You should install [bun](https://bun.com/).
 
-Many tasks are automated with Go program in `do` directory. Run `doit.bat` for easy running of that program. use different cmd-line args to trigger different functions.
+Many tasks are automated with bun scripts in `cmd/` directory.
 
-To build, use latest Visual Studio and open `vs2022\SumatraPDF.sln` solution. Look at different targets and configurations.
+To build, use Visual Studio 2022 and open `vs2022\SumatraPDF.sln` solution. Look at different targets and configurations.
 
 Don't edit the solution directly. To learn how to make changes (add files, change compilation flags etc.) see info about [build system](Build-system.md).
 
-We use [GitHub Actions](https://help.github.com/en/actions) for a CI system. See `.github` directory. Most importantly it builds a 64-bit release version on every checkin to catch build errors and uploads it to storage and makes available via [https://www.sumatrapdfreader.org/prerelease](https://www.sumatrapdfreader.org/prerelease)
+We use [GitHub Actions](https://help.github.com/en/actions) for a CI system. See `.github` directory. Most importantly it builds a 64-bit release version on every checkin to catch build errors.
 
 Overview of the directories:
 
 - `src` : main Sumatra code
 - `mupdf` : library used to parse / render PDF files (from [https://mupdf.com/](https://mupdf.com/))
 - `ext` : other third-party libraries (some are needed for mupdf, some for Sumatra code)
-- `do` : Go program that automates common tasks. Invoke with `doit.bat`
+- `cmd` : bun scripts that automates common tasks

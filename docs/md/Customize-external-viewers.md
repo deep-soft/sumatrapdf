@@ -9,7 +9,7 @@ You can add custom viewers using [advanced settings](https://www.sumatrapdfreade
 To configure an external viewer:
 
 - use `Settings / Advanced Settings...` menu to open configuration file
-- modify`ExternalViewers` section
+- modify `ExternalViewers` section
 
 Relevant settings:
 

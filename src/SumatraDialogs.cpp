@@ -184,7 +184,7 @@ static INT_PTR CALLBACK Dialog_GetPassword_Proc(HWND hDlg, UINT msg, WPARAM wp, 
         data = (Dialog_GetPassword_Data*)lp;
         HwndSetText(hDlg, _TRA("Enter password"));
         SetWindowLongPtr(hDlg, GWLP_USERDATA, (LONG_PTR)data);
-        if (gUseDarkModeLib) {
+        if (UseDarkModeLib()) {
             DarkMode::setDarkWndSafe(hDlg);
         }
         EnableWindow(GetDlgItem(hDlg, IDC_REMEMBER_PASSWORD), data->remember != nullptr);
@@ -193,6 +193,7 @@ static INT_PTR CALLBACK Dialog_GetPassword_Proc(HWND hDlg, UINT msg, WPARAM wp, 
         HwndSetDlgItemText(hDlg, IDC_GET_PASSWORD_LABEL, txt);
         HwndSetDlgItemText(hDlg, IDC_GET_PASSWORD_EDIT, "");
         HwndSetDlgItemText(hDlg, IDC_STATIC, _TRA("&Password:"));
+        HwndSetDlgItemText(hDlg, IDC_SHOW_PASSWORD, _TRA("&Show password"));
         HwndSetDlgItemText(hDlg, IDC_REMEMBER_PASSWORD, _TRA("&Remember the password for this document"));
         HwndSetDlgItemText(hDlg, IDOK, _TRA("OK"));
         HwndSetDlgItemText(hDlg, IDCANCEL, _TRA("Cancel"));
@@ -221,6 +222,14 @@ static INT_PTR CALLBACK Dialog_GetPassword_Proc(HWND hDlg, UINT msg, WPARAM wp, 
                 case IDCANCEL:
                     EndDialog(hDlg, IDCANCEL);
                     return TRUE;
+
+                case IDC_SHOW_PASSWORD: {
+                    HWND hwndEdit = GetDlgItem(hDlg, IDC_GET_PASSWORD_EDIT);
+                    bool show = BST_CHECKED == IsDlgButtonChecked(hDlg, IDC_SHOW_PASSWORD);
+                    SendMessageW(hwndEdit, EM_SETPASSWORDCHAR, show ? 0 : (WPARAM)L'\x25CF', 0);
+                    InvalidateRect(hwndEdit, nullptr, TRUE);
+                    return TRUE;
+                }
             }
             break;
     }
@@ -266,7 +275,7 @@ static INT_PTR CALLBACK Dialog_GoToPage_Proc(HWND hDlg, UINT msg, WPARAM wp, LPA
     if (WM_INITDIALOG == msg) {
         data = (Dialog_GoToPage_Data*)lp;
         SetWindowLongPtr(hDlg, GWLP_USERDATA, (LONG_PTR)data);
-        if (gUseDarkModeLib) {
+        if (UseDarkModeLib()) {
             DarkMode::setDarkWndSafe(hDlg);
         }
         HwndSetText(hDlg, _TRA("Go to page"));
@@ -348,7 +357,7 @@ static INT_PTR CALLBACK Dialog_Find_Proc(HWND hDlg, UINT msg, WPARAM wp, LPARAM 
             //[ ACCESSKEY_GROUP Find Dialog
             data = (Dialog_Find_Data*)lp;
             SetWindowLongPtr(hDlg, GWLP_USERDATA, (LONG_PTR)data);
-            if (gUseDarkModeLib) {
+            if (UseDarkModeLib()) {
                 DarkMode::setDarkWndSafe(hDlg);
             }
             HwndSetText(hDlg, _TRA("Find"));
@@ -410,70 +419,39 @@ char* Dialog_Find(HWND hwnd, const char* previousSearch, bool* matchCase) {
     return data.searchTerm;
 }
 
-/* For passing data to/from AssociateWithPdf dialog */
-struct Dialog_PdfAssociate_Data {
-    bool dontAskAgain = false;
-};
-
-static INT_PTR CALLBACK Dialog_PdfAssociate_Proc(HWND hDlg, UINT msg, WPARAM wp, LPARAM lp) {
-    Dialog_PdfAssociate_Data* data;
-
-    //[ ACCESSKEY_GROUP Associate Dialog
-    if (WM_INITDIALOG == msg) {
-        data = (Dialog_PdfAssociate_Data*)lp;
-        SetWindowLongPtr(hDlg, GWLP_USERDATA, (LONG_PTR)data);
-        if (gUseDarkModeLib) {
-            DarkMode::setDarkWndSafe(hDlg);
-        }
-        HwndSetText(hDlg, _TRA("Associate with PDF files?"));
-        HwndSetDlgItemText(hDlg, IDC_STATIC, _TRA("Make SumatraPDF default application for PDF files?"));
-        HwndSetDlgItemText(hDlg, IDC_DONT_ASK_ME_AGAIN, _TRA("&Don't ask me again"));
-        CheckDlgButton(hDlg, IDC_DONT_ASK_ME_AGAIN, BST_UNCHECKED);
-        HwndSetDlgItemText(hDlg, IDOK, _TRA("&Yes"));
-        HwndSetDlgItemText(hDlg, IDCANCEL, _TRA("&No"));
-
-        CenterDialog(hDlg);
-        HwndSetFocus(GetDlgItem(hDlg, IDOK));
-        return FALSE;
-    }
-    //] ACCESSKEY_GROUP Associate Dialog
-
-    switch (msg) {
-        case WM_COMMAND:
-            data = (Dialog_PdfAssociate_Data*)GetWindowLongPtr(hDlg, GWLP_USERDATA);
-            data->dontAskAgain = (BST_CHECKED == IsDlgButtonChecked(hDlg, IDC_DONT_ASK_ME_AGAIN));
-            switch (LOWORD(wp)) {
-                case IDOK:
-                    EndDialog(hDlg, IDYES);
-                    return TRUE;
-
-                case IDCANCEL:
-                    EndDialog(hDlg, IDNO);
-                    return TRUE;
-
-                case IDC_DONT_ASK_ME_AGAIN:
-                    return TRUE;
-            }
-            break;
-    }
-    return FALSE;
-}
-
-/* Show "associate this application with PDF files" dialog.
-   Returns IDYES if "Yes" button was pressed or
-   IDNO if "No" button was pressed.
-   Returns the state of "don't ask me again" checkbox" in <dontAskAgain> */
-INT_PTR Dialog_PdfAssociate(HWND hwnd, bool* dontAskAgainOut) {
-    Dialog_PdfAssociate_Data data;
-    INT_PTR res = CreateDialogBox(IDD_DIALOG_PDF_ASSOCIATE, hwnd, Dialog_PdfAssociate_Proc, (LPARAM)&data);
-    *dontAskAgainOut = data.dontAskAgain;
-    return res;
-}
-
 /* For passing data to/from ChangeLanguage dialog */
 struct Dialog_ChangeLanguage_Data {
     const char* langCode;
 };
+
+// maps listbox index to lang index when filtered
+static Vec<int>* gLangListMap = nullptr;
+
+static void FilterLangList(HWND hDlg, const char* filter, const char* currLangCode) {
+    HWND langList = GetDlgItem(hDlg, IDC_CHANGE_LANG_LANG_LIST);
+    ListBox_ResetContent(langList);
+
+    delete gLangListMap;
+    gLangListMap = new Vec<int>();
+
+    int itemToSelect = 0;
+    for (int i = 0; i < trans::GetLangsCount(); i++) {
+        const char* name = trans::GetLangNameByIdx(i);
+        if (filter && *filter && !str::ContainsI(name, filter)) {
+            continue;
+        }
+        auto langName = ToWStrTemp(name);
+        ListBox_AppendString_NoSort(langList, langName);
+        const char* langCode = trans::GetLangCodeByIdx(i);
+        if (str::Eq(langCode, currLangCode)) {
+            itemToSelect = gLangListMap->Size();
+        }
+        gLangListMap->Append(i);
+    }
+    if (gLangListMap->Size() > 0) {
+        ListBox_SetCurSel(langList, itemToSelect);
+    }
+}
 
 static INT_PTR CALLBACK Dialog_ChangeLanguage_Proc(HWND hDlg, UINT msg, WPARAM wp, LPARAM lp) {
     Dialog_ChangeLanguage_Data* data;
@@ -483,57 +461,61 @@ static INT_PTR CALLBACK Dialog_ChangeLanguage_Proc(HWND hDlg, UINT msg, WPARAM w
         DIALOG_SIZER_START(sz)
         DIALOG_SIZER_ENTRY(IDOK, DS_MoveX | DS_MoveY)
         DIALOG_SIZER_ENTRY(IDCANCEL, DS_MoveX | DS_MoveY)
+        DIALOG_SIZER_ENTRY(IDC_CHANGE_LANG_SEARCH, DS_SizeX)
         DIALOG_SIZER_ENTRY(IDC_CHANGE_LANG_LANG_LIST, DS_SizeY | DS_SizeX)
         DIALOG_SIZER_END()
         DialogSizer_Set(hDlg, sz, TRUE);
 
         data = (Dialog_ChangeLanguage_Data*)lp;
         SetWindowLongPtr(hDlg, GWLP_USERDATA, (LONG_PTR)data);
-        if (gUseDarkModeLib) {
+        if (UseDarkModeLib()) {
             DarkMode::setDarkWndSafe(hDlg);
         }
         // for non-latin languages this depends on the correct fonts being installed,
         // otherwise all the user will see are squares
         HwndSetText(hDlg, _TRA("Change Language"));
+
+        FilterLangList(hDlg, nullptr, data->langCode);
+
         langList = GetDlgItem(hDlg, IDC_CHANGE_LANG_LANG_LIST);
-        int itemToSelect = 0;
-        for (int i = 0; i < trans::GetLangsCount(); i++) {
-            const char* name = trans::GetLangNameByIdx(i);
-            const char* langCode = trans::GetLangCodeByIdx(i);
-            auto langName = ToWStrTemp(name);
-            ListBox_AppendString_NoSort(langList, langName);
-            if (str::Eq(langCode, data->langCode)) {
-                itemToSelect = i;
-            }
-        }
-        ListBox_SetCurSel(langList, itemToSelect);
         // the language list is meant to be laid out left-to-right
         SetWindowExStyle(langList, WS_EX_LAYOUTRTL, false);
         HwndSetDlgItemText(hDlg, IDOK, _TRA("OK"));
         HwndSetDlgItemText(hDlg, IDCANCEL, _TRA("Cancel"));
 
         CenterDialog(hDlg);
-        HwndSetFocus(langList);
+        HwndSetFocus(GetDlgItem(hDlg, IDC_CHANGE_LANG_SEARCH));
         return FALSE;
     }
 
     switch (msg) {
         case WM_COMMAND:
             data = (Dialog_ChangeLanguage_Data*)GetWindowLongPtr(hDlg, GWLP_USERDATA);
+            if (LOWORD(wp) == IDC_CHANGE_LANG_SEARCH && HIWORD(wp) == EN_CHANGE) {
+                char* filter = HwndGetTextTemp(GetDlgItem(hDlg, IDC_CHANGE_LANG_SEARCH));
+                FilterLangList(hDlg, filter, data->langCode);
+                return TRUE;
+            }
             if (HIWORD(wp) == LBN_DBLCLK) {
                 ReportIf(IDC_CHANGE_LANG_LANG_LIST != LOWORD(wp));
                 langList = GetDlgItem(hDlg, IDC_CHANGE_LANG_LANG_LIST);
                 ReportIf(langList != (HWND)lp);
-                int langIdx = (int)ListBox_GetCurSel(langList);
-                data->langCode = trans::GetLangCodeByIdx(langIdx);
-                EndDialog(hDlg, IDOK);
+                int idx = (int)ListBox_GetCurSel(langList);
+                if (gLangListMap && idx >= 0 && idx < gLangListMap->Size()) {
+                    int langIdx = gLangListMap->At(idx);
+                    data->langCode = trans::GetLangCodeByIdx(langIdx);
+                    EndDialog(hDlg, IDOK);
+                }
                 return FALSE;
             }
             switch (LOWORD(wp)) {
                 case IDOK: {
                     langList = GetDlgItem(hDlg, IDC_CHANGE_LANG_LANG_LIST);
-                    int langIdx = ListBox_GetCurSel(langList);
-                    data->langCode = trans::GetLangCodeByIdx(langIdx);
+                    int idx = ListBox_GetCurSel(langList);
+                    if (gLangListMap && idx >= 0 && idx < gLangListMap->Size()) {
+                        int langIdx = gLangListMap->At(idx);
+                        data->langCode = trans::GetLangCodeByIdx(langIdx);
+                    }
                     EndDialog(hDlg, IDOK);
                 }
                     return TRUE;
@@ -554,6 +536,8 @@ const char* Dialog_ChangeLanguge(HWND hwnd, const char* currLangCode) {
     data.langCode = currLangCode;
 
     INT_PTR res = CreateDialogBox(IDD_DIALOG_CHANGE_LANGUAGE, hwnd, Dialog_ChangeLanguage_Proc, (LPARAM)&data);
+    delete gLangListMap;
+    gLangListMap = nullptr;
     if (IDCANCEL == res) {
         return nullptr;
     }
@@ -570,6 +554,9 @@ TempStr ZoomLevelStr(float zoom) {
     if (zoom == kZoomFitContent) {
         return (TempStr)_TRA("Fit Content");
     }
+    if (zoom == kZoomShrinkToFit) {
+        return (TempStr)_TRA("Shrink To Fit");
+    }
     if (zoom == 0) {
         return (TempStr) "-";
     }
@@ -582,6 +569,7 @@ static float gZoomLevels[] = {
     kZoomFitPage,
     kZoomFitWidth,
     kZoomFitContent,
+    kZoomShrinkToFit,
     0,
     6400.0,
     3200.0,
@@ -693,7 +681,7 @@ static INT_PTR CALLBACK Dialog_CustomZoom_Proc(HWND hDlg, UINT msg, WPARAM wp, L
             //[ ACCESSKEY_GROUP Zoom Dialog
             data = (Dialog_CustomZoom_Data*)lp;
             SetWindowLongPtr(hDlg, GWLP_USERDATA, (LONG_PTR)data);
-            if (gUseDarkModeLib) {
+            if (UseDarkModeLib()) {
                 DarkMode::setDarkWndSafe(hDlg);
             }
             SetupZoomComboBox(hDlg, IDC_DEFAULT_ZOOM, data->forChm, data->zoomArg);
@@ -738,6 +726,57 @@ bool Dialog_CustomZoom(HWND hwnd, bool forChm, float* currZoomInOut) {
     return true;
 }
 
+static INT_PTR CALLBACK Dialog_ChangeScrollbar_Proc(HWND hDlg, UINT msg, WPARAM wp, LPARAM) {
+    switch (msg) {
+        case WM_INITDIALOG: {
+            if (UseDarkModeLib()) {
+                DarkMode::setDarkWndSafe(hDlg);
+            }
+            const char* s = gGlobalPrefs->scrollbars;
+            int checkId = IDC_SCROLLBAR_WINDOWS;
+            if (str::EqI(s, "smart")) {
+                checkId = IDC_SCROLLBAR_SMART;
+            } else if (str::EqI(s, "overlay")) {
+                checkId = IDC_SCROLLBAR_OVERLAY;
+            } else if (str::EqI(s, "hidden")) {
+                checkId = IDC_SCROLLBAR_HIDDEN;
+            }
+            CheckRadioButton(hDlg, IDC_SCROLLBAR_WINDOWS, IDC_SCROLLBAR_HIDDEN, checkId);
+            HwndSetText(hDlg, _TRA("Change Scrollbar"));
+            HwndSetDlgItemText(hDlg, IDOK, _TRA("OK"));
+            HwndSetDlgItemText(hDlg, IDCANCEL, _TRA("Cancel"));
+            CenterDialog(hDlg);
+            return TRUE;
+        }
+        case WM_COMMAND:
+            switch (LOWORD(wp)) {
+                case IDOK: {
+                    const char* val = "windows";
+                    if (IsDlgButtonChecked(hDlg, IDC_SCROLLBAR_SMART) == BST_CHECKED) {
+                        val = "smart";
+                    } else if (IsDlgButtonChecked(hDlg, IDC_SCROLLBAR_OVERLAY) == BST_CHECKED) {
+                        val = "overlay";
+                    } else if (IsDlgButtonChecked(hDlg, IDC_SCROLLBAR_HIDDEN) == BST_CHECKED) {
+                        val = "hidden";
+                    }
+                    str::ReplaceWithCopy(&gGlobalPrefs->scrollbars, val);
+                    EndDialog(hDlg, IDOK);
+                    return TRUE;
+                }
+                case IDCANCEL:
+                    EndDialog(hDlg, IDCANCEL);
+                    return TRUE;
+            }
+            break;
+    }
+    return FALSE;
+}
+
+bool Dialog_ChangeScrollbar(HWND hwnd) {
+    INT_PTR res = CreateDialogBox(IDD_DIALOG_CHANGE_SCROLLBAR, hwnd, Dialog_ChangeScrollbar_Proc, 0);
+    return res == IDOK;
+}
+
 static void RemoveDialogItem(HWND hDlg, int itemId, int prevId = 0) {
     HWND hItem = GetDlgItem(hDlg, itemId);
     Rect itemRc = MapRectToWindow(WindowRect(hItem), HWND_DESKTOP, hDlg);
@@ -769,7 +808,7 @@ static INT_PTR CALLBACK Dialog_Settings_Proc(HWND hDlg, UINT msg, WPARAM wp, LPA
         case WM_INITDIALOG:
             prefs = (GlobalPrefs*)lp;
             SetWindowLongPtr(hDlg, GWLP_USERDATA, (LONG_PTR)prefs);
-            if (gUseDarkModeLib) {
+            if (UseDarkModeLib()) {
                 DarkMode::setDarkWndSafe(hDlg);
             }
             {
@@ -829,7 +868,9 @@ static INT_PTR CALLBACK Dialog_Settings_Proc(HWND hDlg, UINT msg, WPARAM wp, LPA
                 if (cmdLine) {
                     AppendIfNotExists(&detected, cmdLine);
                 } else {
-                    cmdLine = detected[0];
+                    if (detected.Size() > 0) {
+                        cmdLine = detected[0];
+                    }
                 }
                 for (char* s : detected) {
                     // if no existing command was selected then set the user custom command in the combo
@@ -913,7 +954,7 @@ static INT_PTR CALLBACK Sheet_Print_Advanced_Proc(HWND hDlg, UINT msg, WPARAM wp
         case WM_INITDIALOG:
             data = (Print_Advanced_Data*)((PROPSHEETPAGE*)lp)->lParam;
             SetWindowLongPtr(hDlg, GWLP_USERDATA, (LONG_PTR)data);
-            if (gUseDarkModeLib) {
+            if (UseDarkModeLib()) {
                 DarkMode::setDarkWndSafe(hDlg);
             }
             HwndSetDlgItemText(hDlg, IDC_SECTION_PRINT_RANGE, _TRA("Print range"));
@@ -1008,7 +1049,7 @@ static INT_PTR CALLBACK Dialog_AddFav_Proc(HWND hDlg, UINT msg, WPARAM wp, LPARA
     if (WM_INITDIALOG == msg) {
         Dialog_AddFav_Data* data = (Dialog_AddFav_Data*)lp;
         SetWindowLongPtr(hDlg, GWLP_USERDATA, (LONG_PTR)data);
-        if (gUseDarkModeLib) {
+        if (UseDarkModeLib()) {
             DarkMode::setDarkWndSafe(hDlg);
         }
         HwndSetText(hDlg, _TRA("Add Favorite"));
@@ -1051,6 +1092,504 @@ static INT_PTR CALLBACK Dialog_AddFav_Proc(HWND hDlg, UINT msg, WPARAM wp, LPARA
 // returns true if the user wants to add a favorite.
 // favName is the name the user wants the favorite to have
 // (passing in a non-nullptr favName will use it as default name)
+// --- Change Background Color dialog ---
+
+static const int kMaxCustomColors = 13;
+
+struct BgColorDlgData {
+    COLORREF currentColor; // current selected color
+    bool isCheckered;      // true if "checkered" is selected
+    bool applyToAll;       // radio: all files like this
+    COLORREF customColors[kMaxCustomColors];
+    bool customColorSet[kMaxCustomColors]; // true if slot has a color
+    bool customColorsChanged;
+    int selectedCustomIdx;     // -1 = no custom button selected
+    bool previewSelected;      // true if preview button is selected
+    const char* title;         // dialog title (nullptr = default)
+    bool showRadioButtons;     // show "this file" / "all files" radio buttons
+    const char* allFilesLabel; // label for "all files" radio button (nullptr = default)
+};
+
+// fixed preset colors: checkered, black, white
+static const COLORREF kBgPresetColors[] = {
+    kColorUnset,        // checkered
+    RGB(0, 0, 0),       // black
+    RGB(255, 255, 255), // white
+};
+static const int kNumPresets = 3;
+
+static void ParseCustomColors(BgColorDlgData* data) {
+    for (int i = 0; i < kMaxCustomColors; i++) {
+        data->customColorSet[i] = false;
+        data->customColors[i] = 0;
+    }
+    data->customColorsChanged = false;
+    char* s = gGlobalPrefs->customColors;
+    if (!s || !*s) {
+        return;
+    }
+    int idx = 0;
+    while (*s && idx < kMaxCustomColors) {
+        while (*s == ' ') {
+            s++;
+        }
+        if (!*s) {
+            break;
+        }
+        ParsedColor parsed;
+        ParseColor(parsed, s);
+        if (parsed.parsedOk) {
+            data->customColors[idx] = parsed.col;
+            data->customColorSet[idx] = true;
+            idx++;
+        }
+        // skip to next space or end
+        while (*s && *s != ' ') {
+            s++;
+        }
+    }
+}
+
+static void SaveCustomColors(BgColorDlgData* data) {
+    StrBuilder buf;
+    for (int i = 0; i < kMaxCustomColors; i++) {
+        if (!data->customColorSet[i]) {
+            continue;
+        }
+        if (buf.Size() > 0) {
+            buf.AppendChar(' ');
+        }
+        TempStr cs = SerializeColorTemp(data->customColors[i]);
+        buf.Append(cs);
+    }
+    str::ReplaceWithCopy(&gGlobalPrefs->customColors, buf.LendData());
+    SaveSettings();
+}
+
+static void HsvToRgb(float h, float s, float v, u8& r, u8& g, u8& b) {
+    float c = v * s;
+    float x = c * (1.0f - fabsf(fmodf(h / 60.0f, 2.0f) - 1.0f));
+    float m = v - c;
+    float rf, gf, bf;
+    if (h < 60) {
+        rf = c;
+        gf = x;
+        bf = 0;
+    } else if (h < 120) {
+        rf = x;
+        gf = c;
+        bf = 0;
+    } else if (h < 180) {
+        rf = 0;
+        gf = c;
+        bf = x;
+    } else if (h < 240) {
+        rf = 0;
+        gf = x;
+        bf = c;
+    } else if (h < 300) {
+        rf = x;
+        gf = 0;
+        bf = c;
+    } else {
+        rf = c;
+        gf = 0;
+        bf = x;
+    }
+    r = (u8)((rf + m) * 255.0f);
+    g = (u8)((gf + m) * 255.0f);
+    b = (u8)((bf + m) * 255.0f);
+}
+
+static void PaintColorArea(HDC hdc, RECT* rc) {
+    int w = rc->right - rc->left;
+    int h = rc->bottom - rc->top;
+    if (w <= 0 || h <= 0) {
+        return;
+    }
+    // rows must be DWORD-aligned; each pixel is 3 bytes (BGR)
+    int stride = (w * 3 + 3) & ~3;
+    u8* bits = (u8*)malloc(stride * h);
+    if (!bits) {
+        return;
+    }
+    for (int y = 0; y < h; y++) {
+        float val = 1.0f - (float)y / (float)h;
+        u8* row = bits + y * stride;
+        for (int x = 0; x < w; x++) {
+            float hue = (float)x / (float)w * 360.0f;
+            u8 r, g, b;
+            HsvToRgb(hue, 1.0f, val, r, g, b);
+            row[x * 3] = b;
+            row[x * 3 + 1] = g;
+            row[x * 3 + 2] = r;
+        }
+    }
+    BITMAPINFO bmi{};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = w;
+    bmi.bmiHeader.biHeight = -h; // top-down
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 24;
+    bmi.bmiHeader.biCompression = BI_RGB;
+    SetDIBitsToDevice(hdc, rc->left, rc->top, w, h, 0, 0, 0, h, bits, &bmi, DIB_RGB_COLORS);
+    free(bits);
+}
+
+static void SelectPreviewButton(HWND hDlg, BgColorDlgData* data) {
+    int prevCustom = data->selectedCustomIdx;
+    bool wasPreview = data->previewSelected;
+    data->selectedCustomIdx = -1;
+    data->previewSelected = true;
+    if (prevCustom >= 0) {
+        InvalidateRect(GetDlgItem(hDlg, IDC_BGCOL_CUSTOM_FIRST + prevCustom), nullptr, TRUE);
+    }
+    if (!wasPreview) {
+        InvalidateRect(GetDlgItem(hDlg, IDC_BGCOL_PREVIEW), nullptr, TRUE);
+    }
+}
+
+static void SelectCustomButton(HWND hDlg, BgColorDlgData* data, int idx) {
+    int prevCustom = data->selectedCustomIdx;
+    bool wasPreview = data->previewSelected;
+    data->selectedCustomIdx = idx;
+    data->previewSelected = false;
+    if (prevCustom >= 0 && prevCustom != idx) {
+        InvalidateRect(GetDlgItem(hDlg, IDC_BGCOL_CUSTOM_FIRST + prevCustom), nullptr, TRUE);
+    }
+    if (wasPreview) {
+        InvalidateRect(GetDlgItem(hDlg, IDC_BGCOL_PREVIEW), nullptr, TRUE);
+    }
+    InvalidateRect(GetDlgItem(hDlg, IDC_BGCOL_CUSTOM_FIRST + idx), nullptr, TRUE);
+}
+
+static void InvalidatePreview(HWND hDlg, BgColorDlgData* data) {
+    if (data->selectedCustomIdx >= 0) {
+        InvalidateRect(GetDlgItem(hDlg, IDC_BGCOL_CUSTOM_FIRST + data->selectedCustomIdx), nullptr, TRUE);
+    }
+    if (data->previewSelected) {
+        InvalidateRect(GetDlgItem(hDlg, IDC_BGCOL_PREVIEW), nullptr, TRUE);
+    }
+}
+
+static void UpdateBgColorEditFromColor(HWND hDlg, BgColorDlgData* data) {
+    if (data->isCheckered) {
+        HwndSetDlgItemText(hDlg, IDC_BGCOL_EDIT, data->showRadioButtons ? "checkered" : "unset");
+    } else {
+        TempStr s = SerializeColorTemp(data->currentColor);
+        HwndSetDlgItemText(hDlg, IDC_BGCOL_EDIT, s);
+    }
+    // update selected custom button color and refresh preview
+    if (data->selectedCustomIdx >= 0 && !data->isCheckered) {
+        data->customColors[data->selectedCustomIdx] = data->currentColor;
+        data->customColorSet[data->selectedCustomIdx] = true;
+        data->customColorsChanged = true;
+    }
+    InvalidatePreview(hDlg, data);
+}
+
+static bool TryParseBgColorEdit(HWND hDlg, BgColorDlgData* data) {
+    TempStr text = HwndGetTextTemp(GetDlgItem(hDlg, IDC_BGCOL_EDIT));
+    if (!text || !*text) {
+        return false;
+    }
+    ParsedColor parsed;
+    ParseColor(parsed, text);
+    if (!parsed.parsedOk) {
+        return false;
+    }
+    if (parsed.col == kColorUnset) {
+        data->isCheckered = true;
+    } else {
+        data->isCheckered = false;
+        data->currentColor = parsed.col;
+    }
+    return true;
+}
+
+static void PickColorFromArea(HWND hwndCA, BgColorDlgData* data, HWND hDlg) {
+    POINT pt;
+    GetCursorPos(&pt);
+    ScreenToClient(hwndCA, &pt);
+    HDC hdcCA = GetDC(hwndCA);
+    COLORREF picked = GetPixel(hdcCA, pt.x, pt.y);
+    ReleaseDC(hwndCA, hdcCA);
+    if (picked != CLR_INVALID) {
+        data->isCheckered = false;
+        data->currentColor = picked;
+        UpdateBgColorEditFromColor(hDlg, data);
+    }
+}
+
+static WNDPROC gOrigColorAreaProc = nullptr;
+
+static LRESULT CALLBACK ColorAreaSubclassProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    HWND hDlg = GetParent(hwnd);
+    BgColorDlgData* data = (BgColorDlgData*)GetWindowLongPtrW(hDlg, GWLP_USERDATA);
+
+    switch (msg) {
+        case WM_LBUTTONDOWN:
+            SetCapture(hwnd);
+            PickColorFromArea(hwnd, data, hDlg);
+            return 0;
+        case WM_MOUSEMOVE:
+            if (wp & MK_LBUTTON) {
+                PickColorFromArea(hwnd, data, hDlg);
+            }
+            return 0;
+        case WM_LBUTTONUP:
+            ReleaseCapture();
+            return 0;
+    }
+    return CallWindowProcW(gOrigColorAreaProc, hwnd, msg, wp, lp);
+}
+
+static INT_PTR CALLBACK Dialog_ChangeBgColor_Proc(HWND hDlg, UINT msg, WPARAM wp, LPARAM lp) {
+    BgColorDlgData* data;
+    if (msg == WM_INITDIALOG) {
+        data = (BgColorDlgData*)lp;
+        SetWindowLongPtrW(hDlg, GWLP_USERDATA, (LONG_PTR)data);
+    } else {
+        data = (BgColorDlgData*)GetWindowLongPtrW(hDlg, GWLP_USERDATA);
+    }
+
+    switch (msg) {
+        case WM_INITDIALOG: {
+            if (UseDarkModeLib()) {
+                DarkMode::setDarkWndSafe(hDlg);
+            }
+            HwndSetText(hDlg, data->title ? data->title : _TRA("Change Background Color"));
+            HwndSetDlgItemText(hDlg, IDOK, _TRA("OK"));
+            HwndSetDlgItemText(hDlg, IDCANCEL, _TRA("Cancel"));
+            if (data->showRadioButtons) {
+                if (data->allFilesLabel) {
+                    HwndSetDlgItemText(hDlg, IDC_BGCOL_ALL_FILES, data->allFilesLabel);
+                }
+                CheckRadioButton(hDlg, IDC_BGCOL_THIS_FILE, IDC_BGCOL_ALL_FILES,
+                                 data->applyToAll ? IDC_BGCOL_ALL_FILES : IDC_BGCOL_THIS_FILE);
+            } else {
+                ShowWindow(GetDlgItem(hDlg, IDC_BGCOL_THIS_FILE), SW_HIDE);
+                ShowWindow(GetDlgItem(hDlg, IDC_BGCOL_ALL_FILES), SW_HIDE);
+            }
+            ParseCustomColors(data);
+            UpdateBgColorEditFromColor(hDlg, data);
+            // subclass color area for mouse drag tracking
+            HWND hwndCA = GetDlgItem(hDlg, IDC_BGCOL_COLORAREA);
+            gOrigColorAreaProc = (WNDPROC)SetWindowLongPtrW(hwndCA, GWLP_WNDPROC, (LONG_PTR)ColorAreaSubclassProc);
+            CenterDialog(hDlg);
+            return TRUE;
+        }
+
+        case WM_DRAWITEM: {
+            DRAWITEMSTRUCT* dis = (DRAWITEMSTRUCT*)lp;
+            int ctlId = (int)dis->CtlID;
+            if (ctlId == IDC_BGCOL_COLORAREA) {
+                PaintColorArea(dis->hDC, &dis->rcItem);
+                return TRUE;
+            }
+            // preview button shows the currently selected color
+            if (ctlId == IDC_BGCOL_PREVIEW) {
+                RECT rc = dis->rcItem;
+                if (data->previewSelected) {
+                    FillRect(dis->hDC, &rc, (HBRUSH)(COLOR_HIGHLIGHT + 1));
+                    InflateRect(&rc, -3, -3);
+                }
+                if (data->isCheckered) {
+                    PaintCheckerboard(dis->hDC, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top);
+                } else {
+                    HBRUSH br = CreateSolidBrush(data->currentColor);
+                    FillRect(dis->hDC, &rc, br);
+                    DeleteObject(br);
+                }
+                return TRUE;
+            }
+            // preset color buttons
+            if (ctlId >= IDC_BGCOL_PRESET_FIRST && ctlId < IDC_BGCOL_PRESET_FIRST + kNumPresets) {
+                int idx = ctlId - IDC_BGCOL_PRESET_FIRST;
+                COLORREF col = kBgPresetColors[idx];
+                if (col == kColorUnset) {
+                    PaintCheckerboard(dis->hDC, dis->rcItem.left, dis->rcItem.top, dis->rcItem.right - dis->rcItem.left,
+                                      dis->rcItem.bottom - dis->rcItem.top);
+                } else {
+                    HBRUSH br = CreateSolidBrush(col);
+                    FillRect(dis->hDC, &dis->rcItem, br);
+                    DeleteObject(br);
+                }
+                // draw focus rect if focused
+                if (dis->itemState & ODS_FOCUS) {
+                    DrawFocusRect(dis->hDC, &dis->rcItem);
+                }
+                return TRUE;
+            }
+            // custom color buttons
+            if (ctlId >= IDC_BGCOL_CUSTOM_FIRST && ctlId < IDC_BGCOL_CUSTOM_FIRST + kMaxCustomColors) {
+                int idx = ctlId - IDC_BGCOL_CUSTOM_FIRST;
+                RECT rc = dis->rcItem;
+                bool isSelected = (idx == data->selectedCustomIdx);
+                if (isSelected) {
+                    // draw selection outline: fill background, then inset for 2px gap
+                    FillRect(dis->hDC, &rc, (HBRUSH)(COLOR_HIGHLIGHT + 1));
+                    InflateRect(&rc, -3, -3);
+                }
+                if (data->customColorSet[idx]) {
+                    HBRUSH br = CreateSolidBrush(data->customColors[idx]);
+                    FillRect(dis->hDC, &rc, br);
+                    DeleteObject(br);
+                } else {
+                    // empty slot: window background with accent border and diagonal X
+                    FillRect(dis->hDC, &rc, (HBRUSH)(COLOR_WINDOW + 1));
+                    HPEN pen = CreatePen(PS_SOLID, 1, GetSysColor(COLOR_BTNSHADOW));
+                    HPEN oldPen = (HPEN)SelectObject(dis->hDC, pen);
+                    // border
+                    MoveToEx(dis->hDC, rc.left, rc.top, nullptr);
+                    LineTo(dis->hDC, rc.right - 1, rc.top);
+                    LineTo(dis->hDC, rc.right - 1, rc.bottom - 1);
+                    LineTo(dis->hDC, rc.left, rc.bottom - 1);
+                    LineTo(dis->hDC, rc.left, rc.top);
+                    // diagonal lines
+                    MoveToEx(dis->hDC, rc.left, rc.top, nullptr);
+                    LineTo(dis->hDC, rc.right - 1, rc.bottom - 1);
+                    MoveToEx(dis->hDC, rc.right - 1, rc.top, nullptr);
+                    LineTo(dis->hDC, rc.left, rc.bottom - 1);
+                    SelectObject(dis->hDC, oldPen);
+                    DeleteObject(pen);
+                }
+                return TRUE;
+            }
+            break;
+        }
+
+        case WM_COMMAND:
+            switch (LOWORD(wp)) {
+                case IDOK:
+                    TryParseBgColorEdit(hDlg, data);
+                    data->applyToAll = IsDlgButtonChecked(hDlg, IDC_BGCOL_ALL_FILES) == BST_CHECKED;
+                    if (data->customColorsChanged) {
+                        SaveCustomColors(data);
+                    }
+                    EndDialog(hDlg, IDOK);
+                    return TRUE;
+                case IDCANCEL:
+                    if (data->customColorsChanged) {
+                        SaveCustomColors(data);
+                    }
+                    EndDialog(hDlg, IDCANCEL);
+                    return TRUE;
+                case IDC_BGCOL_EDIT:
+                    if (HIWORD(wp) == EN_CHANGE) {
+                        if (TryParseBgColorEdit(hDlg, data)) {
+                            // update selected button color
+                            if (data->selectedCustomIdx >= 0 && !data->isCheckered) {
+                                data->customColors[data->selectedCustomIdx] = data->currentColor;
+                                data->customColorSet[data->selectedCustomIdx] = true;
+                                data->customColorsChanged = true;
+                            }
+                            InvalidatePreview(hDlg, data);
+                        }
+                    }
+                    break;
+                case IDC_BGCOL_PREVIEW:
+                    SelectPreviewButton(hDlg, data);
+                    break;
+                default: {
+                    int id = LOWORD(wp);
+                    // preset buttons: select preview button
+                    if (id >= IDC_BGCOL_PRESET_FIRST && id < IDC_BGCOL_PRESET_FIRST + kNumPresets) {
+                        int idx = id - IDC_BGCOL_PRESET_FIRST;
+                        COLORREF col = kBgPresetColors[idx];
+                        if (col == kColorUnset) {
+                            data->isCheckered = true;
+                        } else {
+                            data->isCheckered = false;
+                            data->currentColor = col;
+                        }
+                        SelectPreviewButton(hDlg, data);
+                        UpdateBgColorEditFromColor(hDlg, data);
+                    }
+                    // custom color buttons: select this button
+                    if (id >= IDC_BGCOL_CUSTOM_FIRST && id < IDC_BGCOL_CUSTOM_FIRST + kMaxCustomColors) {
+                        int idx = id - IDC_BGCOL_CUSTOM_FIRST;
+                        if (data->selectedCustomIdx == idx) {
+                            // clicking selected button deselects it
+                            SelectPreviewButton(hDlg, data);
+                        } else {
+                            SelectCustomButton(hDlg, data, idx);
+                            // load the button's color as current selection
+                            if (data->customColorSet[idx]) {
+                                data->isCheckered = false;
+                                data->currentColor = data->customColors[idx];
+                                UpdateBgColorEditFromColor(hDlg, data);
+                            }
+                        }
+                    }
+                } break;
+            }
+            break;
+
+        case WM_CONTEXTMENU: {
+            HWND hwndClicked = (HWND)wp;
+            int ctlId = GetDlgCtrlID(hwndClicked);
+            if (ctlId >= IDC_BGCOL_CUSTOM_FIRST && ctlId < IDC_BGCOL_CUSTOM_FIRST + kMaxCustomColors) {
+                int idx = ctlId - IDC_BGCOL_CUSTOM_FIRST;
+                if (data->customColorSet[idx]) {
+                    data->customColorSet[idx] = false;
+                    data->customColorsChanged = true;
+                    if (data->selectedCustomIdx == idx) {
+                        SelectPreviewButton(hDlg, data);
+                    }
+                    InvalidateRect(hwndClicked, nullptr, TRUE);
+                }
+                return TRUE;
+            }
+            break;
+        }
+    }
+    return FALSE;
+}
+
+bool Dialog_ChangeBackgroundColor(HWND hwnd, COLORREF currentColor, bool isCheckered, const char* allFilesLabel,
+                                  BgColorResult& result) {
+    BgColorDlgData data;
+    data.currentColor = currentColor;
+    data.isCheckered = isCheckered;
+    data.applyToAll = false;
+    data.selectedCustomIdx = -1;
+    data.previewSelected = true;
+    data.title = nullptr;
+    data.showRadioButtons = true;
+    data.allFilesLabel = allFilesLabel;
+
+    INT_PTR res = CreateDialogBox(IDD_DIALOG_CHANGE_BG_COLOR, hwnd, Dialog_ChangeBgColor_Proc, (LPARAM)&data);
+    if (res != IDOK) {
+        return false;
+    }
+
+    result.color = data.currentColor;
+    result.isCheckered = data.isCheckered;
+    result.applyToAllFiles = data.applyToAll;
+    return true;
+}
+
+bool Dialog_SetTabColor(HWND hwnd, COLORREF currentColor, bool isUnset, COLORREF& resultColor, bool& resultIsUnset) {
+    BgColorDlgData data;
+    data.currentColor = currentColor;
+    data.isCheckered = isUnset;
+    data.applyToAll = false;
+    data.selectedCustomIdx = -1;
+    data.previewSelected = true;
+    data.title = _TRA("Set Tab Color");
+    data.showRadioButtons = false;
+
+    INT_PTR res = CreateDialogBox(IDD_DIALOG_CHANGE_BG_COLOR, hwnd, Dialog_ChangeBgColor_Proc, (LPARAM)&data);
+    if (res != IDOK) {
+        return false;
+    }
+
+    resultColor = data.currentColor;
+    resultIsUnset = data.isCheckered;
+    return true;
+}
+
 bool Dialog_AddFavorite(HWND hwnd, const char* pageNo, AutoFreeStr& favName) {
     Dialog_AddFav_Data data;
     data.pageNo = str::Dup(pageNo);

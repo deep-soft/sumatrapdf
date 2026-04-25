@@ -7,8 +7,11 @@
 #include <Shlwapi.h>
 #include <Thumbcache.h>
 #include <Unknwn.h>
+#include <gdiplus.h>
 
 #include <stdio.h>
+
+#pragma comment(lib, "gdiplus.lib")
 
 #include "utils/BaseUtil.h"
 
@@ -92,7 +95,7 @@ int main(int c, char** v) {
     pInit->Release();
     pStream->Release();
     if (r != S_OK) {
-        printf("failed: init provider\n");
+        printf("pInit->Initialize() failed\n");
         return 11;
     }
 
@@ -101,9 +104,24 @@ int main(int c, char** v) {
     r = pProvider->GetThumbnail(256, &bmp, &alpha);
     pProvider->Release();
     if (r != S_OK) {
-        printf("failed: make thumbnail\n");
+        printf("pProvider->GetThumbnail() failed\n");
         return 12;
     }
 
-    printf("done");
+    Gdiplus::GdiplusStartupInput gdiplusStartupInput;
+    ULONG_PTR gdiplusToken;
+    Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
+
+    Gdiplus::Bitmap* gdipBmp = Gdiplus::Bitmap::FromHBITMAP(bmp, NULL);
+    CLSID pngClsid;
+    CLSIDFromString(L"{557CF406-1A04-11D3-9A73-0000F81EF32E}", &pngClsid);
+    Gdiplus::Status st = gdipBmp->Save(L"preview.png", &pngClsid);
+    if (st != Gdiplus::Ok) {
+        printf("failed: save png: %d\n", (int)st);
+    } else {
+        printf("saved preview.png\n");
+    }
+    delete gdipBmp;
+    DeleteObject(bmp);
+    Gdiplus::GdiplusShutdown(gdiplusToken);
 }

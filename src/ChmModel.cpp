@@ -50,25 +50,14 @@ class HtmlWindowHandler : public HtmlWindowCallback {
     ChmModel* cm;
 
   public:
-    explicit HtmlWindowHandler(ChmModel* cm) : cm(cm) {
-    }
+    explicit HtmlWindowHandler(ChmModel* cm) : cm(cm) {}
     ~HtmlWindowHandler() override = default;
 
-    bool OnBeforeNavigate(const char* url, bool newWindow) override {
-        return cm->OnBeforeNavigate(url, newWindow);
-    }
-    void OnDocumentComplete(const char* url) override {
-        cm->OnDocumentComplete(url);
-    }
-    void OnLButtonDown() override {
-        cm->OnLButtonDown();
-    }
-    ByteSlice GetDataForUrl(const char* url) override {
-        return cm->GetDataForUrl(url);
-    }
-    void DownloadData(const char* url, const ByteSlice& data) override {
-        cm->DownloadData(url, data);
-    }
+    bool OnBeforeNavigate(const char* url, bool newWindow) override { return cm->OnBeforeNavigate(url, newWindow); }
+    void OnDocumentComplete(const char* url) override { cm->OnDocumentComplete(url); }
+    void OnLButtonDown() override { cm->OnLButtonDown(); }
+    ByteSlice GetDataForUrl(const char* url) override { return cm->GetDataForUrl(url); }
+    void DownloadData(const char* url, const ByteSlice& data) override { cm->DownloadData(url, data); }
 };
 
 struct ChmTocTraceItem {
@@ -80,6 +69,7 @@ struct ChmTocTraceItem {
 
 ChmModel::ChmModel(DocControllerCallback* cb) : DocController(cb) {
     InitializeCriticalSection(&docAccess);
+    poolAlloc = ArenaNew();
 }
 
 ChmModel::~ChmModel() {
@@ -95,6 +85,7 @@ ChmModel::~ChmModel() {
     DeleteVecMembers(urlDataCache);
     LeaveCriticalSection(&docAccess);
     DeleteCriticalSection(&docAccess);
+    ArenaDelete(poolAlloc);
 }
 
 const char* ChmModel::GetFilePath() const {
@@ -126,7 +117,11 @@ void ChmModel::GoToPage(int pageNo, bool) {
 }
 
 bool ChmModel::SetParentHwnd(HWND hwnd) {
-    ReportIf(htmlWindow || htmlWindowCb);
+    // can be already set if tab was restored at startup and then switched away
+    // without going through the normal CloseDocumentInCurrentTab path
+    if (htmlWindow || htmlWindowCb) {
+        RemoveParentHwnd();
+    }
     htmlWindowCb = new HtmlWindowHandler(this);
     htmlWindow = HtmlWindow::Create(hwnd, htmlWindowCb);
     if (!htmlWindow) {
@@ -228,7 +223,7 @@ bool ChmModel::HandleLink(IPageDestination* link, ILinkHandler*) {
     Kind k = link->GetKind();
     if (k != kindDestinationScrollTo) {
         logf("ChmModel::HandleLink: unsupported kind '%s'\n", k);
-        ReportIfQuick(link->GetKind() != kindDestinationScrollTo);
+        ReportIfFast(link->GetKind() != kindDestinationScrollTo);
     }
     char* url = PageDestGetName(link);
     if (DisplayPage(url)) {
@@ -314,7 +309,7 @@ class ChmTocBuilder : public EbookTocVisitor {
 
     StrVec* pages = nullptr;
     Vec<ChmTocTraceItem>* tocTrace = nullptr;
-    Allocator* allocator = nullptr;
+    Arena* allocator = nullptr;
     // TODO: could use dict::MapStrToInt instead of StrList in the caller as well
     dict::MapStrToInt urlsSet;
 
@@ -339,7 +334,7 @@ class ChmTocBuilder : public EbookTocVisitor {
     }
 
   public:
-    ChmTocBuilder(ChmFile* doc, StrVec* pages, Vec<ChmTocTraceItem>* tocTrace, Allocator* allocator) {
+    ChmTocBuilder(ChmFile* doc, StrVec* pages, Vec<ChmTocTraceItem>* tocTrace, Arena* allocator) {
         this->doc = doc;
         this->pages = pages;
         this->tocTrace = tocTrace;
@@ -375,7 +370,7 @@ bool ChmModel::Load(const char* fileName) {
 
     // parse the ToC here, since page numbering depends on it
     tocTrace = new Vec<ChmTocTraceItem>();
-    ChmTocBuilder tmpTocBuilder(doc, &pages, tocTrace, &poolAlloc);
+    ChmTocBuilder tmpTocBuilder(doc, &pages, tocTrace, poolAlloc);
     doc->ParseToc(&tmpTocBuilder);
     ReportIf(pages.Size() == 0);
     return pages.Size() > 0;
@@ -387,9 +382,7 @@ struct ChmCacheEntry {
     ByteSlice data;
 
     explicit ChmCacheEntry(const char* url);
-    ~ChmCacheEntry() {
-        data.Free();
-    };
+    ~ChmCacheEntry() { data.Free(); };
 };
 
 ChmCacheEntry::ChmCacheEntry(const char* url) {
@@ -451,7 +444,7 @@ bool ChmModel::OnBeforeNavigate(const char* url, bool newWindow) {
     // instead pass the URL to the system's default browser
     if (url && cb) {
         // TODO: optimize, create just destination
-        auto item = NewChmTocItem(nullptr, nullptr, 0, url);
+        auto item = NewChmTocItem(nullptr, nullptr, 1, url);
         cb->GotoLink(item->dest);
         delete item;
     }
@@ -464,7 +457,7 @@ ByteSlice ChmModel::GetDataForUrl(const char* url) {
     TempStr plainUrl = url::GetFullPathTemp(url);
     ChmCacheEntry* e = FindDataForUrl(plainUrl);
     if (!e) {
-        char* s = str::Dup(&poolAlloc, plainUrl);
+        char* s = str::Dup(poolAlloc, plainUrl);
         e = new ChmCacheEntry(s);
         e->data = doc->GetData(plainUrl);
         if (e->data.empty()) {
@@ -717,11 +710,9 @@ void ChmThumbnailTask::OnDocumentComplete(const char* url) {
     uitask::Post(fn, "SafeDeleteChmThumbnailTask");
 }
 
-void ChmThumbnailTask::OnLButtonDown() {
-}
+void ChmThumbnailTask::OnLButtonDown() {}
 
-void ChmThumbnailTask::DownloadData(const char*, const ByteSlice&) {
-}
+void ChmThumbnailTask::DownloadData(const char*, const ByteSlice&) {}
 
 static void CreateChmThumbnail(const char* path, const Size& size, const OnBitmapRendered* saveThumbnail) {
     // doc and window will be destroyed by the callback once it's invoked

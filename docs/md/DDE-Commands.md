@@ -4,7 +4,7 @@ You can control SumatraPDF with [DDE commands.](https://docs.microsoft.com/en-us
 
 They are mostly used to use SumatraPDF as a [preview tool from e.g. LaTeX editors](LaTeX-integration.md) that generate PDF files.
 
-## Format of DDE comands
+## Format of DDE commands
 
 Single DDE command: `[Command(parameter1, parameter2, ..., )]`
 
@@ -22,7 +22,7 @@ Notice escaping of DDE command string: `"` and `\` with `\`.
 
 ### Named commands
 
-*Ver 3.5+**: you can send all [named commands](Commands.md) as DDE:
+**Ver 3.5+**: you can send all [named commands](Commands.md) as DDE:
 
 - format `[<command_id>]` e.g. `[CmdClose]`
 

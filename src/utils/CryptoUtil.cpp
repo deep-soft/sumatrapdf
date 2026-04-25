@@ -100,9 +100,8 @@ bool VerifySHA1Signature(const void* data, size_t dataLen, const char* hexSignat
     ScopedMem<BYTE> signature;
     size_t signatureLen;
 
-#define Check(val)             \
-    if ((ok = (val)) == FALSE) \
-    goto CleanUp
+#define Check(val) \
+    if ((ok = (val)) == FALSE) goto CleanUp
     Check(ExtractSignature(hexSignature, data, dataLen, signature, signatureLen));
     Check(CryptAcquireContext(&hProv, nullptr, MS_DEF_PROV, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT));
     Check(CryptImportKey(hProv, (const BYTE*)pubkey, (DWORD)pubkeyLen, 0, 0, &hPubKey));

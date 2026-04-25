@@ -10,147 +10,72 @@
 #include "GlobalPrefs.h"
 #include "Flags.h"
 #include "MainWindow.h"
+#include "Print.h"
 #include "StressTesting.h"
-#include "SumatraConfig.h"
 
 #include "utils/Log.h"
 
-#define ARGS(V)                                  \
-    V(Silent, "s")                               \
-    V(Silent2, "silent")                         \
-    V(FastInstall, "fast-install")               \
-    V(PrintToDefault, "print-to-default")        \
-    V(PrintDialog, "print-dialog")               \
-    V(Help, "h")                                 \
-    V(Help2, "?")                                \
-    V(Help3, "help")                             \
-    V(ExitWhenDone, "exit-when-done")            \
-    V(ExitOnPrint, "exit-on-print")              \
-    V(Restrict, "restrict")                      \
-    V(Presentation, "presentation")              \
-    V(FullScreen, "fullscreen")                  \
-    V(InvertColors, "invertcolors")              \
-    V(InvertColors2, "invert-colors")            \
-    V(Console, "console")                        \
-    V(Install, "install")                        \
-    V(UnInstall, "uninstall")                    \
-    V(WithFilter, "with-filter")                 \
-    V(WithSearch, "with-search")                 \
-    V(WithPreview, "with-preview")               \
-    V(Rand, "rand")                              \
-    V(Regress, "regress")                        \
-    V(Extract, "x")                              \
-    V(Tester, "tester")                          \
-    V(TestApp, "testapp")                        \
-    V(NewWindow, "new-window")                   \
-    V(Log, "log")                                \
-    V(CrashOnOpen, "crash-on-open")              \
-    V(ReuseInstance, "reuse-instance")           \
-    V(EscToExit, "esc-to-exit")                  \
-    V(ArgEnumPrinters, "enum-printers")          \
-    V(SleepMs, "sleep-ms")                       \
-    V(PrintTo, "print-to")                       \
-    V(PrintSettings, "print-settings")           \
-    V(InverseSearch, "inverse-search")           \
-    V(ForwardSearch1, "forward-search")          \
-    V(ForwardSearch2, "fwdsearch")               \
-    V(NamedDest, "nameddest")                    \
-    V(NamedDest2, "named-dest")                  \
-    V(Page, "page")                              \
-    V(View, "view")                              \
-    V(Zoom, "zoom")                              \
-    V(Scroll, "scroll")                          \
-    V(AppData, "appdata")                        \
-    V(Plugin, "plugin")                          \
-    V(StressTest, "stress-test")                 \
-    V(N, "n")                                    \
-    V(Max, "max")                                \
-    V(Render, "render")                          \
-    V(ExtractText, "extract-text")               \
-    V(Bench, "bench")                            \
-    V(Dir, "d")                                  \
-    V(InstallDir, "install-dir")                 \
-    V(Lang, "lang")                              \
-    V(UpdateSelfTo, "update-self-to")            \
-    V(ArgDeleteFile, "delete-file")              \
-    V(BgCol, "bgcolor")                          \
-    V(BgCol2, "bg-color")                        \
-    V(FwdSearchOffset, "fwdsearch-offset")       \
-    V(FwdSearchWidth, "fwdsearch-width")         \
-    V(FwdSearchColor, "fwdsearch-color")         \
-    V(FwdSearchPermanent, "fwdsearch-permanent") \
-    V(MangaMode, "manga-mode")                   \
-    V(Search, "search")                          \
-    V(AllUsers, "all-users")                     \
-    V(AllUsers2, "allusers")                     \
-    V(RunInstallNow, "run-install-now")          \
-    V(Adobe, "a")                                \
-    V(DDE, "dde")                                \
-    V(EngineDump, "engine-dump")                 \
-    V(SetColorRange, "set-color-range")
-
-#define MAKE_ARG(__arg, __name) __arg,
-#define MAKE_STR(__arg, __name) __name "\0"
-
+// @gen-start flags
+// clang-format off
 enum class Arg {
     Unknown = -1,
-    ARGS(MAKE_ARG)
+    Silent = 0, Silent2 = 1, FastInstall = 2, PrintToDefault = 3,
+    PrintDialog = 4, Help = 5, Help2 = 6, Help3 = 7,
+    ExitWhenDone = 8, ExitOnPrint = 9, Restrict = 10, Presentation = 11,
+    FullScreen = 12, InvertColors = 13, InvertColors2 = 14, Console = 15,
+    Install = 16, UnInstall = 17, WithFilter = 18, WithSearch = 19,
+    WithPreview = 20, Rand = 21, Regress = 22, Extract = 23,
+    Tester = 24, TestApp = 25, TestPlugin = 26, TestPreview = 27,
+    NewWindow = 28, Log = 29, LogToFile = 30, CrashOnOpen = 31,
+    ReuseInstance = 32, EscToExit = 33, ArgEnumPrinters = 34, ListPrinters = 35,
+    SleepMs = 36, PrintTo = 37, PrintSettings = 38, InverseSearch = 39,
+    ForwardSearch1 = 40, ForwardSearch2 = 41, NamedDest = 42, NamedDest2 = 43,
+    Page = 44, View = 45, Zoom = 46, Scroll = 47,
+    AppData = 48, Plugin = 49, StressTest = 50, N = 51,
+    Max = 52, MaxFiles = 53, Render = 54, ExtractText = 55,
+    Bench = 56, Dir = 57, InstallDir = 58, Lang = 59,
+    UpdateSelfTo = 60, ArgDeleteFile = 61, BgCol = 62, BgCol2 = 63,
+    FwdSearchOffset = 64, FwdSearchWidth = 65, FwdSearchColor = 66, FwdSearchPermanent = 67,
+    MangaMode = 68, Search = 69, AllUsers = 70, AllUsers2 = 71,
+    RunInstallNow = 72, Adobe = 73, DDE = 74, EngineDump = 75,
+    SetColorRange = 76, UpgradeFrom = 77,
 };
 
-static const char* gArgNames = ARGS(MAKE_STR);
+static const char* gArgNames =
+    "s\0" "silent\0" "fast-install\0" "print-to-default\0"
+    "print-dialog\0" "h\0" "?\0" "help\0"
+    "exit-when-done\0" "exit-on-print\0" "restrict\0" "presentation\0"
+    "fullscreen\0" "invertcolors\0" "invert-colors\0" "console\0"
+    "install\0" "uninstall\0" "with-filter\0" "with-search\0"
+    "with-preview\0" "rand\0" "regress\0" "x\0"
+    "tester\0" "testapp\0" "test-plugin\0" "test-preview\0"
+    "new-window\0" "log\0" "log-to-file\0" "crash-on-open\0"
+    "reuse-instance\0" "esc-to-exit\0" "enum-printers\0" "list-printers\0"
+    "sleep-ms\0" "print-to\0" "print-settings\0" "inverse-search\0"
+    "forward-search\0" "fwdsearch\0" "nameddest\0" "named-dest\0"
+    "page\0" "view\0" "zoom\0" "scroll\0"
+    "appdata\0" "plugin\0" "stress-test\0" "n\0"
+    "max\0" "max-files\0" "render\0" "extract-text\0"
+    "bench\0" "d\0" "install-dir\0" "lang\0"
+    "update-self-to\0" "delete-file\0" "bgcolor\0" "bg-color\0"
+    "fwdsearch-offset\0" "fwdsearch-width\0" "fwdsearch-color\0" "fwdsearch-permanent\0"
+    "manga-mode\0" "search\0" "all-users\0" "allusers\0"
+    "run-install-now\0" "a\0" "dde\0" "engine-dump\0"
+    "set-color-range\0" "upgrade-from\0";
+// clang-format on
+// @gen-end flags
 
 static void EnumeratePrinters() {
-    str::Str out;
+    StrBuilder out;
 
-    PRINTER_INFO_5* info5Arr = nullptr;
-    DWORD bufSize = 0;
-    DWORD printersCount = 0;
-    DWORD flags = PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS;
-    BOOL ok = EnumPrintersW(flags, nullptr, 5, nullptr, 0, &bufSize, &printersCount);
-    if (ok != 0 || GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
-        info5Arr = (PRINTER_INFO_5*)calloc(bufSize, 1);
-        if (info5Arr != nullptr) {
-            ok = EnumPrintersW(flags, nullptr, 5, (LPBYTE)info5Arr, bufSize, &bufSize, &printersCount);
-        }
-    }
-    if (ok == 0 || !info5Arr) {
-        out.AppendFmt("Call to EnumPrinters failed with error %#x", GetLastError());
-        MsgBox(nullptr, out.CStr(), "SumatraPDF - EnumeratePrinters", MB_OK | MB_ICONERROR);
-        free(info5Arr);
-        return;
-    }
-    char* defName = GetDefaultPrinterNameTemp();
-    for (DWORD i = 0; i < printersCount; i++) {
-        PRINTER_INFO_5& info = info5Arr[i];
-        const WCHAR* nameW = info.pPrinterName;
-        const WCHAR* portW = info.pPortName;
-        DWORD attr = info.Attributes;
-        char* name = ToUtf8Temp(nameW);
-        char* port = ToUtf8Temp(portW);
-        const char* defStr = str::Eq(defName, name) ? ", default" : "";
-        out.AppendFmt("%s (Port: %s, attributes: %#x%s)\n", name, port, attr, defStr);
+    gLogToConsole = true;
+    RedirectIOToExistingConsole();
 
-        DWORD bins = DeviceCapabilitiesW(nameW, portW, DC_BINS, nullptr, nullptr);
-        DWORD binNames = DeviceCapabilitiesW(nameW, portW, DC_BINNAMES, nullptr, nullptr);
-        ReportIf(bins != binNames);
-        if (0 == bins) {
-            out.Append(" - no paper bins available\n");
-        } else if (bins == (DWORD)-1) {
-            out.AppendFmt(" - Call to DeviceCapabilities failed with error %#x\n", GetLastError());
-        } else {
-            ScopedMem<WORD> binValues(AllocArray<WORD>(bins));
-            DeviceCapabilitiesW(nameW, portW, DC_BINS, (WCHAR*)binValues.Get(), nullptr);
-            ScopedMem<WCHAR> binNameValues(AllocArray<WCHAR>(24 * (size_t)binNames));
-            DeviceCapabilitiesW(nameW, portW, DC_BINNAMES, binNameValues.Get(), nullptr);
-            for (DWORD j = 0; j < bins; j++) {
-                WCHAR* ws = binNameValues.Get() + 24 * (size_t)j;
-                char* s = ToUtf8Temp(ws);
-                out.AppendFmt(" - '%s' (%d)\n", s, binValues.Get()[j]);
-            }
-        }
-    }
-    free(info5Arr);
-    MsgBox(nullptr, out.CStr(), "SumatraPDF - EnumeratePrinters", MB_OK | MB_ICONINFORMATION);
+    GetPrintersInfo(out);
+    log(out.CStr());
+
+    gLogToConsole = false;
+    ShowTextInWindowDialog("SumatraPDF - Show Printers", out.CStr());
 }
 
 // parses a list of page ranges such as 1,3-5,7- (i..e all but pages 2 and 6)
@@ -216,7 +141,11 @@ static void ParseZoomValue(float* zoom, const char* txtOrig) {
         // 0-2 : fit page
         // 3-5 : fit width
         // 6-8 : fit content
-        *zoom = kZoomFitContent;
+        // 9-11: shrink to fit
+        *zoom = kZoomShrinkToFit;
+        if (zoomVal <= 8) {
+            *zoom = kZoomFitContent;
+        }
         if (zoomVal <= 5) {
             *zoom = kZoomFitWidth;
         }
@@ -373,9 +302,17 @@ FileArgs* ParseFileArgs(const char* path) {
 }
 
 /* parse argument list. we assume that all unrecognized arguments are file names. */
-void ParseFlags(const WCHAR* cmdLine, Flags& i) {
+void ParseFlags(const WCHAR* cmdLine, Flags& i, const char* toolNames) {
     // logf("ParseFlags: cmdLine: '%s'\n", ToUtf8Temp(cmdLine));
     CmdLineArgsIter args(cmdLine);
+
+    // if the first argument is a tool name, skip parsing flags entirely
+    if (toolNames && args.curr < args.nArgs) {
+        const char* firstArg = args.at(args.curr);
+        if (firstArg && seqstrings::StrToIdxIS(toolNames, firstArg) >= 0) {
+            return;
+        }
+    }
 
     const char* param = nullptr;
     int paramInt = 0;
@@ -486,6 +423,16 @@ void ParseFlags(const WCHAR* cmdLine, Flags& i) {
             i.testApp = true;
             continue;
         }
+        if (arg == Arg::TestPlugin) {
+            i.testPlugin = true;
+            // remaining args are for the plugin test
+            break;
+        }
+        if (arg == Arg::TestPreview) {
+            i.testPreview = true;
+            // remaining args are for the preview test
+            break;
+        }
         if (arg == Arg::NewWindow) {
             i.inNewWindow = true;
             continue;
@@ -518,7 +465,7 @@ void ParseFlags(const WCHAR* cmdLine, Flags& i) {
             i.globalPrefArgs.Append(argName);
             continue;
         }
-        if (arg == Arg::ArgEnumPrinters && (gIsDebugBuild || gIsPreReleaseBuild)) {
+        if ((arg == Arg::ArgEnumPrinters) || (arg == Arg::ListPrinters)) {
             EnumeratePrinters();
             /* this is for testing only, exit immediately */
             i.exitImmediately = true;
@@ -533,6 +480,12 @@ void ParseFlags(const WCHAR* cmdLine, Flags& i) {
             goto CollectFile;
         }
         paramInt = atoi(param);
+
+        if (arg == Arg::LogToFile) {
+            i.logFile = str::Dup(param);
+            i.log = true;
+            continue;
+        }
 
         if (arg == Arg::SleepMs) {
             i.sleepMs = paramInt;
@@ -567,7 +520,7 @@ void ParseFlags(const WCHAR* cmdLine, Flags& i) {
         if (arg == Arg::NamedDest || arg == Arg::NamedDest2) {
             // -nameddest is for backwards compat (was used pre-1.3)
             // -named-dest is for consistency
-            i.destName = str::Dup(param);
+            i.namedDest = str::Dup(param);
             continue;
         }
         if (arg == Arg::Page) {
@@ -635,6 +588,11 @@ void ParseFlags(const WCHAR* cmdLine, Flags& i) {
         }
         if (arg == Arg::Max) {
             i.stressTestMax = paramInt;
+            continue;
+        }
+        if (arg == Arg::MaxFiles) {
+            i.maxFiles = paramInt;
+            continue;
         }
         if (arg == Arg::Render) {
             i.testRenderPage = true;
@@ -679,6 +637,10 @@ void ParseFlags(const WCHAR* cmdLine, Flags& i) {
             i.updateSelfTo = str::Dup(param);
             continue;
         }
+        if (arg == Arg::UpgradeFrom) {
+            i.upgradeFrom = str::Dup(param);
+            continue;
+        }
         if (arg == Arg::ArgDeleteFile) {
             i.deleteFile = str::Dup(param);
             continue;
@@ -691,7 +653,7 @@ void ParseFlags(const WCHAR* cmdLine, Flags& i) {
             FileArgs fargs;
             ParseAdobeFlags(fargs, param);
             i.search = fargs.search ? str::Dup(fargs.search) : i.search;
-            i.destName = fargs.destName ? str::Dup(fargs.destName) : i.destName;
+            i.namedDest = fargs.destName ? str::Dup(fargs.destName) : i.namedDest;
             i.pageNumber = fargs.pageNumber > 0 ? fargs.pageNumber : i.pageNumber;
             // TODO: annotAttObjNum and attachmentNo?
             continue;
@@ -736,7 +698,7 @@ Flags::~Flags() {
     str::Free(printerName);
     str::Free(printSettings);
     str::Free(forwardSearchOrigin);
-    str::Free(destName);
+    str::Free(namedDest);
     str::Free(pluginURL);
     str::Free(appdataDir);
     str::Free(inverseSearchCmdLine);
@@ -745,7 +707,9 @@ Flags::~Flags() {
     str::Free(stressTestRanges);
     str::Free(lang);
     str::Free(updateSelfTo);
+    str::Free(upgradeFrom);
     str::Free(deleteFile);
     str::Free(search);
+    str::Free(logFile);
     str::Free(dde);
 }

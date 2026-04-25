@@ -66,12 +66,9 @@ class WindowsDllInterceptor {
     typedef u8* byteptr_t;
 
   public:
-    WindowsDllInterceptor() : mModule(0) {
-    }
+    WindowsDllInterceptor() : mModule(0) {}
 
-    WindowsDllInterceptor(const char* modulename, int nhooks = 0) {
-        Init(modulename, nhooks);
-    }
+    WindowsDllInterceptor(const char* modulename, int nhooks = 0) { Init(modulename, nhooks); }
 
     ~WindowsDllInterceptor() {
         int i;
@@ -107,8 +104,7 @@ class WindowsDllInterceptor {
     }
 
     void Init(const char* modulename, int nhooks = 0) {
-        if (mModule)
-            return;
+        if (mModule) return;
 
         mModule = LoadLibraryExA(modulename, nullptr, 0);
         if (!mModule) {
@@ -117,8 +113,7 @@ class WindowsDllInterceptor {
         }
 
         int hooksPerPage = 4096 / kHookSize;
-        if (nhooks == 0)
-            nhooks = hooksPerPage;
+        if (nhooks == 0) nhooks = hooksPerPage;
 
         mMaxHooks = nhooks + (hooksPerPage % nhooks);
         mCurHooks = 0;
@@ -133,8 +128,7 @@ class WindowsDllInterceptor {
     }
 
     void LockHooks() {
-        if (!mModule)
-            return;
+        if (!mModule) return;
 
         DWORD op;
         VirtualProtectEx(GetCurrentProcess(), mHookPage, mMaxHooks * kHookSize, PAGE_EXECUTE_READ, &op);
@@ -143,8 +137,7 @@ class WindowsDllInterceptor {
     }
 
     bool AddHook(const char* pname, intptr_t hookDest, void** origFunc) {
-        if (!mModule)
-            return false;
+        if (!mModule) return false;
 
         void* pAddr = (void*)GetProcAddress(mModule, pname);
         if (!pAddr) {
@@ -174,8 +167,7 @@ class WindowsDllInterceptor {
 
     byteptr_t CreateTrampoline(void* origFunction, intptr_t dest) {
         byteptr_t tramp = FindTrampolineSpace();
-        if (!tramp)
-            return 0;
+        if (!tramp) return 0;
 
         byteptr_t origBytes = (byteptr_t)origFunction;
 
@@ -234,8 +226,7 @@ class WindowsDllInterceptor {
         while (nBytes < 13) {
             // if found JMP 32bit offset, next bytes must be NOP
             if (pJmp32 >= 0) {
-                if (origBytes[nBytes++] != 0x90)
-                    return 0;
+                if (origBytes[nBytes++] != 0x90) return 0;
 
                 continue;
             }
@@ -409,8 +400,7 @@ class WindowsDllInterceptor {
     }
 
     byteptr_t FindTrampolineSpace() {
-        if (mCurHooks >= mMaxHooks)
-            return 0;
+        if (mCurHooks >= mMaxHooks) return 0;
 
         byteptr_t p = mHookPage + mCurHooks * kHookSize;
 

@@ -10,18 +10,13 @@ class ScopedMem {
     T* ptr = nullptr;
 
     ScopedMem() = default;
-    explicit ScopedMem(T* ptr) : ptr(ptr) {
-    }
-    ~ScopedMem() {
-        free(ptr);
-    }
+    explicit ScopedMem(T* ptr) : ptr(ptr) {}
+    ~ScopedMem() { free(ptr); }
     void Set(T* newPtr) {
         free(ptr);
         ptr = newPtr;
     }
-    T* Get() const {
-        return ptr;
-    }
+    T* Get() const { return ptr; }
     T* StealData() {
         T* tmp = ptr;
         ptr = nullptr;
@@ -40,9 +35,7 @@ struct AutoDelete {
     AutoDelete(T* p) { // NOLINT
         o = p;
     }
-    ~AutoDelete() {
-        delete o;
-    }
+    ~AutoDelete() { delete o; }
 
     AutoDelete& operator=(AutoDelete& other) = delete;
     AutoDelete& operator=(AutoDelete&& other) = delete;
@@ -109,9 +102,7 @@ struct AutoFree {
         }
     }
 
-    ~AutoFree() {
-        str::Free(data);
-    }
+    ~AutoFree() { str::Free(data); }
 
     AutoFree& operator=(AutoFree& other) = delete;
     AutoFree& operator=(AutoFree&& other) noexcept {
@@ -136,21 +127,15 @@ struct AutoFree {
     // AutoFree& operator=(const AutoFree& other) = delete;
     // AutoFree& operator=(const AutoFree&& other) = delete;
 
-    char* Get() const {
-        return data;
-    }
+    char* Get() const { return data; }
 
-    char* CStr() const {
-        return data;
-    }
+    char* CStr() const { return data; }
 
     operator char*() const { // NOLINT
         return data;
     }
 
-    bool empty() const {
-        return (!data || !*data);
-    }
+    bool empty() const { return (!data || !*data); }
 
     void Reset() {
         free(data);
@@ -163,9 +148,7 @@ struct AutoFree {
         return res;
     }
 
-    char* StealData() {
-        return this->Release();
-    }
+    char* StealData() { return this->Release(); }
 };
 
 // TODO: replace most of AutoFree with AutoFreeStr
@@ -193,9 +176,7 @@ struct AutoFreeWStr {
         data = p;
     }
 
-    ~AutoFreeWStr() {
-        str::Free(data);
-    }
+    ~AutoFreeWStr() { str::Free(data); }
 
     AutoFreeWStr& operator=(AutoFreeWStr& other) = delete;
     AutoFreeWStr& operator=(AutoFreeWStr&& other) noexcept {
@@ -215,9 +196,7 @@ struct AutoFreeWStr {
     AutoFreeWStr& operator=(const AutoFreeWStr&& other) = delete;
 #endif
 
-    WCHAR* Get() const {
-        return data;
-    }
+    WCHAR* Get() const { return data; }
 
     operator WCHAR*() const { // NOLINT
         return data;
@@ -229,8 +208,9 @@ struct AutoFreeWStr {
     }
 
     void SetCopy(const WCHAR* newVal) {
+        WCHAR* w = str::Dup(newVal);
         str::FreePtr(&data);
-        data = str::Dup(newVal);
+        data = w;
     }
 
     // for convenince, we calculate the size if wasn't provided
@@ -243,9 +223,7 @@ struct AutoFreeWStr {
         return len;
     }
 
-    bool empty() {
-        return (data == nullptr) || (size() == 0);
-    }
+    bool empty() { return (data == nullptr) || (size() == 0); }
 
     WCHAR* StealData() {
         WCHAR* res = data;

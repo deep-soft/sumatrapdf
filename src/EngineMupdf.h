@@ -7,9 +7,7 @@ struct FitzPageImageInfo {
     fz_rect rect = fz_unit_rect;
     fz_matrix transform;
     IPageElement* imageElement = nullptr;
-    ~FitzPageImageInfo() {
-        delete imageElement;
-    }
+    ~FitzPageImageInfo() { delete imageElement; }
 };
 
 struct FzPageInfo {
@@ -36,6 +34,14 @@ struct FzPageInfo {
     // if false, only loaded page (fast)
     // if true, loaded expensive info (extracted text etc.)
     bool fullyLoaded = false;
+
+    // cached "View" rendering of the page; built lazily under
+    // EngineMupdf::renderLock. fz_display_list is safe to *replay* across
+    // cloned contexts in principle, but the image objects it references are
+    // not -- shared images (notably JBIG2 with shared dictionaries) trigger
+    // races inside mupdf's image store on concurrent decode. So renderLock
+    // is engine-wide, not per-page.
+    fz_display_list* displayList = nullptr;
 };
 
 class EngineMupdf : public EngineBase {
@@ -54,9 +60,11 @@ class EngineMupdf : public EngineBase {
     ByteSlice GetFileData() override;
     bool SaveFileAs(const char* copyFileName) override;
     PageText ExtractPageText(int pageNo) override;
+    PageTextUtf8 ExtractPageTextUtf8(int pageNo) override;
 
     bool HasClipOptimizations(int pageNo) override;
     TempStr GetPropertyTemp(const char* name) override;
+    void GetProperties(StrVec& keyValOut) override;
 
     bool BenchLoadPage(int pageNo) override;
 
@@ -74,12 +82,34 @@ class EngineMupdf : public EngineBase {
 
     fz_context* Ctx() const;
 
-    // make sure to never ask for pagesAccess in an ctxAccess
-    // protected critical section in order to avoid deadlocks
-    CRITICAL_SECTION* ctxAccess;
-    CRITICAL_SECTION pagesAccess;
+    // Lock hierarchy (acquire in this order; never go upward):
+    //   pagesLock           - protects the pages[] vector / FzPageInfo lookup
+    //   renderLock          - serializes any mupdf call that may run a page
+    //                         or replay a display list, i.e. anything that
+    //                         can decode an image. Engine-wide (not per-page)
+    //                         because shared image objects (e.g. JBIG2 with
+    //                         shared dictionaries) race in mupdf's image
+    //                         store under concurrent decode -- crashes
+    //                         in template_image_compose_opt with use-after-
+    //                         free on the source pixmap. Also acquired under
+    //                         pagesLock inside GetFzPageInfo.
+    //   docLock             - serializes document-scope mupdf operations:
+    //                         outline, fonts, info, named dests, page-tree
+    //                         access, annotation mutations. Independent of
+    //                         renderLock; never acquire pagesLock while
+    //                         holding docLock.
+    //
+    // docLock must NOT alias one of fz_locks[] -- mupdf takes those briefly
+    // for its own internal coordination, and reusing one as a long-held outer
+    // lock would serialize every cloned-context allocation across all threads.
+    CRITICAL_SECTION pagesLock;
+    CRITICAL_SECTION renderLock;
+    CRITICAL_SECTION docLock;
 
-    CRITICAL_SECTION mutexes[FZ_LOCK_MAX];
+    // per-FZ_LOCK-index critical sections used by mupdf via fz_locks_ctx
+    // callbacks. Mupdf holds these only momentarily; do not hold them across
+    // your own code.
+    CRITICAL_SECTION fz_locks[FZ_LOCK_MAX];
 
     fz_context* _ctx = nullptr;
     fz_locks_context fz_locks_ctx;
@@ -93,6 +123,9 @@ class EngineMupdf : public EngineBase {
     StrVec* pageLabels = nullptr;
 
     TocTree* tocTree = nullptr;
+
+    // password used to decrypt the document (needed for re-encryption/decryption)
+    char* pdfPassword = nullptr;
 
     // used to track "dirty" state of annotations. not perfect because if we add and delete
     // the same annotation, we should be back to 0
@@ -121,8 +154,5 @@ EngineMupdf* AsEngineMupdf(EngineBase* engine);
 
 fz_rect ToFzRect(RectF rect);
 RectF ToRectF(fz_rect rect);
-RenderedBitmap* NewRenderedFzPixmap(fz_context* ctx, fz_pixmap* pixmap);
 void MarkNotificationAsModified(EngineMupdf*, Annotation*, AnnotationChange = AnnotationChange::Modify);
 Annotation* MakeAnnotationWrapper(EngineMupdf* engine, pdf_annot* annot, int pageNo);
-
-void InitializeEngineMupdf();

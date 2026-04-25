@@ -40,7 +40,10 @@ jobs:
             build-mode: manual
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
@@ -49,7 +52,7 @@ jobs:
           build-mode: ${{ matrix.build-mode }}
 
       - if: matrix.build-mode == 'manual'
-        run: .\doit.bat -build-codeql
+        run: bun .\cmd\build-codeql.ts
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
@@ -73,7 +76,7 @@ jobs:
           sarif_file: sarif-results/cpp.sarif
 
       - name: Upload loc as a Build Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: sarif-results
           path: sarif-results

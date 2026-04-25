@@ -1,8 +1,8 @@
 [SumatraPDF](https://www.sumatrapdfreader.org/) is a free [PDF, EPUB, MOBI, CHM, XPS, DjVu, CBZ and CBR](Supported-document-formats.md) reader for Windows. It's small, fast, customizable and full of features.
 
-:columns
 ## Documentation for users
 
+:columns
 [Command Palette](Command-Palette.md)
 
 [Keyboard shortcuts](Keyboard-shortcuts.md)
@@ -31,7 +31,7 @@
 
 [DDE Commands](DDE-Commands.md)
 
-[Set as default PDF viewer](Set-as-default-PDF-viewer.md)
+[Set as default PDF viewer](Set-as-default-pdf-viewer.md)
 
 [Configure for restricted use](Configure-for-restricted-use.md)
 
@@ -39,49 +39,73 @@
 
 [Customizing eBook UI](Customizing-eBook-UI.md)
 
+[Supported File Formats](Supported-document-formats.md)
+
 [Installer cmd-line arguments](Installer-cmd-line-arguments.md)
 
 [Uninstalling SumatraPDF](Uninstalling-SumatraPDF.md)
 
 [Version history](Version-history.md)
 
-## Misc
+:columns
 
-[Contribute translation](Contribute-translation.md)
+## Using SumatraPDF to convert and modify PDF and other files
 
-[How to submit bug reports](How-to-submit-bug-reports.md)
+Starting in [pre-release 3.7](https://www.sumatrapdfreader.org/prerelease) you can use `SumatraPDF <tool> <option> <files>` commands to convert, extract, search PDF and other files.
 
-[Submit crash report](Submit-crash-report.md)
+:columns
+[All cmd-line tools](Tools.md)
 
-[Reporting printing bugs](Reporting-printing-bugs.md)
+[draw](Tool-draw.md)
 
-[Update check doesnt work?](Update-check-doesnt-work.md)
+[convert](Tool-convert.md)
 
-[Corrupted installation](Corrupted-installation.md)
+[audit](Tool-audit.md)
 
-[Why only Windows?](Why-only-Windows.md)
+[bake](Tool-bake.md)
 
-## Information for developers
+[clean](Tool-clean.md)
 
-[Contribute to SumatraPDF](Contribute-to-SumatraPDF.md)
+[extract](Tool-extract.md)
 
-[Logview](Logview.md)
+[info](Tool-info.md)
 
-[Build system](Build-system.md)
+[merge](Tool-merge.md)
 
-[Debugging Sumatra](Debugging-Sumatra.md)
+[pages](Tool-pages.md)
 
-[How we store settings](How-we-store-settings.md)
+[poster](Tool-poster.md)
 
-[Using DrMemory](Using-DrMemory.md)
+[recolor](Tool-recolor.md)
 
-[Using OpenCppCoverage](Using-OpenCppCoverage.md)
+[show](Tool-show.md)
 
-[Is there a virus in Sumatra sources?](Is-there-a-virus-in-Sumatra-sources.md)
+[trim](Tool-trim.md)
 
-[Accessibility and Text-to-Speech](Accessibility-and-Text-to-Speech.md)
+[grep](Tool-grep.md)
 
-[Source code downloads](Source-code-downloads.md)
+[trace](Tool-trace.md)
+
+[Extract text from PDF](Tool-x-extract-text-from-pdf.md)
+
+[Convert text file to a PDF](Tool-x-convert-text-to-pdf.md)
+
+[Compress a PDF](Tool-x-compress-pdf.md)
+
+[Decompress a PDF](Tool-x-decompress-pdf.md)
+
+[Encrypt a PDF](Tool-x-encrypt-pdf-with-password.md)
+
+[Decrypt a PDF](Tool-x-decrypt-pdf.md)
+
+[Delete pages from PDF](Tool-x-delete-pages-from-pdf.md)
+
+[Extract pages from PDF](Tool-x-extract-pages-from-pdf.md)
+
+[Extract images from PDF](Tool-x-extract-images-from-pdf.md)
+
+[Search text in a PDF](Tool-x-search-pdf.md)
+
 :columns
 
 ## Downloads
@@ -91,7 +115,7 @@
 
 ## Feedback
 
-Found a bug? Have feature request? Submit via [issue tracker](https://github.com/sumatrapdfreader/sumatrapdf/issues) and  [vote for features](https://sumatrapdf.userjot.com) you want to see next.
+Found a bug? Have feature request? Submit via [issue tracker](https://github.com/sumatrapdfreader/sumatrapdf/issues) and [vote for features](https://sumatrapdf.userjot.com) you want to see next.
 
 Have feedback or question? Discuss in a [forum](https://github.com/sumatrapdfreader/sumatrapdf/discussions).
 

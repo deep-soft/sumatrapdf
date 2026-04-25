@@ -7,20 +7,14 @@
     <Filter Include=".github\workflows">
       <UniqueIdentifier>{B3AE4BDD-1FC5-4973-683C-D594D4911AFB}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Appx">
-      <UniqueIdentifier>{7E9F827C-6AD6-830D-13C3-6910FFD8FF0E}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="do">
-      <UniqueIdentifier>{98775900-8403-880B-EDB1-880BD95C880B}</UniqueIdentifier>
+    <Filter Include="cmd">
+      <UniqueIdentifier>{7966880B-E56F-887C-6EEB-9E7CDAF3937C}</UniqueIdentifier>
     </Filter>
     <Filter Include="docs">
       <UniqueIdentifier>{CECA957C-BA01-970D-63EE-7C104F04130F}</UniqueIdentifier>
     </Filter>
     <Filter Include="docs\md">
       <UniqueIdentifier>{6E56AB1F-DA35-2ABB-E34D-B5914FAC901C}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="docs\www">
-      <UniqueIdentifier>{A2511615-8E1E-7120-B737-5FC8A363A6AE}</UniqueIdentifier>
     </Filter>
     <Filter Include="ext">
       <UniqueIdentifier>{7670880B-E279-887C-6BF5-9E7CD7FD937C}</UniqueIdentifier>
@@ -66,10 +60,40 @@
     <ClInclude Include="..\ext\darkmodelib\include\DarkModeSubclass.h">
       <Filter>ext\darkmodelib\include</Filter>
     </ClInclude>
-    <ClInclude Include="..\ext\darkmodelib\src\DarkMode.h">
+    <ClInclude Include="..\ext\darkmodelib\src\DmlibColor.h">
+      <Filter>ext\darkmodelib\src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\ext\darkmodelib\src\DmlibDpi.h">
+      <Filter>ext\darkmodelib\src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\ext\darkmodelib\src\DmlibGlyph.h">
+      <Filter>ext\darkmodelib\src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\ext\darkmodelib\src\DmlibHook.h">
+      <Filter>ext\darkmodelib\src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\ext\darkmodelib\src\DmlibIni.h">
+      <Filter>ext\darkmodelib\src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\ext\darkmodelib\src\DmlibPaintHelper.h">
+      <Filter>ext\darkmodelib\src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\ext\darkmodelib\src\DmlibSubclass.h">
+      <Filter>ext\darkmodelib\src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\ext\darkmodelib\src\DmlibSubclassControl.h">
+      <Filter>ext\darkmodelib\src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\ext\darkmodelib\src\DmlibSubclassWindow.h">
+      <Filter>ext\darkmodelib\src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\ext\darkmodelib\src\DmlibWinApi.h">
       <Filter>ext\darkmodelib\src</Filter>
     </ClInclude>
     <ClInclude Include="..\ext\darkmodelib\src\IatHook.h">
+      <Filter>ext\darkmodelib\src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\ext\darkmodelib\src\ModuleHelper.h">
       <Filter>ext\darkmodelib\src</Filter>
     </ClInclude>
     <ClInclude Include="..\ext\darkmodelib\src\StdAfx.h">
@@ -87,9 +111,6 @@
     <ClInclude Include="..\src\Annotation.h">
       <Filter>src</Filter>
     </ClInclude>
-    <ClInclude Include="..\src\AppColors.h">
-      <Filter>src</Filter>
-    </ClInclude>
     <ClInclude Include="..\src\AppSettings.h">
       <Filter>src</Filter>
     </ClInclude>
@@ -97,9 +118,6 @@
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="..\src\Canvas.h">
-      <Filter>src</Filter>
-    </ClInclude>
-    <ClInclude Include="..\src\Caption.h">
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="..\src\ChmFile.h">
@@ -168,10 +186,16 @@
     <ClInclude Include="..\src\GlobalPrefs.h">
       <Filter>src</Filter>
     </ClInclude>
+    <ClInclude Include="..\src\GumboHelpers.h">
+      <Filter>src</Filter>
+    </ClInclude>
     <ClInclude Include="..\src\HomePage.h">
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="..\src\HtmlFormatter.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\ImageSaveCropResize.h">
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="..\src\Installer.h">
@@ -189,6 +213,9 @@
     <ClInclude Include="..\src\Notifications.h">
       <Filter>src</Filter>
     </ClInclude>
+    <ClInclude Include="..\src\OverlayScrollbar.h">
+      <Filter>src</Filter>
+    </ClInclude>
     <ClInclude Include="..\src\PalmDbReader.h">
       <Filter>src</Filter>
     </ClInclude>
@@ -196,6 +223,9 @@
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="..\src\PdfSync.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\PdfTools.h">
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="..\src\Print.h">
@@ -214,6 +244,9 @@
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="..\src\Scratch.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\Screenshot.h">
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="..\src\SearchAndDDE.h">
@@ -241,6 +274,9 @@
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="..\src\SvgIcons.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\TabGroupsManage.h">
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="..\src\TableOfContents.h">
@@ -300,6 +336,9 @@
     <ClInclude Include="..\src\uia\TextRange.h">
       <Filter>src\uia</Filter>
     </ClInclude>
+    <ClInclude Include="..\src\utils\Archive.h">
+      <Filter>src\utils</Filter>
+    </ClInclude>
     <ClInclude Include="..\src\utils\UtAssert.h">
       <Filter>src\utils</Filter>
     </ClInclude>
@@ -332,10 +371,31 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\ext\darkmodelib\src\DarkMode.cpp">
+    <ClCompile Include="..\ext\darkmodelib\src\DarkModeSubclass.cpp">
       <Filter>ext\darkmodelib\src</Filter>
     </ClCompile>
-    <ClCompile Include="..\ext\darkmodelib\src\DarkModeSubclass.cpp">
+    <ClCompile Include="..\ext\darkmodelib\src\DmlibColor.cpp">
+      <Filter>ext\darkmodelib\src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\ext\darkmodelib\src\DmlibDpi.cpp">
+      <Filter>ext\darkmodelib\src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\ext\darkmodelib\src\DmlibHook.cpp">
+      <Filter>ext\darkmodelib\src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\ext\darkmodelib\src\DmlibPaintHelper.cpp">
+      <Filter>ext\darkmodelib\src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\ext\darkmodelib\src\DmlibSubclass.cpp">
+      <Filter>ext\darkmodelib\src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\ext\darkmodelib\src\DmlibSubclassControl.cpp">
+      <Filter>ext\darkmodelib\src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\ext\darkmodelib\src\DmlibSubclassWindow.cpp">
+      <Filter>ext\darkmodelib\src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\ext\darkmodelib\src\DmlibWinApi.cpp">
       <Filter>ext\darkmodelib\src</Filter>
     </ClCompile>
     <ClCompile Include="..\ext\synctex\synctex_parser.c">
@@ -350,9 +410,6 @@
     <ClCompile Include="..\src\Annotation.cpp">
       <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="..\src\AppColors.cpp">
-      <Filter>src</Filter>
-    </ClCompile>
     <ClCompile Include="..\src\AppSettings.cpp">
       <Filter>src</Filter>
     </ClCompile>
@@ -363,9 +420,6 @@
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="..\src\CanvasAboutUI.cpp">
-      <Filter>src</Filter>
-    </ClCompile>
-    <ClCompile Include="..\src\Caption.cpp">
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="..\src\ChmFile.cpp">
@@ -446,10 +500,16 @@
     <ClCompile Include="..\src\GlobalPrefs.cpp">
       <Filter>src</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\GumboHelpers.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\HomePage.cpp">
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="..\src\HtmlFormatter.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\ImageSaveCropResize.cpp">
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="..\src\Installer.cpp">
@@ -470,6 +530,9 @@
     <ClCompile Include="..\src\Notifications.cpp">
       <Filter>src</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\OverlayScrollbar.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\PalmDbReader.cpp">
       <Filter>src</Filter>
     </ClCompile>
@@ -477,6 +540,9 @@
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="..\src\PdfSync.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\PdfTools.cpp">
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="..\src\Print.cpp">
@@ -495,6 +561,9 @@
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="..\src\Scratch.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\Screenshot.cpp">
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="..\src\SearchAndDDE.cpp">
@@ -527,10 +596,19 @@
     <ClCompile Include="..\src\SvgIcons.cpp">
       <Filter>src</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\TabGroupsManage.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\TableOfContents.cpp">
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="..\src\Tabs.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\TestPlugin.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\TestPreview.cpp">
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="..\src\Tester.cpp">
@@ -599,6 +677,9 @@
     <ClCompile Include="..\src\uia\TextRange.cpp">
       <Filter>src\uia</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\utils\Archive.cpp">
+      <Filter>src\utils</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\utils\UtAssert.cpp">
       <Filter>src\utils</Filter>
     </ClCompile>
@@ -656,7 +737,19 @@
     <ClCompile Include="..\src\utils\tests\WinUtil_ut.cpp">
       <Filter>src\utils\tests</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\wingui\Button.cpp">
+      <Filter>src\wingui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\wingui\Checkbox.cpp">
+      <Filter>src\wingui</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\wingui\DialogSizer.cpp">
+      <Filter>src\wingui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\wingui\DropDown.cpp">
+      <Filter>src\wingui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\wingui\Edit.cpp">
       <Filter>src\wingui</Filter>
     </ClCompile>
     <ClCompile Include="..\src\wingui\FrameRateWnd.cpp">
@@ -671,6 +764,30 @@
     <ClCompile Include="..\src\wingui\Layout.cpp">
       <Filter>src\wingui</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\wingui\ListBox.cpp">
+      <Filter>src\wingui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\wingui\Progress.cpp">
+      <Filter>src\wingui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\wingui\Splitter.cpp">
+      <Filter>src\wingui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\wingui\Static.cpp">
+      <Filter>src\wingui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\wingui\TabsCtrl.cpp">
+      <Filter>src\wingui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\wingui\Tooltip.cpp">
+      <Filter>src\wingui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\wingui\Trackbar.cpp">
+      <Filter>src\wingui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\wingui\TreeView.cpp">
+      <Filter>src\wingui</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\wingui\UIModels.cpp">
       <Filter>src\wingui</Filter>
     </ClCompile>
@@ -680,11 +797,12 @@
     <ClCompile Include="..\src\wingui\WebView.cpp">
       <Filter>src\wingui</Filter>
     </ClCompile>
-    <ClCompile Include="..\src\wingui\WinGui.cpp">
+    <ClCompile Include="..\src\wingui\Wnd.cpp">
       <Filter>src\wingui</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <None Include="..\.clang-format" />
     <None Include="..\.github\workflows\build.yml">
       <Filter>.github\workflows</Filter>
     </None>
@@ -695,71 +813,121 @@
       <Filter>.github\workflows</Filter>
     </None>
     <None Include="..\.gitignore" />
-    <None Include="..\Appx\AppxManifest.xml">
-      <Filter>Appx</Filter>
+    <None Include="..\Claude.md" />
+    <None Include="..\SECURITY.md" />
+    <None Include="..\cmd\build-all.ts">
+      <Filter>cmd</Filter>
     </None>
-    <None Include="..\do\build.go">
-      <Filter>do</Filter>
+    <None Include="..\cmd\build-ci-daily.ts">
+      <Filter>cmd</Filter>
     </None>
-    <None Include="..\do\check_accesskyes.go">
-      <Filter>do</Filter>
+    <None Include="..\cmd\build-ci.ts">
+      <Filter>cmd</Filter>
     </None>
-    <None Include="..\do\clang_tidy_format.go">
-      <Filter>do</Filter>
+    <None Include="..\cmd\build-codeql.ts">
+      <Filter>cmd</Filter>
     </None>
-    <None Include="..\do\compress.go">
-      <Filter>do</Filter>
+    <None Include="..\cmd\build-no-info.ts">
+      <Filter>cmd</Filter>
     </None>
-    <None Include="..\do\gen_docs.go">
-      <Filter>do</Filter>
+    <None Include="..\cmd\build-smoke.ts">
+      <Filter>cmd</Filter>
     </None>
-    <None Include="..\do\git.go">
-      <Filter>do</Filter>
+    <None Include="..\cmd\build-with-mingw.ts">
+      <Filter>cmd</Filter>
     </None>
-    <None Include="..\do\github_ci.go">
-      <Filter>do</Filter>
+    <None Include="..\cmd\build.ts">
+      <Filter>cmd</Filter>
     </None>
-    <None Include="..\do\main.go">
-      <Filter>do</Filter>
+    <None Include="..\cmd\bun.lock">
+      <Filter>cmd</Filter>
     </None>
-    <None Include="..\do\settings_gen_code.go">
-      <Filter>do</Filter>
+    <None Include="..\cmd\check-access-keys.ts">
+      <Filter>cmd</Filter>
     </None>
-    <None Include="..\do\settings_gen_def.go">
-      <Filter>do</Filter>
+    <None Include="..\cmd\clang-tidy.ts">
+      <Filter>cmd</Filter>
     </None>
-    <None Include="..\do\settings_gen_html.go">
-      <Filter>do</Filter>
+    <None Include="..\cmd\clean.ts">
+      <Filter>cmd</Filter>
     </None>
-    <None Include="..\do\sign.go">
-      <Filter>do</Filter>
+    <None Include="..\cmd\clear-thumbnail-cache.ts">
+      <Filter>cmd</Filter>
     </None>
-    <None Include="..\do\trans_download.go">
-      <Filter>do</Filter>
+    <None Include="..\cmd\compress-docs-images.ts">
+      <Filter>cmd</Filter>
     </None>
-    <None Include="..\do\trans_gen.go">
-      <Filter>do</Filter>
+    <None Include="..\cmd\cppcheck.ts">
+      <Filter>cmd</Filter>
     </None>
-    <None Include="..\do\trans_langs.go">
-      <Filter>do</Filter>
+    <None Include="..\cmd\diff.ts">
+      <Filter>cmd</Filter>
     </None>
-    <None Include="..\do\translations.go">
-      <Filter>do</Filter>
+    <None Include="..\cmd\format.ts">
+      <Filter>cmd</Filter>
     </None>
-    <None Include="..\do\update_auto_update_ver.go">
-      <Filter>do</Filter>
+    <None Include="..\cmd\gen-commands.ts">
+      <Filter>cmd</Filter>
     </None>
-    <None Include="..\do\upload_storage.go">
-      <Filter>do</Filter>
+    <None Include="..\cmd\gen-docs-website.ts">
+      <Filter>cmd</Filter>
     </None>
-    <None Include="..\do\util.go">
-      <Filter>do</Filter>
+    <None Include="..\cmd\gen-docs.ts">
+      <Filter>cmd</Filter>
     </None>
-    <None Include="..\do\vs.go">
-      <Filter>do</Filter>
+    <None Include="..\cmd\gen-flags.ts">
+      <Filter>cmd</Filter>
     </None>
-    <None Include="..\do\wc.go">
-      <Filter>do</Filter>
+    <None Include="..\cmd\gen-settings.ts">
+      <Filter>cmd</Filter>
+    </None>
+    <None Include="..\cmd\markdown-it.min.js">
+      <Filter>cmd</Filter>
+    </None>
+    <None Include="..\cmd\package.json">
+      <Filter>cmd</Filter>
+    </None>
+    <None Include="..\cmd\pdb-sizes.ts">
+      <Filter>cmd</Filter>
+    </None>
+    <None Include="..\cmd\premake.ts">
+      <Filter>cmd</Filter>
+    </None>
+    <None Include="..\cmd\run-tests.ts">
+      <Filter>cmd</Filter>
+    </None>
+    <None Include="..\cmd\show-preview-reg.ts">
+      <Filter>cmd</Filter>
+    </None>
+    <None Include="..\cmd\sync-bug-files.ts">
+      <Filter>cmd</Filter>
+    </None>
+    <None Include="..\cmd\test-plugin.ts">
+      <Filter>cmd</Filter>
+    </None>
+    <None Include="..\cmd\trans-dl.ts">
+      <Filter>cmd</Filter>
+    </None>
+    <None Include="..\cmd\trans-gen.ts">
+      <Filter>cmd</Filter>
+    </None>
+    <None Include="..\cmd\trans-with-ai.ts">
+      <Filter>cmd</Filter>
+    </None>
+    <None Include="..\cmd\trigger-codeql.ts">
+      <Filter>cmd</Filter>
+    </None>
+    <None Include="..\cmd\tsconfig.json">
+      <Filter>cmd</Filter>
+    </None>
+    <None Include="..\cmd\util.ts">
+      <Filter>cmd</Filter>
+    </None>
+    <None Include="..\cmd\wc.ts">
+      <Filter>cmd</Filter>
+    </None>
+    <None Include="..\docs\gen_docs.search.html">
+      <Filter>docs</Filter>
     </None>
     <None Include="..\docs\manual.tmpl.html">
       <Filter>docs</Filter>
@@ -821,6 +989,9 @@
     <None Include="..\docs\md\Editing-annotations.md">
       <Filter>docs\md</Filter>
     </None>
+    <None Include="..\docs\md\Failed-to-load-libmupdf.md">
+      <Filter>docs\md</Filter>
+    </None>
     <None Include="..\docs\md\How-to-submit-bug-reports.md">
       <Filter>docs\md</Filter>
     </None>
@@ -848,7 +1019,7 @@
     <None Include="..\docs\md\Scrolling-and-zooming.md">
       <Filter>docs\md</Filter>
     </None>
-    <None Include="..\docs\md\Set-as-default-PDF-viewer.md">
+    <None Include="..\docs\md\Set-as-default-pdf-viewer.md">
       <Filter>docs\md</Filter>
     </None>
     <None Include="..\docs\md\Source-code-downloads.md">
@@ -857,10 +1028,97 @@
     <None Include="..\docs\md\Submit-crash-report.md">
       <Filter>docs\md</Filter>
     </None>
+    <None Include="..\docs\md\SumatraPDF-documentation-website.md">
+      <Filter>docs\md</Filter>
+    </None>
     <None Include="..\docs\md\SumatraPDF-documentation.md">
       <Filter>docs\md</Filter>
     </None>
     <None Include="..\docs\md\Supported-document-formats.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tool-audit.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tool-bake.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tool-clean.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tool-convert.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tool-draw.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tool-extract.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tool-grep.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tool-info.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tool-merge.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tool-pages.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tool-poster.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tool-recolor.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tool-run.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tool-show.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tool-trace.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tool-trim.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tool-x-compress-pdf.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tool-x-convert-png-to-pdf.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tool-x-convert-text-to-pdf.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tool-x-decompress-pdf.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tool-x-decrypt-pdf.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tool-x-delete-pages-from-pdf.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tool-x-encrypt-pdf-with-password.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tool-x-extract-images-from-pdf.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tool-x-extract-pages-from-pdf.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tool-x-extract-text-from-pdf.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tool-x-search-pdf.md">
+      <Filter>docs\md</Filter>
+    </None>
+    <None Include="..\docs\md\Tools.md">
       <Filter>docs\md</Filter>
     </None>
     <None Include="..\docs\md\Uninstalling-SumatraPDF.md">
@@ -887,24 +1145,22 @@
     <None Include="..\docs\releasenotes.txt">
       <Filter>docs</Filter>
     </None>
-    <None Include="..\docs\wishlist.txt">
+    <None Include="..\docs\scratch.txt">
       <Filter>docs</Filter>
     </None>
-    <None Include="..\docs\www\notion.css">
-      <Filter>docs\www</Filter>
+    <None Include="..\docs\sumatra.css">
+      <Filter>docs</Filter>
     </None>
-    <None Include="..\docs\www\sumatra.css">
-      <Filter>docs\www</Filter>
+    <None Include="..\docs\wishlist.txt">
+      <Filter>docs</Filter>
     </None>
     <None Include="..\ext\versions.txt">
       <Filter>ext</Filter>
     </None>
     <None Include="..\premake5.files.lua" />
     <None Include="..\premake5.lua" />
-    <None Include="..\premake5.obsolete.lua" />
-    <None Include="..\src\scratch.txt">
-      <Filter>src</Filter>
-    </None>
+    <None Include="..\readme.md" />
+    <None Include="..\sumlog.txt" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="..\src\SumatraPDF.rc">

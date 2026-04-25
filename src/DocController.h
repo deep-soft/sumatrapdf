@@ -52,9 +52,7 @@ struct DocControllerCallback {
 struct DocController {
     DocControllerCallback* cb;
 
-    explicit DocController(DocControllerCallback* cb) : cb(cb) {
-        ReportIf(!cb);
-    }
+    explicit DocController(DocControllerCallback* cb) : cb(cb) { ReportIf(!cb); }
     virtual ~DocController() = default;
 
     // meta data
@@ -94,20 +92,12 @@ struct DocController {
     virtual void CreateThumbnail(Size size, const OnBitmapRendered* saveThumbnail) = 0;
 
     // page labels (optional)
-    virtual bool HasPageLabels() const {
-        return false;
-    }
-    virtual TempStr GetPageLabeTemp(int pageNo) const {
-        return str::FormatTemp("%d", pageNo);
-    }
-    virtual int GetPageByLabel(const char* label) const {
-        return atoi(label);
-    }
+    virtual bool HasPageLabels() const { return false; }
+    virtual TempStr GetPageLabeTemp(int pageNo) const { return str::FormatTemp("%d", pageNo); }
+    virtual int GetPageByLabel(const char* label) const { return atoi(label); }
 
     // common shortcuts
-    virtual bool ValidPageNo(int pageNo) const {
-        return 1 <= pageNo && pageNo <= PageCount();
-    }
+    virtual bool ValidPageNo(int pageNo) const { return 1 <= pageNo && pageNo <= PageCount(); }
     virtual bool GoToNextPage() {
         if (CurrentPageNo() == PageCount()) {
             return false;
@@ -143,10 +133,6 @@ struct DocController {
     }
 
     // for quick type determination and type-safe casting
-    virtual DisplayModel* AsFixed() {
-        return nullptr;
-    }
-    virtual ChmModel* AsChm() {
-        return nullptr;
-    }
+    virtual DisplayModel* AsFixed() { return nullptr; }
+    virtual ChmModel* AsChm() { return nullptr; }
 };

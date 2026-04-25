@@ -232,8 +232,7 @@ static int wd_init_core_api(void) {
 }
 
 static void wd_fini_core_api(void) {
-    if (d2d_enabled())
-        d2d_fini();
+    if (d2d_enabled()) d2d_fini();
 #if 0
     else
         gdix_fini();
@@ -293,8 +292,7 @@ static void dwrite_fini(void) {
 void dwrite_default_user_locale(WCHAR buffer[LOCALE_NAME_MAX_LENGTH]) {
     // TODO: only Vista+
     int res = GetUserDefaultLocaleName(buffer, LOCALE_NAME_MAX_LENGTH);
-    if (res > 0)
-        return;
+    if (res > 0) return;
     buffer[0] = L'\0';
 }
 

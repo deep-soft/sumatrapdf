@@ -40,9 +40,7 @@ class HasherComparator {
 };
 
 class StrKeyHasherComparator : public HasherComparator {
-    size_t Hash(uintptr_t key) override {
-        return MurmurHash2((const void*)key, str::Len((const char*)key));
-    }
+    size_t Hash(uintptr_t key) override { return MurmurHash2((const void*)key, str::Len((const char*)key)); }
     bool Equal(uintptr_t k1, uintptr_t k2) override {
         const char* s1 = (const char*)k1;
         const char* s2 = (const char*)k2;
@@ -84,9 +82,9 @@ struct HashTable {
     size_t nCollisions;
 };
 
-static HashTable* NewHashTable(size_t size, Allocator* allocator) {
+static HashTable* NewHashTable(size_t size, Arena* allocator) {
     ReportIf(!allocator); // we'll leak otherwise
-    HashTable* h = Allocator::AllocArray<HashTable>(allocator, 1);
+    HashTable* h = AllocArray<HashTable>(allocator, 1);
     // number of hash table entries should be power of 2
     size = RoundToPowerOf2(size);
     // entries are not allocated with allocator since those are large blocks
@@ -138,7 +136,7 @@ static inline void HashTableResizeIfNeeded(HashTable* h, HasherComparator* hc) {
 }
 
 // note: allocator must be nullptr for get, non-nullptr for create
-static HashTableEntry* GetOrCreateEntry(HashTable* h, HasherComparator* hc, uintptr_t key, Allocator* allocator,
+static HashTableEntry* GetOrCreateEntry(HashTable* h, HasherComparator* hc, uintptr_t key, Arena* allocator,
                                         bool& newEntry) {
     bool shouldCreate = (allocator != nullptr);
     size_t hash = hc->Hash(key);
@@ -159,7 +157,7 @@ static HashTableEntry* GetOrCreateEntry(HashTable* h, HasherComparator* hc, uint
         e = h->freeList;
         h->freeList = h->freeList->next;
     } else {
-        e = Allocator::AllocArray<HashTableEntry>(allocator, 1);
+        e = AllocArray<HashTableEntry>(allocator, 1);
     }
     e->next = h->entries[pos];
     h->entries[pos] = e;
@@ -204,13 +202,14 @@ static bool RemoveEntry(HashTable* h, HasherComparator* hc, uintptr_t key, uintp
 }
 
 MapStrToInt::MapStrToInt(size_t initialSize) {
-    // we use PoolAllocator to allocate HashTableEntry entries
-    // and copies of string keys
-    h = NewHashTable(initialSize, &allocator);
+    // arena-allocate HashTableEntry entries and copies of string keys
+    allocator = ArenaNew();
+    h = NewHashTable(initialSize, allocator);
 }
 
 MapStrToInt::~MapStrToInt() {
     DeleteHashTable(h);
+    ArenaDelete(allocator);
 }
 
 size_t MapStrToInt::Count() const {
@@ -228,7 +227,7 @@ size_t MapStrToInt::Count() const {
 //   * sets existingKeyOut to (interned) key
 bool MapStrToInt::Insert(const char* key, int val, int* existingValOut, const char** existingKeyOut) {
     bool newEntry;
-    HashTableEntry* e = GetOrCreateEntry(h, &gStrKeyHasherComparator, (uintptr_t)key, &allocator, newEntry);
+    HashTableEntry* e = GetOrCreateEntry(h, &gStrKeyHasherComparator, (uintptr_t)key, allocator, newEntry);
     if (!newEntry) {
         if (existingValOut) {
             *existingValOut = (int)e->val;
@@ -238,7 +237,7 @@ bool MapStrToInt::Insert(const char* key, int val, int* existingValOut, const ch
         }
         return false;
     }
-    e->key = (intptr_t)str::Dup(&allocator, key);
+    e->key = (intptr_t)str::Dup(allocator, key);
     e->val = (intptr_t)val;
     if (existingKeyOut) {
         *existingKeyOut = (const char*)e->key;

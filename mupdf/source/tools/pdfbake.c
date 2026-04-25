@@ -34,7 +34,7 @@
 static int usage(void)
 {
 	fprintf(stderr,
-		"usage: mutool bake [options] input.pdf [output.pdf]\n"
+		"Usage: SumatraPDF bake [options] input.pdf [output.pdf]\n"
 		"\t-A\tkeep annotations\n"
 		"\t-F\tkeep forms\n"
 		"\t-O -\tcomma separated list of output options\n"
@@ -53,6 +53,8 @@ int pdfbake_main(int argc, char **argv)
 	char *flags = "garbage";
 	char *input;
 	int c;
+
+	fz_optind = 1;
 
 	while ((c = fz_getopt(argc, argv, "AFO:")) != -1)
 	{

@@ -36,6 +36,12 @@ bool gConserveMemory = false;
 static DWORD WINAPI RenderCacheThread(LPVOID data);
 
 bool gShowTileLayout = false;
+int gMaxRenderThreads = 8;
+
+struct RenderThreadData {
+    RenderCache* cache;
+    int threadIdx;
+};
 
 RenderCache::RenderCache() : maxTileSize({GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)}) {
     // enable when debugging RenderCache logic
@@ -48,26 +54,59 @@ RenderCache::RenderCache() : maxTileSize({GetSystemMetrics(SM_CXSCREEN), GetSyst
     InitializeCriticalSection(&cacheAccess);
     InitializeCriticalSection(&requestAccess);
 
-    startRendering = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-    renderThread = CreateThread(nullptr, 0, RenderCacheThread, this, 0, nullptr);
-    ReportIf(nullptr == renderThread);
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    int numCores = (int)si.dwNumberOfProcessors;
+    maxRenderThreads = std::max(gMaxRenderThreads, numCores);
+    if (maxRenderThreads > kMaxRenderThreads) {
+        maxRenderThreads = kMaxRenderThreads;
+    }
+
+    // use a semaphore so each queued request wakes one thread.
+    // threads themselves are spawned lazily in Render() when work appears
+    // and no idle thread is available -- many sessions only ever need a
+    // couple of render threads, so creating 8+ upfront is wasteful.
+    startRendering = CreateSemaphoreW(nullptr, 0, INT_MAX, nullptr);
 }
 
 RenderCache::~RenderCache() {
-    EnterCriticalSection(&requestAccess);
-    EnterCriticalSection(&cacheAccess);
+    // Signal threads to exit FIRST, then wait for them WITHOUT holding the
+    // critical sections. Workers take requestAccess for their idle bookkeeping,
+    // so holding it here would deadlock until the WaitForMultipleObjects
+    // timeout fires -- after which DeleteCriticalSection on a still-in-use
+    // CS would access-violate.
+    AtomicBoolSet(&shouldExit, true);
 
-    CloseHandle(renderThread);
+    if (nRenderThreads > 0) {
+        // wake all threads waiting on the semaphore
+        ReleaseSemaphore(startRendering, nRenderThreads, nullptr);
+
+        // wait for all threads to finish
+        DWORD res = WaitForMultipleObjects((DWORD)nRenderThreads, renderThreads, TRUE, 5000);
+        if (res == WAIT_TIMEOUT) {
+            logf("RenderCache::~RenderCache: threads didn't exit in 5 seconds\n");
+        }
+
+        for (int i = 0; i < nRenderThreads; i++) {
+            CloseHandle(renderThreads[i]);
+        }
+    }
     CloseHandle(startRendering);
-    if (curReq || 0 != requestCount || cacheCount != 0) {
-        logvf("RenderCache::~RenderCache: curReq: 0x%p, requestCount: %d, cacheCount: %d\n", curReq, requestCount,
-              cacheCount);
+
+    // Threads are gone; remaining state inspection is single-threaded.
+    bool hasCurReq = false;
+    for (int i = 0; i < nRenderThreads; i++) {
+        if (curReqs[i]) {
+            hasCurReq = true;
+        }
+    }
+    if (hasCurReq || 0 != requestCount || cacheCount != 0) {
+        logvf("RenderCache::~RenderCache: hasCurReq: %d, requestCount: %d, cacheCount: %d\n", (int)hasCurReq,
+              requestCount, cacheCount);
         ReportIf(true);
     }
 
-    LeaveCriticalSection(&cacheAccess);
     DeleteCriticalSection(&cacheAccess);
-    LeaveCriticalSection(&requestAccess);
     DeleteCriticalSection(&requestAccess);
 }
 
@@ -328,8 +367,10 @@ void RenderCache::Invalidate(DisplayModel* dm, int pageNo, RectF rect) {
     ScopedCritSec scopeReq(&requestAccess);
 
     ClearQueueForDisplayModel(dm, pageNo);
-    if (curReq && curReq->dm == dm && curReq->pageNo == pageNo) {
-        AbortCurrentRequest();
+    for (int i = 0; i < nRenderThreads; i++) {
+        if (curReqs[i] && curReqs[i]->dm == dm && curReqs[i]->pageNo == pageNo) {
+            AbortCurrentRequest(i);
+        }
     }
 
     ScopedCritSec scopeCache(&cacheAccess);
@@ -413,7 +454,9 @@ bool RenderCache::ReduceTileSize() {
     while (requestCount > 0) {
         ClearQueueForDisplayModel(requests[0].dm);
     }
-    AbortCurrentRequest();
+    for (int i = 0; i < nRenderThreads; i++) {
+        AbortCurrentRequest(i);
+    }
 
     return true;
 }
@@ -437,7 +480,7 @@ void RenderCache::RequestRendering(DisplayModel* dm, int pageNo) {
 
 /* Render a bitmap for page <pageNo> in <dm>. */
 void RenderCache::RequestRendering(DisplayModel* dm, int pageNo, TilePosition tile, bool clearQueueForPage) {
-    logvf("RenderCache::RequestRendering: pageNo %d\n", pageNo);
+    // logvf("RenderCache::RequestRendering: pageNo %d\n", pageNo);
     ScopedCritSec scope(&requestAccess);
     ReportIf(!dm);
     if (!dm || dm->pauseRendering) {
@@ -447,14 +490,17 @@ void RenderCache::RequestRendering(DisplayModel* dm, int pageNo, TilePosition ti
     int rotation = NormalizeRotation(dm->GetRotation());
     float zoom = dm->GetZoomReal(pageNo);
 
-    if (curReq && (curReq->pageNo == pageNo) && (curReq->dm == dm) && (curReq->tile == tile)) {
-        if ((curReq->zoom == zoom) && (curReq->rotation == rotation)) {
-            /* we're already rendering exactly the same page */
-            return;
+    for (int i = 0; i < nRenderThreads; i++) {
+        auto* cr = curReqs[i];
+        if (cr && (cr->pageNo == pageNo) && (cr->dm == dm) && (cr->tile == tile)) {
+            if ((cr->zoom == zoom) && (cr->rotation == rotation)) {
+                /* we're already rendering exactly the same page */
+                return;
+            }
+            /* Currently rendered page is for the same page but with different zoom
+            or rotation, so abort it */
+            AbortCurrentRequest(i);
         }
-        /* Currently rendered page is for the same page but with different zoom
-        or rotation, so abort it */
-        AbortCurrentRequest();
     }
 
     // clear requests for tiles of different resolution and invisible tiles
@@ -489,27 +535,35 @@ void RenderCache::RequestRendering(DisplayModel* dm, int pageNo, TilePosition ti
         return;
     }
 
-    Render(dm, pageNo, rotation, zoom, &tile);
+    auto cb = MkMethod1<DisplayModel, PageRenderRequest*, &DisplayModel::RenderFinishedAsync>(dm);
+    Render(dm, pageNo, rotation, zoom, &tile, nullptr, cb);
 }
 
 void RenderCache::Render(DisplayModel* dm, int pageNo, int rotation, float zoom, RectF pageRect,
-                         const OnBitmapRendered& callback) {
-    bool ok = Render(dm, pageNo, rotation, zoom, nullptr, &pageRect, &callback);
+                         const Func1<PageRenderRequest*>& callback) {
+    bool ok = Render(dm, pageNo, rotation, zoom, nullptr, &pageRect, callback);
     if (!ok) {
-        callback.Call(nullptr);
+        // create a dummy request to notify callback of failure
+        PageRenderRequest req;
+        req.dm = dm;
+        req.pageNo = pageNo;
+        req.bmp = nullptr;
+        req.errorCode = 1;
+        callback.Call(&req);
     }
 }
 
 bool RenderCache::Render(DisplayModel* dm, int pageNo, int rotation, float zoom, TilePosition* tile, RectF* pageRect,
-                         const OnBitmapRendered* renderCb) {
+                         const Func1<PageRenderRequest*>& renderFinishedCb) {
     logvf("RenderCache::Render: pageNo %d\n", pageNo);
     ReportIf(!dm);
     if (!dm || dm->pauseRendering) {
         return false;
     }
+    ReportIf(!renderFinishedCb.IsValid());
 
-    ReportIf(!(tile || pageRect && renderCb));
-    if (!tile && !(pageRect && renderCb)) {
+    ReportIf(!(tile || pageRect));
+    if (!tile && !pageRect) {
         return false;
     }
 
@@ -519,8 +573,11 @@ bool RenderCache::Render(DisplayModel* dm, int pageNo, int rotation, float zoom,
     /* add request to the queue */
     if (requestCount == MAX_PAGE_REQUESTS) {
         /* queue is full -> remove the oldest items on the queue */
-        if (requests[0].renderCb) {
-            requests[0].renderCb->Call(nullptr);
+        if (requests[0].renderFinishedCb.IsValid()) {
+            requests[0].abort = true;
+            requests[0].bmp = nullptr;
+            requests[0].errorCode = 0;
+            requests[0].renderFinishedCb.Call(&requests[0]);
         }
         memmove(&(requests[0]), &(requests[1]), sizeof(PageRenderRequest) * (MAX_PAGE_REQUESTS - 1));
         newRequest = &(requests[MAX_PAGE_REQUESTS - 1]);
@@ -539,17 +596,31 @@ bool RenderCache::Render(DisplayModel* dm, int pageNo, int rotation, float zoom,
         newRequest->tile = *tile;
     } else if (pageRect) {
         newRequest->pageRect = *pageRect;
-        // can't cache bitmaps that aren't for a given tile
-        ReportIf(!renderCb);
     } else {
         CrashMe();
     }
     newRequest->abort = false;
     newRequest->abortCookie = nullptr;
     newRequest->timestamp = GetTickCount();
-    newRequest->renderCb = renderCb;
+    newRequest->bmp = nullptr;
+    newRequest->errorCode = 0;
+    newRequest->renderFinishedCb = renderFinishedCb;
 
-    SetEvent(startRendering);
+    ReleaseSemaphore(startRendering, 1, nullptr);
+
+    // Lazy thread spawn: if no thread is currently waiting and we're below
+    // the cap, start a new one. Existing busy threads will pick up the work
+    // when they finish their current task.
+    if (idleThreads == 0 && nRenderThreads < maxRenderThreads) {
+        int idx = nRenderThreads;
+        auto* td = new RenderThreadData{this, idx};
+        renderThreads[idx] = CreateThread(nullptr, 0, RenderCacheThread, td, 0, nullptr);
+        if (renderThreads[idx]) {
+            nRenderThreads++;
+        } else {
+            delete td;
+        }
+    }
 
     return true;
 }
@@ -557,8 +628,11 @@ bool RenderCache::Render(DisplayModel* dm, int pageNo, int rotation, float zoom,
 int RenderCache::GetRenderDelay(DisplayModel* dm, int pageNo, TilePosition tile) {
     ScopedCritSec scope(&requestAccess);
 
-    if (curReq && curReq->pageNo == pageNo && curReq->dm == dm && curReq->tile == tile) {
-        return GetTickCount() - curReq->timestamp;
+    for (int i = 0; i < nRenderThreads; i++) {
+        auto* cr = curReqs[i];
+        if (cr && cr->pageNo == pageNo && cr->dm == dm && cr->tile == tile) {
+            return GetTickCount() - cr->timestamp;
+        }
     }
 
     for (int i = 0; i < requestCount; i++) {
@@ -570,7 +644,7 @@ int RenderCache::GetRenderDelay(DisplayModel* dm, int pageNo, TilePosition tile)
     return RENDER_DELAY_UNDEFINED;
 }
 
-bool RenderCache::GetNextRequest(PageRenderRequest* req) {
+bool RenderCache::GetNextRequest(PageRenderRequest* req, int threadIdx) {
     ScopedCritSec scope(&requestAccess);
 
     if (requestCount == 0) {
@@ -581,19 +655,19 @@ bool RenderCache::GetNextRequest(PageRenderRequest* req) {
     ReportIf(requestCount > MAX_PAGE_REQUESTS);
     requestCount--;
     *req = requests[requestCount];
-    curReq = req;
+    curReqs[threadIdx] = req;
     ReportIf(requestCount < 0);
     ReportIf(req->abort);
 
     return true;
 }
 
-bool RenderCache::ClearCurrentRequest() {
+bool RenderCache::ClearCurrentRequest(int threadIdx) {
     ScopedCritSec scope(&requestAccess);
-    if (curReq) {
-        delete curReq->abortCookie;
+    if (curReqs[threadIdx]) {
+        delete curReqs[threadIdx]->abortCookie;
     }
-    curReq = nullptr;
+    curReqs[threadIdx] = nullptr;
 
     bool isQueueEmpty = requestCount == 0;
     return isQueueEmpty;
@@ -607,14 +681,19 @@ void RenderCache::CancelRendering(DisplayModel* dm) {
 
     for (;;) {
         EnterCriticalSection(&requestAccess);
-        if (!curReq || (curReq->dm != dm)) {
+        bool found = false;
+        for (int i = 0; i < nRenderThreads; i++) {
+            if (curReqs[i] && curReqs[i]->dm == dm) {
+                AbortCurrentRequest(i);
+                found = true;
+            }
+        }
+        if (!found) {
             // to be on the safe side
             ClearQueueForDisplayModel(dm);
             LeaveCriticalSection(&requestAccess);
             return;
         }
-
-        AbortCurrentRequest();
         LeaveCriticalSection(&requestAccess);
 
         /* TODO: busy loop is not good, but I don't have a better idea */
@@ -634,9 +713,7 @@ void RenderCache::ClearQueueForDisplayModel(DisplayModel* dm, int pageNo, TilePo
             requests[curPos] = requests[i];
         }
         if (shouldRemove) {
-            if (req->renderCb) {
-                req->renderCb->Call(nullptr);
-            }
+            // don't call renderFinishedCb for cleared requests - treat as aborted
             requestCount--;
         } else {
             curPos++;
@@ -644,63 +721,81 @@ void RenderCache::ClearQueueForDisplayModel(DisplayModel* dm, int pageNo, TilePo
     }
 }
 
-void RenderCache::AbortCurrentRequest() {
+void RenderCache::AbortCurrentRequest(int threadIdx) {
     ScopedCritSec scope(&requestAccess);
-    if (!curReq) {
+    auto* cr = curReqs[threadIdx];
+    if (!cr) {
         return;
     }
-    if (curReq->abortCookie) {
-        curReq->abortCookie->Abort();
+    if (cr->abortCookie) {
+        cr->abortCookie->Abort();
     }
-    curReq->abort = true;
+    cr->abort = true;
 }
 
 static DWORD WINAPI RenderCacheThread(LPVOID data) {
-    RenderCache* cache = (RenderCache*)data;
+    auto* td = (RenderThreadData*)data;
+    RenderCache* cache = td->cache;
+    int threadIdx = td->threadIdx;
+    delete td;
+
     PageRenderRequest req;
     RenderedBitmap* bmp;
 
     for (;;) {
-        if (cache->ClearCurrentRequest()) {
+        if (AtomicBoolGet(&cache->shouldExit)) {
+            break;
+        }
+        if (cache->ClearCurrentRequest(threadIdx)) {
+            // Mark ourselves idle so Render() knows whether to spawn a new
+            // thread when work appears. Increment before waiting, decrement
+            // after waking (whether due to new work or shutdown).
+            {
+                ScopedCritSec scope(&cache->requestAccess);
+                cache->idleThreads++;
+            }
             DWORD waitResult = WaitForSingleObject(cache->startRendering, INFINITE);
+            {
+                ScopedCritSec scope(&cache->requestAccess);
+                cache->idleThreads--;
+            }
+            if (AtomicBoolGet(&cache->shouldExit)) {
+                break;
+            }
             // Is it not a page render request?
             if (WAIT_OBJECT_0 != waitResult) {
                 continue;
             }
         }
 
-        if (!cache->GetNextRequest(&req)) {
+        if (!cache->GetNextRequest(&req, threadIdx)) {
             continue;
         }
 
-        if (!req.dm->PageVisibleNearby(req.pageNo) && !req.renderCb) {
+        if (!req.dm->PageVisibleNearby(req.pageNo) && !req.renderFinishedCb.IsValid()) {
             continue;
         }
 
         if (req.dm->pauseRendering) {
-            if (req.renderCb) {
-                req.renderCb->Call(nullptr);
-            }
+            // aborted due to pause - do nothing
             continue;
-        }
-
-        // make sure that we have extracted page text for
-        // all rendered pages to allow text selection and
-        // searching without any further delays
-        if (!req.dm->textCache->HasTextForPage(req.pageNo)) {
-            req.dm->textCache->GetTextForPage(req.pageNo);
         }
 
         ReportIf(req.abortCookie != nullptr);
         EngineBase* engine = req.dm->GetEngine();
+
+        // make sure that we have extracted page text for
+        // all rendered pages to allow text selection and
+        // searching without any further delays
+        if (!engine->HasTextForPage(req.pageNo)) {
+            engine->GetTextForPage(req.pageNo);
+        }
         RenderPageArgs args(req.pageNo, req.zoom, req.rotation, &req.pageRect, RenderTarget::View, &req.abortCookie);
         auto timeStart = TimeGet();
         bmp = engine->RenderPage(args);
         if (req.abort) {
+            // aborted - do nothing, discard result
             delete bmp;
-            if (req.renderCb) {
-                req.renderCb->Call(nullptr);
-            }
             continue;
         }
         auto durMs = TimeSinceInMs(timeStart);
@@ -709,21 +804,24 @@ static DWORD WINAPI RenderCacheThread(LPVOID data) {
             logfa("Slow rendering: %.2f ms, page: %d in '%s'\n", (float)durMs, req.pageNo, path);
         }
 
-        if (req.renderCb) {
-            // the callback must free the RenderedBitmap
-            req.renderCb->Call(bmp);
-            // req.renderCb = (RenderingCallback*)1; // will crash if accessed again, which should not happen
-        } else {
-            // don't replace colors for individual images
-            if (bmp && !engine->IsImageCollection()) {
+        req.bmp = bmp;
+        req.errorCode = bmp ? 0 : 1;
+
+        if (bmp) {
+            if (!engine->IsImageCollection()) {
                 UpdateBitmapColors(bmp->GetBitmap(), cache->textColor, cache->backgroundColor);
             }
             cache->Add(req, bmp);
-            req.dm->RepaintDisplay();
+            req.bmp = nullptr; // ownership transferred to cache
         }
+
+        ReportIf(!req.renderFinishedCb.IsValid());
+        req.renderFinishedCb.Call(&req);
         ResetTempAllocator();
     }
+    logf("RenderCacheThread: exiting\n");
     DestroyTempAllocator();
+    return 0;
 }
 
 // TODO: conceptually, RenderCache is not the right place for code that paints
@@ -811,9 +909,8 @@ static int cmpTilePosition(const void* a, const void* b) {
     return ta->res != tb->res ? ta->res - tb->res : ta->row != tb->row ? ta->row - tb->row : ta->col - tb->col;
 }
 
-int RenderCache::Paint(HDC hdc, Rect bounds, DisplayModel* dm, int pageNo, PageInfo* pageInfo,
-                       bool* renderOutOfDateCue) {
-    ReportIf(!pageInfo->shown || 0.0 == pageInfo->visibleRatio);
+int RenderCache::Paint(HDC hdc, Rect bounds, DisplayModel* dm, int pageNo, PageInfo* pi, bool* renderOutOfDateCue) {
+    ReportIf(!pi->isShown || 0.0 == pi->visibleRatio);
 
 #if 0
     auto timeStart = TimeGet();
@@ -827,10 +924,10 @@ int RenderCache::Paint(HDC hdc, Rect bounds, DisplayModel* dm, int pageNo, PageI
     if (!dm->ShouldCacheRendering(pageNo)) {
         int rotation = dm->GetRotation();
         float zoom = dm->GetZoomReal(pageNo);
-        bounds = pageInfo->pageOnScreen.Intersect(bounds);
+        bounds = pi->pageOnScreen.Intersect(bounds);
 
         RectF area = ToRectF(bounds);
-        area.Offset(-pageInfo->pageOnScreen.x, -pageInfo->pageOnScreen.y);
+        area.Offset(-pi->pageOnScreen.x, -pi->pageOnScreen.y);
         area = dm->GetEngine()->Transform(area, pageNo, zoom, rotation, true);
 
         RenderPageArgs args(pageNo, zoom, rotation, &area);
@@ -856,13 +953,13 @@ int RenderCache::Paint(HDC hdc, Rect bounds, DisplayModel* dm, int pageNo, PageI
 
     while (queue.size() > 0) {
         TilePosition tile = queue.PopAt(0);
-        Rect tileOnScreen = GetTileOnScreen(dm->GetEngine(), pageNo, rotation, zoom, tile, pageInfo->pageOnScreen);
+        Rect tileOnScreen = GetTileOnScreen(dm->GetEngine(), pageNo, rotation, zoom, tile, pi->pageOnScreen);
         if (tileOnScreen.IsEmpty()) {
             // display an error message when only empty tiles should be drawn (i.e. on page loading errors)
             renderDelayMin = std::min(RENDER_DELAY_FAILED, renderDelayMin);
             continue;
         }
-        tileOnScreen = pageInfo->pageOnScreen.Intersect(tileOnScreen);
+        tileOnScreen = pi->pageOnScreen.Intersect(tileOnScreen);
         Rect isect = bounds.Intersect(tileOnScreen);
         if (isect.IsEmpty()) {
             continue;

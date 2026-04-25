@@ -23,6 +23,8 @@
 #include "Translations.h"
 #include "EditAnnotations.h"
 
+#include "utils/Log.h"
+
 WindowTab::WindowTab(MainWindow* win) {
     this->win = win;
 }
@@ -38,6 +40,15 @@ bool WindowTab::IsAboutTab() const {
 }
 
 WindowTab::~WindowTab() {
+    logf("~WindowTab: 0x%p, dm: 0x%p\n", this, AsFixed());
+    if (hwndPDFInfo) {
+        DestroyWindow(hwndPDFInfo);
+        hwndPDFInfo = nullptr;
+    }
+    if (hwndPDFOutline) {
+        DestroyWindow(hwndPDFOutline);
+        hwndPDFOutline = nullptr;
+    }
     CloseAndDeleteEditAnnotationsWindow(this);
     FileWatcherUnsubscribe(watcher);
     if (AsChm()) {
@@ -119,6 +130,8 @@ void WindowTab::ToggleZoom() const {
         newZoom = kZoomFitWidth;
     } else if (kZoomFitWidth == currZoom) {
         newZoom = kZoomFitContent;
+    } else if (kZoomFitContent == currZoom) {
+        newZoom = kZoomShrinkToFit;
     }
     ctrl->SetZoomVirtual(newZoom, nullptr);
 }

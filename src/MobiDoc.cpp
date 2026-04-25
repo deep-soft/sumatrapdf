@@ -8,11 +8,10 @@
 #include "utils/FileUtil.h"
 #include "utils/GuessFileType.h"
 #include "utils/GdiPlusUtil.h"
-#include "utils/HtmlParserLookup.h"
-#include "utils/HtmlPullParser.h"
-#include "utils/TrivialHtmlParser.h"
 
 #include "wingui/UIModels.h"
+
+#include "GumboHelpers.h"
 
 #include "DocProperties.h"
 #include "DocController.h"
@@ -122,7 +121,7 @@ static_assert(kMobiHeaderLen == sizeof(MobiHeader), "wrong size of MobiHeader st
 // Uncompress source data compressed with PalmDoc compression into a buffer.
 // http://wiki.mobileread.com/wiki/PalmDOC#Format
 // Returns false on decoding errors
-static bool PalmdocUncompress(const u8* src, size_t srcLen, str::Str& dst) {
+static bool PalmdocUncompress(const u8* src, size_t srcLen, StrBuilder& dst) {
     const u8* srcEnd = src + srcLen;
     while (src < srcEnd) {
         u8 c = *src++;
@@ -203,21 +202,20 @@ class HuffDicDecompressor {
 
     u32 codeLength = 0;
 
-    Vec<u32> recursionGuard;
+    int recursionDepth = 0;
 
   public:
     HuffDicDecompressor();
 
     bool SetHuffData(u8* huffData, size_t huffDataLen);
     bool AddCdicData(u8* cdicData, u32 cdicDataLen);
-    bool Decompress(u8* src, size_t srcSize, str::Str& dst);
-    bool DecodeOne(u32 code, str::Str& dst);
+    bool Decompress(u8* src, size_t srcSize, StrBuilder& dst);
+    bool DecodeOne(u32 code, StrBuilder& dst);
 };
 
-HuffDicDecompressor::HuffDicDecompressor() {
-}
+HuffDicDecompressor::HuffDicDecompressor() {}
 
-bool HuffDicDecompressor::DecodeOne(u32 code, str::Str& dst) {
+bool HuffDicDecompressor::DecodeOne(u32 code, StrBuilder& dst) {
     u16 dict = (u16)(code >> codeLength);
     if (dict >= dictsCount) {
         logf("invalid dict value\n");
@@ -238,15 +236,16 @@ bool HuffDicDecompressor::DecodeOne(u32 code, str::Str& dst) {
     }
 
     if (!(symLen & 0x8000)) {
-        if (recursionGuard.Contains(code)) {
+        if (recursionDepth > 20) {
             logf("infinite recursion\n");
             return false;
         }
-        recursionGuard.Append(code);
+        recursionDepth++;
         if (!Decompress(p, symLen, dst)) {
+            recursionDepth--;
             return false;
         }
-        recursionGuard.Pop();
+        recursionDepth--;
     } else {
         symLen &= 0x7fff;
         if (symLen > 127) {
@@ -258,7 +257,7 @@ bool HuffDicDecompressor::DecodeOne(u32 code, str::Str& dst) {
     return true;
 }
 
-bool HuffDicDecompressor::Decompress(u8* src, size_t srcSize, str::Str& dst) {
+bool HuffDicDecompressor::Decompress(u8* src, size_t srcSize, StrBuilder& dst) {
     u32 bitsConsumed = 0;
     u32 bits = 0;
 
@@ -329,7 +328,7 @@ static void ReadHuffReader(HuffHeader& huffHdr, ByteOrderDecoder& d) {
 bool HuffDicDecompressor::SetHuffData(u8* huffData, size_t huffDataLen) {
     // for now catch cases where we don't have both big endian and little endian
     // versions of the data
-    ReportIf(kHuffRecordLen != huffDataLen);
+    // ReportIf(kHuffRecordLen != huffDataLen);
     // but conservatively assume we only need big endian version
     if (huffDataLen < kHuffRecordMinLen) {
         return false;
@@ -388,7 +387,7 @@ bool HuffDicDecompressor::AddCdicData(u8* cdicData, u32 cdicDataLen) {
     }
     u32 size = cdicDataLen - hdrLen;
 
-    u32 maxSize = 1 << codeLength;
+    u32 maxSize = 2u * (1u << codeLength);
     if (maxSize >= size) {
         return false;
     }
@@ -398,11 +397,12 @@ bool HuffDicDecompressor::AddCdicData(u8* cdicData, u32 cdicDataLen) {
     return true;
 }
 
-static void DecodeMobiDocHeader(const u8* buf, MobiHeader* hdr) {
+static void DecodeMobiDocHeader(const u8* buf, size_t bufLen, MobiHeader* hdr) {
     memset(hdr, 0, sizeof(MobiHeader));
     hdr->drmEntriesCount = (u32)-1;
 
-    ByteOrderDecoder d(buf, kMobiHeaderLen, ByteOrderDecoder::BigEndian);
+    size_t decLen = std::min(bufLen, (size_t)kMobiHeaderLen);
+    ByteOrderDecoder d(buf, decLen, ByteOrderDecoder::BigEndian);
     d.Bytes(hdr->id, 4);
     hdr->hdrLen = d.UInt32();
     hdr->type = d.UInt32();
@@ -452,9 +452,6 @@ static void DecodeMobiDocHeader(const u8* buf, MobiHeader* hdr) {
     hdr->extraDataFlags = d.UInt16();
     if (hdr->hdrLen >= 232) {
         hdr->indxRec = d.UInt32();
-        ReportIf(kMobiHeaderLen != d.Offset());
-    } else {
-        ReportIf(kMobiHeaderLen - 4 != d.Offset());
     }
 }
 
@@ -533,7 +530,8 @@ bool MobiDoc::ParseHeader() {
     }
 
     MobiHeader mobiHdr;
-    DecodeMobiDocHeader(firstRecData + kPalmDocHeaderLen, &mobiHdr);
+    size_t mobiDataLen = recSize - kPalmDocHeaderLen;
+    DecodeMobiDocHeader(firstRecData + kPalmDocHeaderLen, mobiDataLen, &mobiHdr);
     if (!str::EqN("MOBI", mobiHdr.id, 4)) {
         logf("MobiHeader.id is not 'MOBI'\n");
         return false;
@@ -713,7 +711,8 @@ static bool KnownNonImageRec(const ByteSlice& d) {
 }
 
 static bool KnownImageFormat(const ByteSlice& d) {
-    return nullptr != GuessFileTypeFromContent(d);
+    Kind kind = GuessFileTypeFromContent(d);
+    return kind != nullptr;
 }
 
 // return false if we should stop loading images (because we
@@ -722,7 +721,7 @@ bool MobiDoc::LoadImage(size_t imageNo) {
     size_t imageRec = imageFirstRec + imageNo;
 
     auto rec = pdbReader->GetRecord(imageRec);
-    if (rec.empty()) {
+    if (rec.Size() < 4) {
         return false;
     }
     if (IsEofRecord(rec)) {
@@ -732,7 +731,8 @@ bool MobiDoc::LoadImage(size_t imageNo) {
         return true;
     }
     if (!KnownImageFormat(rec)) {
-        logf("MobiDoc::LoadImage: unknown image format\n");
+        u32 sig = UInt32BE(rec.data());
+        logf("MobiDoc::LoadImage: unknown record type 0x%08X\n", sig);
         return true;
     }
     images[imageNo] = rec;
@@ -815,7 +815,7 @@ static size_t GetRealRecordSize(const u8* recData, size_t recLen, size_t trailer
 
 // Load a given record of a document into strOut, uncompressing if necessary.
 // Returns false if error.
-bool MobiDoc::LoadDocRecordIntoBuffer(size_t recNo, str::Str& strOut) {
+bool MobiDoc::LoadDocRecordIntoBuffer(size_t recNo, StrBuilder& strOut) {
     auto rec = pdbReader->GetRecord(recNo);
     u8* recData = rec.data();
     if (nullptr == recData) {
@@ -863,7 +863,7 @@ bool MobiDoc::LoadForPdbReader(PdbReader* pdbReader) {
     }
 
     ReportIf(doc != nullptr);
-    doc = new str::Str(docUncompressedSize);
+    doc = new StrBuilder(docUncompressedSize);
     size_t nFailed = 0;
     for (size_t i = 1; i <= docRecCount; i++) {
         if (!LoadDocRecordIntoBuffer(i, *doc)) {
@@ -912,36 +912,128 @@ TempStr MobiDoc::GetPropertyTemp(const char* name) {
     return strconv::StrToUtf8Temp(v, textEncoding);
 }
 
+static const GumboNode* FindMobiTocReference(const GumboNode* node) {
+    if (!node) {
+        return nullptr;
+    }
+    if (node->type == GUMBO_NODE_ELEMENT && GumboTagNameIs(node, "reference")) {
+        const GumboAttribute* type = gumbo_get_attribute(&node->v.element.attributes, "type");
+        if (type && str::EqI(type->value, "toc")) {
+            return node;
+        }
+    }
+    const GumboVector* children = nullptr;
+    if (node->type == GUMBO_NODE_ELEMENT) {
+        children = &node->v.element.children;
+    } else if (node->type == GUMBO_NODE_DOCUMENT) {
+        children = &node->v.document.children;
+    }
+    if (children) {
+        for (unsigned int i = 0; i < children->length; i++) {
+            const GumboNode* found = FindMobiTocReference((const GumboNode*)children->data[i]);
+            if (found) {
+                return found;
+            }
+        }
+    }
+    return nullptr;
+}
+
 bool MobiDoc::HasToc() {
     if (docTocIndex != kInvalidSize) {
         return docTocIndex < doc->size();
     }
     docTocIndex = doc->size(); // no ToC
 
-    // search for <reference type=toc filepos=\d+/>
-    HtmlPullParser parser(doc->AsByteSlice());
-    HtmlToken* tok;
-    while ((tok = parser.Next()) != nullptr && !tok->IsError()) {
-        if (!tok->IsStartTag() && !tok->IsEmptyElementEndTag() || !tok->NameIs("reference")) {
-            continue;
-        }
-        AttrInfo* attr = tok->GetAttrByName("type");
-        if (!attr) {
-            continue;
-        }
-        AutoFreeWStr val(strconv::FromHtmlUtf8(attr->val, attr->valLen));
-        attr = tok->GetAttrByName("filepos");
-        if (!str::EqI(val, L"toc") || !attr) {
-            continue;
-        }
-        val.Set(strconv::FromHtmlUtf8(attr->val, attr->valLen));
-        unsigned int pos;
-        if (str::Parse(val, L"%u%$", &pos)) {
-            docTocIndex = pos;
-            return docTocIndex < doc->size();
+    // search for <reference type="toc" filepos="N"/>
+    GumboOptions opts = GumboMakeOptions();
+    GumboOutput* output = gumbo_parse_with_options(&opts, doc->Get(), doc->size());
+    if (!output) {
+        return false;
+    }
+    const GumboNode* ref = FindMobiTocReference(output->document);
+    if (ref) {
+        const GumboAttribute* filepos = gumbo_get_attribute(&ref->v.element.attributes, "filepos");
+        if (filepos) {
+            unsigned int pos;
+            if (str::Parse(filepos->value, "%u%$", &pos)) {
+                docTocIndex = pos;
+            }
         }
     }
-    return false;
+    gumbo_destroy_output(&opts, output);
+    return docTocIndex < doc->size();
+}
+
+static void AppendDeepText(const GumboNode* node, StrBuilder& sb) {
+    if (!node) {
+        return;
+    }
+    if (node->type == GUMBO_NODE_TEXT || node->type == GUMBO_NODE_CDATA || node->type == GUMBO_NODE_WHITESPACE) {
+        sb.Append(node->v.text.text);
+        return;
+    }
+    if (node->type != GUMBO_NODE_ELEMENT) {
+        return;
+    }
+    const GumboVector* children = &node->v.element.children;
+    for (unsigned int i = 0; i < children->length; i++) {
+        AppendDeepText((const GumboNode*)children->data[i], sb);
+    }
+}
+
+struct MobiTocWalker {
+    EbookTocVisitor* visitor = nullptr;
+    int itemLevel = 0;
+    bool stopped = false;
+
+    void Walk(const GumboNode* node);
+    void WalkChildren(const GumboVector* children);
+};
+
+void MobiTocWalker::WalkChildren(const GumboVector* children) {
+    for (unsigned int i = 0; i < children->length && !stopped; i++) {
+        Walk((const GumboNode*)children->data[i]);
+    }
+}
+
+void MobiTocWalker::Walk(const GumboNode* node) {
+    if (stopped || !node) {
+        return;
+    }
+    if (node->type == GUMBO_NODE_DOCUMENT) {
+        WalkChildren(&node->v.document.children);
+        return;
+    }
+    if (node->type != GUMBO_NODE_ELEMENT) {
+        return;
+    }
+    if (GumboTagNameIs(node, "mbp:pagebreak")) {
+        stopped = true;
+        return;
+    }
+    if (GumboTagNameIs(node, "a")) {
+        const GumboAttribute* attr = gumbo_get_attribute(&node->v.element.attributes, "filepos");
+        if (!attr) {
+            attr = gumbo_get_attribute(&node->v.element.attributes, "href");
+        }
+        if (attr) {
+            StrBuilder text;
+            AppendDeepText(node, text);
+            if (!text.IsEmpty()) {
+                visitor->Visit(text.LendData(), attr->value, itemLevel);
+            }
+        }
+        return;
+    }
+    bool isLevel = GumboTagNameIs(node, "blockquote") || GumboTagNameIs(node, "ul") || GumboTagNameIs(node, "ol");
+    if (isLevel) {
+        itemLevel++;
+    }
+    WalkChildren(&node->v.element.children);
+    if (isLevel) {
+        itemLevel--;
+    }
 }
 
 bool MobiDoc::ParseToc(EbookTocVisitor* visitor) {
@@ -949,52 +1041,21 @@ bool MobiDoc::ParseToc(EbookTocVisitor* visitor) {
         return false;
     }
 
-    AutoFreeWStr itemText;
-    AutoFreeWStr itemLink;
-    int itemLevel = 0;
-
     // there doesn't seem to be a standard for Mobi ToCs, so we try to
     // determine the author's intentions by looking at commonly used tags
-    HtmlPullParser parser(doc->Get() + docTocIndex, doc->size() - docTocIndex);
-    HtmlToken* tok;
-    while ((tok = parser.Next()) != nullptr && !tok->IsError()) {
-        if (itemLink && tok->IsText()) {
-            AutoFreeWStr linkText(strconv::FromHtmlUtf8(tok->s, tok->sLen));
-            if (itemText) {
-                itemText.Set(str::Join(itemText, L" ", linkText));
-            } else {
-                itemText.Set(linkText.StealData());
-            }
-        } else if (!tok->IsTag()) {
-            continue;
-        } else if (Tag_Mbp_Pagebreak == tok->tag) {
-            break;
-        } else if (!itemLink && tok->IsStartTag() && Tag_A == tok->tag) {
-            AttrInfo* attr = tok->GetAttrByName("filepos");
-            if (!attr) {
-                attr = tok->GetAttrByName("href");
-            }
-            if (attr) {
-                itemLink.Set(strconv::FromHtmlUtf8(attr->val, attr->valLen));
-            }
-        } else if (itemLink && tok->IsEndTag() && Tag_A == tok->tag) {
-            if (!itemText) {
-                itemLink.Reset();
-                continue;
-            }
-            char* txt = ToUtf8Temp(itemText);
-            char* link = ToUtf8Temp(itemLink);
-            visitor->Visit(txt, link, itemLevel);
-            itemText.Reset();
-            itemLink.Reset();
-        } else if (Tag_Blockquote == tok->tag || Tag_Ul == tok->tag || Tag_Ol == tok->tag) {
-            if (tok->IsStartTag()) {
-                itemLevel++;
-            } else if (tok->IsEndTag() && itemLevel > 0) {
-                itemLevel--;
-            }
-        }
+    GumboOptions opts = GumboMakeOptions();
+    const char* tocStart = doc->Get() + docTocIndex;
+    size_t tocLen = doc->size() - docTocIndex;
+    GumboOutput* output = gumbo_parse_with_options(&opts, tocStart, tocLen);
+    if (!output) {
+        return false;
     }
+
+    MobiTocWalker walker;
+    walker.visitor = visitor;
+    walker.Walk(output->document);
+
+    gumbo_destroy_output(&opts, output);
     return true;
 }
 

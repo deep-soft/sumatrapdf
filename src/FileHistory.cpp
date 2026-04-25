@@ -39,7 +39,11 @@ quits.
 
 // maximum number of files to remember in total
 // (to keep the settings file within reasonable bounds)
-constexpr size_t kFileHistoryMaxFiles = 1000;
+constexpr int kFileHistoryMaxFiles = 1000;
+
+// maximum number of most frequently used files that will be shown on the
+// Frequent Read list (space permitting)
+constexpr int kFileHistoryMaxFrequent = 1000;
 
 FileHistory gFileHistory;
 
@@ -66,7 +70,7 @@ void FileHistory::Clear(bool keepFavorites) const {
             states->at(i)->openCount = 0;
             keep.Append(states->at(i));
         } else {
-            DeleteDisplayState(states->at(i));
+            DeleteFileState(states->at(i));
         }
     }
     *states = keep;
@@ -105,7 +109,7 @@ FileState* FileHistory::FindByName(const char* filePath, size_t* idxOut) const {
         FileState* fs = states->at(i);
         if (str::EqI(fs->filePath, filePath)) {
             idxExact = i;
-        } else if (str::EndsWithI(fs->filePath, fileName)) {
+        } else if (str::EqI(path::GetBaseNameTemp(fs->filePath), fileName)) {
             idxFileNameMatch = i;
         }
     }
@@ -129,7 +133,7 @@ FileState* FileHistory::MarkFileLoaded(const char* filePath) const {
     // the file moves to the front of the list
     FileState* fs = FindByPath(filePath);
     if (!fs) {
-        fs = NewDisplayState(filePath);
+        fs = NewFileState(filePath);
         fs->useDefaultState = true;
     } else {
         states->Remove(fs);
@@ -250,7 +254,7 @@ void FileHistory::Purge(bool alwaysUseDefaultState) const {
         }
     }
 
-    for (size_t j = states->size(); j > 0; j--) {
+    for (int j = states->Size(); j > 0; j--) {
         FileState* state = states->at(j - 1);
         // never forget pinned documents, documents we've remembered a password for and
         // documents for which there are favorites
@@ -269,7 +273,7 @@ void FileHistory::Purge(bool alwaysUseDefaultState) const {
         } else {
             continue;
         }
-        DeleteDisplayState(state);
+        DeleteFileState(state);
     }
 }
 

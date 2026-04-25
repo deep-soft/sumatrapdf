@@ -52,7 +52,7 @@ void SetThreadName(const char* threadName, DWORD threadId) {
 }
 #pragma warning(push)
 #else
-void SetThreadName(DWORD, const char*) {
+void SetThreadName(const char*, DWORD) {
     // nothing
 }
 #endif // COMPILER_MSVC
@@ -83,9 +83,9 @@ void RunAsync(const Func0& fn, const char* threadName) {
     SafeCloseHandle(&hThread);
 }
 
-AtomicInt gDangerousThreadCount;
+AtomicInt gDangerousThreadCount = 0;
 
 bool AreDangerousThreadsPending() {
-    auto count = gDangerousThreadCount.Get();
+    auto count = AtomicIntGet(&gDangerousThreadCount);
     return count != 0;
 }

@@ -67,8 +67,7 @@ struct Rect {
     Rect(Gdiplus::RectF r); // NOLINT
     Rect(int x, int y, int dx, int dy);
     // TODO: why not working if in .cpp? Confused by Size also being a method?
-    Rect(const Point pt, const Size sz) : x(pt.x), y(pt.y), dx(sz.dx), dy(sz.dy) {
-    }
+    Rect(const Point pt, const Size sz) : x(pt.x), y(pt.y), dx(sz.dx), dy(sz.dy) {}
     Rect(Point min, Point max);
 
     bool EqSize(int otherDx, int otherDy) const;

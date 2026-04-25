@@ -31,6 +31,7 @@
 #include "AppTools.h"
 #include "SearchAndDDE.h"
 #include "Selection.h"
+#include "Toolbar.h"
 #include "SumatraDialogs.h"
 #include "Translations.h"
 
@@ -68,36 +69,39 @@ void FindFirst(MainWindow* win) {
         return;
     }
 
-    // copy any selected text to the find bar, if it's still empty
     DisplayModel* dm = win->AsFixed();
-    // note: used to only copy selection to search edit ctrl
-    // if search edit was empty
-    // auto isEditEmpty = Edit_GetTextLength(win->hwndFindEdit) == 0
-    if (dm->textSelection->result.len > 0) {
+    bool hadFindFocus = HwndIsFocused(win->hwndFindEdit);
+
+    // If focus was in the document (not find bar), copy selected text
+    // to find edit only if it's different from current text
+    if (!hadFindFocus && dm->textSelection->result.len > 0) {
         AutoFreeWStr selection(dm->textSelection->ExtractText(" "));
         str::NormalizeWSInPlace(selection);
         if (!str::IsEmpty(selection.Get())) {
             TempStr s = ToUtf8Temp(selection);
-            HwndSetText(win->hwndFindEdit, s);
-            Edit_SetModify(win->hwndFindEdit, TRUE);
+            TempStr current = HwndGetTextTemp(win->hwndFindEdit);
+            if (!str::EqI(s, current)) {
+                AbortFinding(win, false);
+                dm->textSearch->SetLastResult(dm->textSelection);
+                Edit_SetModify(win->hwndFindEdit, FALSE);
+                HwndSetText(win->hwndFindEdit, s);
+                Edit_SetModify(win->hwndFindEdit, FALSE);
+            }
         }
     }
 
     // Don't show a dialog if we don't have to - use the Toolbar instead
     if (gGlobalPrefs->showToolbar && !win->isFullScreen && !win->presentation) {
-        if (HwndIsFocused(win->hwndFindEdit)) {
-            SendMessageW(win->hwndFindEdit, WM_SETFOCUS, 0, 0);
-        } else {
+        if (!HwndIsFocused(win->hwndFindEdit)) {
             HwndSetFocus(win->hwndFindEdit);
         }
         return;
     }
 
     TempStr previousFind = HwndGetTextTemp(win->hwndFindEdit);
-    WORD state = (WORD)SendMessageW(win->hwndToolbar, TB_GETSTATE, CmdFindMatch, 0);
-    bool matchCase = (state & TBSTATE_CHECKED) != 0;
+    bool newMatchCase = win->findMatchCase;
 
-    AutoFreeStr findString(Dialog_Find(win->hwndFrame, previousFind, &matchCase));
+    AutoFreeStr findString(Dialog_Find(win->hwndFrame, previousFind, &newMatchCase));
     if (!findString) {
         return;
     }
@@ -105,15 +109,10 @@ void FindFirst(MainWindow* win) {
     HwndSetText(win->hwndFindEdit, findString);
     Edit_SetModify(win->hwndFindEdit, TRUE);
 
-    bool matchCaseChanged = matchCase != (0 != (state & TBSTATE_CHECKED));
-    if (matchCaseChanged) {
-        if (matchCase) {
-            state |= TBSTATE_CHECKED;
-        } else {
-            state &= ~TBSTATE_CHECKED;
-        }
-        SendMessageW(win->hwndToolbar, TB_SETSTATE, CmdFindMatch, state);
-        dm->textSearch->SetSensitive(matchCase);
+    if (newMatchCase != win->findMatchCase) {
+        win->findMatchCase = newMatchCase;
+        dm->textSearch->SetMatchCase(newMatchCase);
+        SetToolbarButtonCheckedState(win, CmdFindToggleMatchCase, win->findMatchCase);
     }
 
     FindTextOnThread(win, TextSearch::Direction::Forward, true);
@@ -141,8 +140,9 @@ void FindToggleMatchCase(MainWindow* win) {
     if (!win->IsDocLoaded() || !NeedsFindUI(win)) {
         return;
     }
-    WORD state = (WORD)SendMessageW(win->hwndToolbar, TB_GETSTATE, CmdFindMatch, 0);
-    win->AsFixed()->textSearch->SetSensitive((state & TBSTATE_CHECKED) != 0);
+    win->findMatchCase = !win->findMatchCase;
+    win->AsFixed()->textSearch->SetMatchCase(win->findMatchCase);
+    SetToolbarButtonCheckedState(win, CmdFindToggleMatchCase, win->findMatchCase);
     Edit_SetModify(win->hwndFindEdit, TRUE);
 }
 
@@ -234,9 +234,7 @@ struct FindThreadData {
         this->text = ToWStr(text);
         this->wasModified = wasModified;
     }
-    ~FindThreadData() {
-        CloseHandle(thread);
-    }
+    ~FindThreadData() { CloseHandle(thread); }
 
     void ShowUI(bool showProgress) {
         const LPARAM disable = (LPARAM)MAKELONG(0, 0);
@@ -252,17 +250,15 @@ struct FindThreadData {
             ShowNotification(args);
         }
 
-        SendMessageW(win->hwndToolbar, TB_ENABLEBUTTON, CmdFindPrev, disable);
-        SendMessageW(win->hwndToolbar, TB_ENABLEBUTTON, CmdFindNext, disable);
-        SendMessageW(win->hwndToolbar, TB_ENABLEBUTTON, CmdFindMatch, disable);
+        SetToolbarButtonEnableState(win, CmdFindPrev, false);
+        SetToolbarButtonEnableState(win, CmdFindNext, false);
+        SetToolbarButtonEnableState(win, CmdFindToggleMatchCase, false);
     }
 
     void HideUI(bool success, bool loopedAround) const {
-        LPARAM enable = (LPARAM)MAKELONG(1, 0);
-
-        SendMessageW(win->hwndToolbar, TB_ENABLEBUTTON, CmdFindPrev, enable);
-        SendMessageW(win->hwndToolbar, TB_ENABLEBUTTON, CmdFindNext, enable);
-        SendMessageW(win->hwndToolbar, TB_ENABLEBUTTON, CmdFindMatch, enable);
+        SetToolbarButtonEnableState(win, CmdFindPrev, true);
+        SetToolbarButtonEnableState(win, CmdFindNext, true);
+        SetToolbarButtonEnableState(win, CmdFindToggleMatchCase, true);
 
         auto wnd = GetNotificationForGroup(win->hwndCanvas, kNotifFindProgress);
 
@@ -424,6 +420,7 @@ bool AbortFinding(MainWindow* win, bool hideMessage) {
         logf("AboftFinding: setting win->findCancelled to true\n");
         win->findCancelled = true;
         WaitForSingleObject(win->findThread, INFINITE);
+        win->findThread = nullptr;
     }
     win->findCancelled = false;
 
@@ -472,6 +469,18 @@ void FindTextOnThread(MainWindow* win, TextSearch::Direction direction, bool sho
     // if document is rtl, need to reverse the text
     // s = ReverseTextTemp(s);
     bool wasModified = Edit_GetModify(win->hwndFindEdit);
+    if (!wasModified) {
+        // check if the find text differs from the current tab's cached search text
+        // this happens when switching tabs: the find edit box shows the current text
+        // but the per-tab textSearch still has the old search text cached
+        DisplayModel* dm = win->AsFixed();
+        if (dm && dm->textSearch) {
+            TempWStr ws = ToWStrTemp(s);
+            if (!str::Eq(ws, dm->textSearch->findText)) {
+                wasModified = true;
+            }
+        }
+    }
     Edit_SetModify(win->hwndFindEdit, FALSE);
     FindTextOnThread(win, direction, s, wasModified, showProgress);
 }
@@ -578,7 +587,9 @@ bool OnInverseSearch(MainWindow* win, int x, int y) {
     if (!inverseSearch) {
         Vec<TextEditor*> editors;
         DetectTextEditors(editors);
-        inverseSearch = str::DupTemp(editors[0]->openFileCmd);
+        if (editors.Size() > 0) {
+            inverseSearch = str::DupTemp(editors[0]->openFileCmd);
+        }
     }
 
     AutoFreeStr cmdLine;
@@ -794,7 +805,6 @@ valid formats:
     [Open("c:\file.pdf",1,1,0)]
     [Open("c:\file.pdf",1,1,0,1)]
 */
-// TODO: handle inCurrentTab flag
 static const char* HandleOpenCmd(const char* cmd, bool* ack) {
     AutoFreeStr filePath;
     int newWindow = 0;
@@ -894,7 +904,11 @@ static const char* HandleOpenCmd(const char* cmd, bool* ack) {
         if (newWindow) {
             args.activateExisting = false;
         }
-        logf("HandleOpenCmd: calling LoadDocument(), activateExisting: %d\n", (int)args.activateExisting);
+        if (inCurrentTab) {
+            args.forceReuse = true;
+        }
+        logf("HandleOpenCmd: calling LoadDocument(), activateExisting: %d, forceReuse: %d\n",
+             (int)args.activateExisting, (int)args.forceReuse);
         win = LoadDocument(&args);
         if (!win) {
             logf("HandleOpenCmd: LoadDocument() for '%s' failed\n", filePath.Get());
@@ -1082,7 +1096,7 @@ Returns:
 error: <error message>
 if file doesn't exist or no opened file
 */
-static const char* HandleGetFileStateCmd(HWND hwnd, const char* cmd, bool* ack, str::Str& res) {
+static const char* HandleGetFileStateCmd(HWND hwnd, const char* cmd, bool* ack, StrBuilder& res) {
     AutoFreeStr filePath;
     const char* next = str::Parse(cmd, "[GetFileState(\"%s\")]", &filePath);
     if (!next) {
@@ -1114,15 +1128,25 @@ static const char* HandleGetFileStateCmd(HWND hwnd, const char* cmd, bool* ack, 
 
 /*
 Handle all commands as defined in Commands.h
-eg: [CmdClose]
+eg: [CmdClose] or [CmdCreateAnnotHighlight #00ff00 openEdit]
 */
 static const char* HandleCmdCommand(HWND hwnd, const char* cmd, bool* ack) {
-    AutoFreeStr cmdName;
-    const char* next = str::Parse(cmd, "[%s]", &cmdName);
+    AutoFreeStr cmdContent;
+    const char* next = str::Parse(cmd, "[%s]", &cmdContent);
     if (!next) {
         return nullptr;
     }
-    int cmdId = GetCommandIdByName(cmdName);
+    // cmdContent is the full content between [ and ]
+    // it might be just "CmdClose" or "CmdCreateAnnotHighlight #00ff00 openEdit"
+    // extract the command name (first space-delimited token)
+    char* s = cmdContent.Get();
+    char* spacePos = str::FindChar(s, ' ');
+    TempStr name = s;
+    if (spacePos) {
+        name = str::DupTemp(s, (size_t)(spacePos - s));
+    }
+
+    int cmdId = GetCommandIdByName(name);
     if (cmdId < 0) {
         return nullptr;
     }
@@ -1131,8 +1155,18 @@ static const char* HandleCmdCommand(HWND hwnd, const char* cmd, bool* ack) {
         logfa("HandleCmdCommand: not executing DDE becaues MainWindow for hwnd 0x%p not found\n", hwnd);
         return nullptr;
     }
-    logfa("HandleCmdCommand: sending %d (%s) command\n", cmdId, cmdName.Get());
-    SendMessageW(win->hwndFrame, WM_COMMAND, cmdId, 0);
+
+    // if there are arguments after the command name, create a custom command with those args
+    int idToSend = cmdId;
+    if (spacePos) {
+        CustomCommand* customCmd = CreateCommandFromDefinition(cmdContent);
+        if (customCmd) {
+            idToSend = customCmd->id;
+        }
+    }
+
+    logfa("HandleCmdCommand: sending %d (%s) command\n", idToSend, cmdContent.Get());
+    SendMessageW(win->hwndFrame, WM_COMMAND, idToSend, 0);
     *ack = true;
     return next;
 }
@@ -1179,7 +1213,7 @@ static bool HandleExecuteCmds(HWND hwnd, const char* cmd) {
     return didHandle;
 }
 
-static bool HandleRequestCmds(HWND hwnd, const char* cmd, str::Str& rsp) {
+static bool HandleRequestCmds(HWND hwnd, const char* cmd, StrBuilder& rsp) {
     bool didHandle = false;
     while (!str::IsEmpty(cmd)) {
         {
@@ -1216,7 +1250,7 @@ LRESULT OnDDERequest(HWND hwnd, WPARAM wp, LPARAM lp) {
         return 0;
     }
 
-    str::Str str;
+    StrBuilder str;
     bool didHandle = HandleRequestCmds(hwnd, cmd, str);
     if (!didHandle) {
         str.Set("error: unknoqn command");
@@ -1237,7 +1271,7 @@ LRESULT OnDDERequest(HWND hwnd, WPARAM wp, LPARAM lp) {
     }
 
     int cbDdeData = sizeof(DDEDATA);
-    u8* res = (u8*)Allocator::AllocZero(GetTempAllocator(), cbDdeData + cbData);
+    u8* res = (u8*)AllocZero(GetTempAllocator(), cbDdeData + cbData);
     DDEDATA* ddeData = (DDEDATA*)res;
     ddeData->fRelease = 1; // tell client to free HGLOBAL
     ddeData->cfFormat = fmt;
@@ -1281,20 +1315,85 @@ LRESULT OnDDETerminate(HWND hwnd, WPARAM wp, LPARAM) {
     return 0;
 }
 
+// Payload for async Open command carried in kCopyDataOpen WM_COPYDATA
+struct OpenCopyDataAsync {
+    char* path; // heap-allocated, freed by OpenCopyDataAsyncRun
+    u32 newWindow;
+};
+
+static void OpenCopyDataAsyncRun(OpenCopyDataAsync* d) {
+    // Pick a target window the same way HandleOpenCmd would, then kick off
+    // the load on a worker thread. We stay off the UI thread for the heavy
+    // bit so the sender (already returned from SendMessageW by now) never
+    // had to wait on us in the first place.
+    MainWindow* win = nullptr;
+    if (d->newWindow) {
+        MainWindow* emptyExistingWin = nullptr;
+        for (auto& w : gWindows) {
+            if (!w->HasDocsLoaded()) {
+                emptyExistingWin = w;
+                break;
+            }
+        }
+        win = emptyExistingWin ? emptyExistingWin : CreateAndShowMainWindow(nullptr);
+    } else {
+        win = FindMainWindowByFile(d->path, true);
+        if (!win) {
+            win = FindMainWindowByHwnd(gLastActiveFrameHwnd);
+        }
+        if (!win && gWindows.Size() > 0) {
+            win = gWindows[0];
+        }
+    }
+    LoadArgs args(d->path, win);
+    args.activateExisting = d->newWindow == 0;
+    StartLoadDocument(&args);
+
+    str::Free(d->path);
+    delete d;
+}
+
 LRESULT OnCopyData(HWND hwnd, WPARAM wp, LPARAM lp) {
     COPYDATASTRUCT* cds = (COPYDATASTRUCT*)lp;
-    if (!cds || cds->dwData != 0x44646557 /* DdeW */ || wp) {
+    if (!cds || wp) {
         return FALSE;
     }
 
-    const WCHAR* cmdW = (const WCHAR*)cds->lpData;
-    if (cmdW[cds->cbData / sizeof(WCHAR) - 1]) {
-        return FALSE;
+    if (cds->dwData == kCopyDataOpen) {
+        // Simple-open fast path used by the reuseInstance handshake: the
+        // sibling SumatraPDF that Explorer just spawned is blocked in
+        // SendMessageW. Copy the path out, post an async task, return
+        // immediately so the sender unblocks and exits.
+        if (cds->cbData < sizeof(SumatraOpenCopyData) + 1) {
+            return FALSE;
+        }
+        auto* data = (const SumatraOpenCopyData*)cds->lpData;
+        const char* path = (const char*)(data + 1);
+        size_t pathMax = cds->cbData - sizeof(SumatraOpenCopyData);
+        // require null-terminator within bounds
+        if (strnlen_s(path, pathMax) >= pathMax) {
+            return FALSE;
+        }
+        auto* d = new OpenCopyDataAsync;
+        d->path = str::Dup(path);
+        d->newWindow = data->newWindow;
+        auto fn = MkFunc0<OpenCopyDataAsync>(OpenCopyDataAsyncRun, d);
+        uitask::Post(fn, "OnCopyData/Open");
+        return TRUE;
     }
 
-    TempStr cmd = ToUtf8Temp(cmdW);
-    bool didHandle = HandleExecuteCmds(hwnd, cmd);
-    return didHandle ? TRUE : FALSE;
+    if (cds->dwData == kCopyDataDdeW) {
+        const WCHAR* cmdW = (const WCHAR*)cds->lpData;
+        if (cmdW[cds->cbData / sizeof(WCHAR) - 1]) {
+            return FALSE;
+        }
+        // Legacy DDE grammar — callers expect synchronous handling.
+        TempStr cmd = ToUtf8Temp(cmdW);
+        bool didHandle = HandleExecuteCmds(hwnd, cmd);
+        return didHandle ? TRUE : FALSE;
+    }
+
+    return FALSE;
 }
 
 #if 0

@@ -30,14 +30,14 @@ struct MobiDoc {
     explicit MobiDoc(const char* filePath);
 
     bool ParseHeader();
-    bool LoadDocRecordIntoBuffer(size_t recNo, str::Str& strOut);
+    bool LoadDocRecordIntoBuffer(size_t recNo, StrBuilder& strOut);
     void LoadImages();
     bool LoadImage(size_t imageNo);
     bool LoadForPdbReader(PdbReader* pdbReader);
     bool DecodeExthHeader(const u8* data, size_t dataLen);
 
   public:
-    str::Str* doc = nullptr;
+    StrBuilder* doc = nullptr;
 
     size_t imagesCount = 0;
 
@@ -46,13 +46,9 @@ struct MobiDoc {
     ByteSlice GetHtmlData() const;
     ByteSlice* GetCoverImage();
     ByteSlice* GetImage(size_t imgRecIndex) const;
-    const char* GetFileName() const {
-        return fileName;
-    }
+    const char* GetFileName() const { return fileName; }
     TempStr GetPropertyTemp(const char* name);
-    PdbDocType GetDocType() const {
-        return docType;
-    }
+    PdbDocType GetDocType() const { return docType; }
 
     bool HasToc();
     bool ParseToc(EbookTocVisitor* visitor);

@@ -3,7 +3,7 @@
 
 #include "unarr-imp.h"
 
-#include <time.h>
+#include <windows.h>
 
 /* data from http://en.wikipedia.org/wiki/Cp437 */
 static const wchar_t gCp437[256] = {
@@ -78,19 +78,13 @@ char *ar_conv_dos_to_utf8(const char *astr)
 
 time64_t ar_conv_dosdate_to_filetime(uint32_t dosdate)
 {
-    struct tm tm;
-    time_t t1, t2;
-
-    tm.tm_sec = (dosdate & 0x1F) * 2;
-    tm.tm_min = (dosdate >> 5) & 0x3F;
-    tm.tm_hour = (dosdate >> 11) & 0x1F;
-    tm.tm_mday = (dosdate >> 16) & 0x1F;
-    tm.tm_mon = ((dosdate >> 21) & 0x0F) - 1;
-    tm.tm_year = ((dosdate >> 25) & 0x7F) + 80;
-    tm.tm_isdst = -1;
-
-    t1 = mktime(&tm);
-    t2 = mktime(gmtime(&t1));
-
-    return (time64_t)(2 * t1 - t2 + 11644473600) * 10000000;
+    /* Use Win32 DosDateTimeToFileTime to avoid mktime/gmtime which
+       leak CRT memory (timezone environment initialization) */
+    WORD dosDate = (WORD)(dosdate >> 16);
+    WORD dosTime = (WORD)(dosdate & 0xFFFF);
+    FILETIME ft = {0};
+    if (!DosDateTimeToFileTime(dosDate, dosTime, &ft)) {
+        return 0;
+    }
+    return (time64_t)((uint64_t)ft.dwLowDateTime | ((uint64_t)ft.dwHighDateTime << 32));
 }

@@ -69,8 +69,7 @@ struct StrVec {
 
 template <typename T>
 struct StrVecWithData : StrVec {
-    StrVecWithData() : StrVec((int)sizeof(T)) {
-    }
+    StrVecWithData() : StrVec((int)sizeof(T)) {}
 
     T* AtData(int i) const {
         void* res = AtDataRaw(i);

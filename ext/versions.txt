@@ -1,5 +1,15 @@
 Project         Version    Date
 ----------------------------------
+../mupdf        1.27.2
+  https://github.com/ArtifexSoftware/mupdf/releases/tag/1.27.2
+
+libarchive     3.8.6
+  https://github.com/libarchive/libarchive
+
+mujs           git         Oct 29, 2025
+  https://mujs.com/
+  https://github.com/ArtifexSoftware/mujs/commit/33c83d8553048fd7710a518821cdefa5818e1559
+
 bzip2           1.0.8      2019-07-21
   https://www.sourceware.org/bzip2/
 
@@ -36,13 +46,6 @@ lcms2           git        2.16
 MinHook         master     20201-01-1
   https://github.com/TsudaKageyu/minhook
 
-mujs            1.0.6      Apr 4, 2019
-  https://mujs.com/
-  https://github.com/ArtifexSoftware/mujs/commit/00d4606c3baf813b7b1c176823b2729bf51002a2
-
-../mupdf        1.27.0
-  https://github.com/ArtifexSoftware/mupdf/releases/tag/1.27.0
-
 openjpeg        2.5.4
 
 synctex         1.16       2011-06-14
@@ -70,9 +73,10 @@ windrawlib      trunk
 dav1d           trunk      2022-05-28
   https://code.videolan.org/videolan/dav1d
 
-libheif         trunk      2022-05-30
+libheif         trunk      2026-01-16
   https://github.com/strukturag/libheif
+  https://github.com/strukturag/libheif/commit/62f1b8c76ed4d8305071fdacbe74ef9717bacac5
 
-darkmodelib     trunk      2025-02-07
+darkmodelib     trunk      2026-01-16
   https://github.com/ozone10/darkmodelib
-  https://github.com/ozone10/darkmodelib/commit/eaadb15
+  https://github.com/ozone10/darkmodelib/commit/57cc10c819d17c47b6afd295b424153082144193

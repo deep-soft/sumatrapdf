@@ -22,7 +22,7 @@ If the file (or other information) is confidential, you can e-mail it directly t
 
 Often the bug only happens in a specific scenario.
 
-If possible, please provide step-by-step instructions for reproducing the the issue.
+If possible, please provide step-by-step instructions for reproducing the issue.
 
 ## Reporting crashes
 

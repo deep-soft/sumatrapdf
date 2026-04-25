@@ -4,12 +4,8 @@
 struct ScopedCritSec {
     CRITICAL_SECTION* cs = nullptr;
 
-    explicit ScopedCritSec(CRITICAL_SECTION* cs) : cs(cs) {
-        EnterCriticalSection(cs);
-    }
-    ~ScopedCritSec() {
-        LeaveCriticalSection(cs);
-    }
+    explicit ScopedCritSec(CRITICAL_SECTION* cs) : cs(cs) { EnterCriticalSection(cs); }
+    ~ScopedCritSec() { LeaveCriticalSection(cs); }
 };
 
 class AutoCloseHandle {
@@ -18,8 +14,7 @@ class AutoCloseHandle {
   public:
     AutoCloseHandle() = default;
 
-    AutoCloseHandle(HANDLE h) : handle(h) {
-    }
+    AutoCloseHandle(HANDLE h) : handle(h) {}
 
     ~AutoCloseHandle() {
         if (IsValid()) {
@@ -38,9 +33,7 @@ class AutoCloseHandle {
         return handle;
     }
 
-    bool IsValid() const {
-        return handle != nullptr && handle != INVALID_HANDLE_VALUE;
-    }
+    bool IsValid() const { return handle != nullptr && handle != INVALID_HANDLE_VALUE; }
 };
 
 template <class T>
@@ -51,8 +44,7 @@ class ScopedComPtr {
   public:
     ScopedComPtr() = default;
 
-    explicit ScopedComPtr(T* ptr) : ptr(ptr) {
-    }
+    explicit ScopedComPtr(T* ptr) : ptr(ptr) {}
     ~ScopedComPtr() {
         if (ptr) {
             ptr->Release();
@@ -66,18 +58,12 @@ class ScopedComPtr {
         HRESULT hr = CoCreateInstance(clsid, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&ptr));
         return SUCCEEDED(hr);
     }
-    T* Get() const {
-        return ptr;
-    }
+    T* Get() const { return ptr; }
     operator T*() const { // NOLINT
         return ptr;
     }
-    T** operator&() {
-        return &ptr;
-    }
-    T* operator->() const {
-        return ptr;
-    }
+    T** operator&() { return &ptr; }
+    T* operator->() const { return ptr; }
     ScopedComPtr<T>& operator=(T* newPtr) {
         if (ptr) {
             ptr->Release();
@@ -108,31 +94,23 @@ class ScopedComQIPtr {
     }
     bool Create(const CLSID clsid) {
         ReportIf(ptr);
-        if (ptr)
-            return false;
+        if (ptr) return false;
         HRESULT hr = CoCreateInstance(clsid, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&ptr));
         return SUCCEEDED(hr);
     }
     T* operator=(IUnknown* newUnk) {
-        if (ptr)
-            ptr->Release();
+        if (ptr) ptr->Release();
         HRESULT hr = newUnk->QueryInterface(&ptr);
-        if (FAILED(hr))
-            ptr = nullptr;
+        if (FAILED(hr)) ptr = nullptr;
         return ptr;
     }
     operator T*() const { // NOLINT
         return ptr;
     }
-    T** operator&() {
-        return &ptr;
-    }
-    T* operator->() const {
-        return ptr;
-    }
+    T** operator&() { return &ptr; }
+    T* operator->() const { return ptr; }
     T* operator=(T* newPtr) {
-        if (ptr)
-            ptr->Release();
+        if (ptr) ptr->Release();
         return (ptr = newPtr);
     }
 };
@@ -140,14 +118,10 @@ class ScopedComQIPtr {
 struct AutoDeleteDC {
     HDC hdc = nullptr;
 
-    explicit AutoDeleteDC(HDC hdc) {
-        this->hdc = hdc;
-    }
+    explicit AutoDeleteDC(HDC hdc) { this->hdc = hdc; }
     AutoDeleteDC() = default;
 
-    ~AutoDeleteDC() {
-        DeleteDC(hdc);
-    }
+    ~AutoDeleteDC() { DeleteDC(hdc); }
     operator HDC() const { // NOLINT
         return hdc;
     }
@@ -157,14 +131,10 @@ struct AutoReleaseDC {
     HWND hwnd = nullptr;
     HDC hdc = nullptr;
 
-    explicit AutoReleaseDC(HWND hwnd) {
-        hdc = GetWindowDC(hwnd);
-    }
+    explicit AutoReleaseDC(HWND hwnd) { hdc = GetWindowDC(hwnd); }
     AutoReleaseDC() = default;
 
-    ~AutoReleaseDC() {
-        ReleaseDC(hwnd, hdc);
-    }
+    ~AutoReleaseDC() { ReleaseDC(hwnd, hdc); }
     operator HDC() const { // NOLINT
         return hdc;
     }
@@ -178,9 +148,7 @@ class ScopedGdiObj {
     ScopedGdiObj(T obj) { // NOLINT
         this->obj = obj;
     }
-    ~ScopedGdiObj() {
-        DeleteObject(obj);
-    }
+    ~ScopedGdiObj() { DeleteObject(obj); }
     operator T() const { // NOLINT
         return obj;
     }
@@ -197,9 +165,7 @@ class ScopedGetDC {
         this->hwnd = hwnd;
         this->hdc = GetDC(hwnd);
     }
-    ~ScopedGetDC() {
-        ReleaseDC(hwnd, hdc);
-    }
+    ~ScopedGetDC() { ReleaseDC(hwnd, hdc); }
     operator HDC() const { // NOLINT
         return hdc;
     }
@@ -251,13 +217,9 @@ struct ScopedSelectPen {
     HDC hdc = nullptr;
     HPEN prevPen = nullptr;
 
-    explicit ScopedSelectPen(HDC hdc, HPEN pen) {
-        prevPen = (HPEN)SelectObject(hdc, pen);
-    }
+    explicit ScopedSelectPen(HDC hdc, HPEN pen) : hdc(hdc) { this->prevPen = (HPEN)SelectObject(hdc, pen); }
 
-    ~ScopedSelectPen() {
-        SelectObject(hdc, prevPen);
-    }
+    ~ScopedSelectPen() { SelectObject(hdc, prevPen); }
 };
 
 class ScopedSelectBrush {
@@ -265,32 +227,20 @@ class ScopedSelectBrush {
     HBRUSH prevBrush = nullptr;
 
   public:
-    explicit ScopedSelectBrush(HDC hdc, HBRUSH pen) {
-        prevBrush = (HBRUSH)SelectObject(hdc, pen);
-    }
+    explicit ScopedSelectBrush(HDC hdc, HBRUSH pen) { prevBrush = (HBRUSH)SelectObject(hdc, pen); }
 
-    ~ScopedSelectBrush() {
-        SelectObject(hdc, prevBrush);
-    }
+    ~ScopedSelectBrush() { SelectObject(hdc, prevBrush); }
 };
 class ScopedCom {
   public:
-    ScopedCom() {
-        (void)CoInitialize(nullptr);
-    }
-    ~ScopedCom() {
-        CoUninitialize();
-    }
+    ScopedCom() { (void)CoInitialize(nullptr); }
+    ~ScopedCom() { CoUninitialize(); }
 };
 
 class ScopedOle {
   public:
-    ScopedOle() {
-        (void)OleInitialize(nullptr);
-    }
-    ~ScopedOle() {
-        OleUninitialize();
-    }
+    ScopedOle() { (void)OleInitialize(nullptr); }
+    ~ScopedOle() { OleUninitialize(); }
 };
 
 class ScopedGdiPlus {

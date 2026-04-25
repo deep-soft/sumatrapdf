@@ -18,6 +18,14 @@ DBGHELP_API_LIST(API_DECLARATION)
 
 #undef API_DECLARATION
 
+// manual definitions for functions not in API lists
+Sig_GetProcessInformation DynGetProcessInformation = nullptr;
+Sig_SetProcessMitigationPolicy DynSetProcessMitigationPolicy = nullptr;
+Sig_GetDpiForWindow DynGetDpiForWindow = nullptr;
+Sig_GetThreadDpiAwarenessContext DynGetThreadDpiAwarenessContext = nullptr;
+Sig_GetAwarenessFromDpiAwarenessContext DynGetAwarenessFromDpiAwarenessContext = nullptr;
+Sig_SetThreadDpiAwarenessContext DynSetThreadDpiAwarenessContext = nullptr;
+
 #define API_LOAD(name) Dyn##name = (Sig_##name)GetProcAddress(h, #name);
 
 // Loads a DLL explicitly from the system's library collection
@@ -39,6 +47,8 @@ void InitDynCalls() {
     HMODULE h = SafeLoadLibrary("kernel32.dll");
     ReportIf(!h);
     KERNEL32_API_LIST(API_LOAD);
+    DynGetProcessInformation = (Sig_GetProcessInformation)GetProcAddress(h, "GetProcessInformation");
+    DynSetProcessMitigationPolicy = (Sig_SetProcessMitigationPolicy)GetProcAddress(h, "SetProcessMitigationPolicy");
 
     h = SafeLoadLibrary("ntdll.dll");
     ReportIf(!h);
@@ -47,6 +57,13 @@ void InitDynCalls() {
     h = SafeLoadLibrary("user32.dll");
     ReportIf(!h);
     USER32_API_LIST(API_LOAD);
+    DynGetDpiForWindow = (Sig_GetDpiForWindow)GetProcAddress(h, "GetDpiForWindow");
+    DynGetThreadDpiAwarenessContext =
+        (Sig_GetThreadDpiAwarenessContext)GetProcAddress(h, "GetThreadDpiAwarenessContext");
+    DynGetAwarenessFromDpiAwarenessContext =
+        (Sig_GetAwarenessFromDpiAwarenessContext)GetProcAddress(h, "GetAwarenessFromDpiAwarenessContext");
+    DynSetThreadDpiAwarenessContext =
+        (Sig_SetThreadDpiAwarenessContext)GetProcAddress(h, "SetThreadDpiAwarenessContext");
 
     h = SafeLoadLibrary("uxtheme.dll");
     if (h) {
@@ -155,29 +172,11 @@ HRESULT GetThemeColor(HTHEME hTheme, int iPartId, int iStateId, int iPropId, COL
 
 namespace dwm {
 
-BOOL IsCompositionEnabled() {
-    if (!DynDwmIsCompositionEnabled) {
-        return FALSE;
-    }
-    BOOL isEnabled;
-    if (SUCCEEDED(DynDwmIsCompositionEnabled(&isEnabled))) {
-        return isEnabled;
-    }
-    return FALSE;
-}
-
 HRESULT ExtendFrameIntoClientArea(HWND hwnd, const MARGINS* pMarInset) {
     if (!DynDwmExtendFrameIntoClientArea) {
         return E_NOTIMPL;
     }
     return DynDwmExtendFrameIntoClientArea(hwnd, pMarInset);
-}
-
-BOOL DefaultWindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, LRESULT* plResult) {
-    if (!DynDwmDefWindowProc) {
-        return FALSE;
-    }
-    return DynDwmDefWindowProc(hwnd, msg, wp, lp, plResult);
 }
 
 HRESULT GetWindowAttribute(HWND hwnd, DWORD dwAttribute, void* pvAttribute, DWORD cbAttribute) {
@@ -194,9 +193,15 @@ HRESULT SetWindowAttribute(HWND hwnd, DWORD dwAttribute, void* pvAttribute, DWOR
     return DynDwmSetWindowAttribute(hwnd, dwAttribute, pvAttribute, cbAttribute);
 }
 
-// https://stackoverflow.com/questions/39261826/change-the-color-of-the-title-bar-caption-of-a-win32-application
-HRESULT SetCaptionColor(HWND hwnd, COLORREF col) {
-    return SetWindowAttribute(hwnd, DWMWINDOWATTRIBUTE::DWMWA_CAPTION_COLOR, &col, sizeof(col));
+void SetWindowBorderColor(HWND hwnd, COLORREF color) {
+    SetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, &color, sizeof(color));
+}
+
+void SetWindowRoundedCorners(HWND hwnd, bool rounded) {
+    auto cornerPref = rounded ? DWMWCP_ROUND : DWMWCP_DONOTROUND;
+    SetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &cornerPref, sizeof(cornerPref));
+    COLORREF borderColor = rounded ? DWMWA_COLOR_DEFAULT : DWMWA_COLOR_NONE;
+    SetWindowBorderColor(hwnd, borderColor);
 }
 
 }; // namespace dwm

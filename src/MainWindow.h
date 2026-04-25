@@ -2,6 +2,7 @@
    License: GPLv3 */
 
 struct DoubleBuffer;
+struct Edit;
 struct LinkHandler;
 struct StressTest;
 class SumatraUIAutomationProvider;
@@ -10,8 +11,35 @@ struct LabelWithCloseWnd;
 struct Splitter;
 struct Tooltip;
 struct TreeView;
-struct CaptionInfo;
 struct TabsCtrl;
+struct TocTree;
+
+// factor by how large the non-maximized caption should be in relation to the tabbar
+#define kCaptionTabBarDyFactor 1.0f
+
+// gap in pixels between top of caption and tabs; this area allows dragging the window
+#define kCaptionTopPadding 8
+
+enum CaptionButtons {
+    CB_BTN_FIRST = 0,
+    CB_MINIMIZE = CB_BTN_FIRST,
+    CB_MAXIMIZE,
+    CB_RESTORE,
+    CB_CLOSE,
+    CB_MENU,
+    CB_SYSTEM_MENU,
+    CB_BTN_COUNT
+};
+
+struct ButtonInfo {
+    int id = -1; // CaptionButtons value
+    Rect rect{};
+    bool highlighted = false;
+    bool pressed = false;
+    bool inactive = false;
+    bool visible = true;
+    ButtonInfo() = default;
+};
 
 struct IPageElement;
 struct PageDestination;
@@ -50,16 +78,14 @@ struct TouchState {
 };
 
 /* Describes position, the target (URL or file path) and infotip of a "hyperlink" */
-struct StaticLinkInfo {
+struct StaticLink {
     Rect rect;
     char* target = nullptr;
     char* tooltip = nullptr;
 
-    explicit StaticLinkInfo(Rect rect, const char* target, const char* infotip = nullptr);
-    StaticLinkInfo() = default;
-    StaticLinkInfo(const StaticLinkInfo&);
-    StaticLinkInfo& operator=(const StaticLinkInfo& other);
-    ~StaticLinkInfo();
+    explicit StaticLink(Rect rect, const char* target, const char* infotip = nullptr);
+    StaticLink() = default;
+    ~StaticLink();
 };
 
 /* Describes information related to one window with (optional) a document
@@ -95,6 +121,8 @@ struct MainWindow {
 
     HWND hwndReBar = nullptr;
     HWND hwndToolbar = nullptr;
+    HWND hwndMenuReBar = nullptr;
+    HWND hwndMenuToolbar = nullptr;
     HWND hwndFindLabel = nullptr;
     HWND hwndFindEdit = nullptr;
     HWND hwndFindBg = nullptr;
@@ -102,14 +130,15 @@ struct MainWindow {
     HWND hwndPageEdit = nullptr;
     HWND hwndPageBg = nullptr;
     HWND hwndPageTotal = nullptr;
-    HWND hwndTbInfoText = nullptr;
 
     // state related to table of contents (PDF bookmarks etc.)
     HWND hwndTocBox = nullptr;
     UINT_PTR tocBoxSubclassId = 0;
 
     LabelWithCloseWnd* tocLabelWithClose = nullptr;
+    Edit* tocFilterEdit = nullptr;
     TreeView* tocTreeView = nullptr;
+    TocTree* tocFilteredTree = nullptr;
 
     // whether the current tab's ToC has been loaded into the tree
     bool tocLoaded = false;
@@ -137,20 +166,22 @@ struct MainWindow {
     // of the previous tab when the current one is closed. (Points into tabs.)
     Vec<WindowTab*>* tabSelectionHistory = nullptr;
 
-    HWND hwndCaption = nullptr;
-    CaptionInfo* caption = nullptr;
-    int extendedFrameHeight = 0;
+    ButtonInfo captionBtn[CB_BTN_COUNT];
+    bool isMenuOpen = false;
+    Rect captionRect{};
 
     Tooltip* infotip = nullptr;
 
     HMENU menu = nullptr;
-    bool isMenuHidden = false; // not persisted at shutdown
 
     DoubleBuffer* buffer = nullptr;
 
     MouseAction mouseAction = MouseAction::None;
     bool dragRightClick = false; // if true, drag was initiated with right mouse click
     bool dragStartPending = false;
+    bool textDragPending = false;  // true when mouse down on selected text, waiting for drag
+    bool imageDragPending = false; // true when mouse down on image, waiting for drag
+    IPageElement* imageDragElement = nullptr;
 
     /* when dragging the document around, this is previous position of the
        cursor. A delta between previous and current is by how much we
@@ -184,17 +215,44 @@ struct MainWindow {
     SizeF selectionMeasure;
 
     // a list of static links (mainly used for About and Frequently Read pages)
-    Vec<StaticLinkInfo*> staticLinks;
+    Vec<StaticLink*> staticLinks;
 
+    // home page thumbnail scrolling
+    int homePageScrollY = 0;
+
+    // home page search filter
+    HWND hwndHomeSearch = nullptr;
+
+    bool isToolbarVisible = false;
     bool isFullScreen = false;
     PresentationMode presentation = PM_DISABLED;
     int windowStateBeforePresentation = 0;
+    bool suppressFrameRedraw = false;
 
     long nonFullScreenWindowStyle = 0;
     Rect nonFullScreenFrameRect;
 
-    Rect canvasRc;      // size of the canvas (excluding any scroll bars)
+    Rect canvasRc; // size of the canvas (excluding any scroll bars)
+
+    // state snapshot used to skip redundant RelayoutFrame calls
+    struct LayoutState {
+        Rect rc;
+        int presentation = 0;
+        bool tabsInTitlebar = false;
+        bool isFullScreen = false;
+        bool tabsVisible = false;
+        bool isToolbarVisible = false;
+        bool tocVisible = false;
+        bool showFavorites = false;
+        bool showMenuBarRebar = false;
+    };
+    LayoutState lastLayoutState;
+
     int currPageNo = 0; // cached value, needed to determine when to auto-update the ToC selection
+
+    // overlay scrollbars (used when scrollbars mode is "smart" or "overlay")
+    struct OverlayScrollbar* overlayScrollV = nullptr;
+    struct OverlayScrollbar* overlayScrollH = nullptr;
 
     int wheelAccumDelta = 0;
     UINT_PTR delayedRepaintTimer = 0;
@@ -204,11 +262,15 @@ struct MainWindow {
 
     HANDLE findThread = nullptr;
     bool findCancelled = false;
+    bool findMatchCase = false;
 
     ILinkHandler* linkHandler = nullptr;
     IPageElement* linkOnLastButtonDown = nullptr;
     AutoFreeStr urlOnLastButtonDown;
     Annotation* annotationUnderCursor = nullptr;
+    // highlight rectangle for element under cursor during context menu (in page coordinates)
+    RectF contextMenuHighlightRect{};
+    int contextMenuHighlightPageNo = 0;
     HBRUSH brControlBgColor = nullptr;
 
     DocControllerCallback* cbHandler = nullptr;
@@ -233,6 +295,11 @@ struct MainWindow {
 
     FrameRateWnd* frameRateWnd = nullptr;
 
+    // set at the beginning of CloseWindow() to prevent
+    // processing commands while closing (e.g. reentrancy
+    // via modal dialogs pumping messages)
+    bool isBeingClosed = false;
+
     SumatraUIAutomationProvider* uiaProvider = nullptr;
 
     void UpdateCanvasSize();
@@ -254,15 +321,19 @@ struct MainWindow {
     bool CreateUIAProvider();
 };
 
+bool HasOpenedDocuments(MainWindow*);
 void UpdateControlsColors(MainWindow*);
 void ScheduleRepaint(MainWindow*, int delay);
-void ClearFindBox(MainWindow*);
 void CreateMovePatternLazy(MainWindow*);
 void ClearMouseState(MainWindow*);
 bool IsRightDragging(MainWindow*);
 MainWindow* FindMainWindowByTab(WindowTab*);
 MainWindow* FindMainWindowByHwnd(HWND);
 bool IsMainWindowValid(MainWindow*);
-MainWindow* FindMainWindowByController(DocController*);
+bool IsWindowTabValid(WindowTab*);
 extern Vec<MainWindow*> gWindows;
 void HighlightTab(MainWindow*, WindowTab*);
+HWND GetHwndForNotification();
+
+void RelayoutCaption(MainWindow* win);
+void OpenSystemMenu(MainWindow* win);

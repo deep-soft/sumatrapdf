@@ -50,5 +50,6 @@ Kind GuessFileTypeFromName(const char*);
 Kind GuessFileType(const char* path, bool sniff);
 const char* GfxFileExtFromData(const ByteSlice&);
 const char* GfxFileExtFromKind(Kind);
+const char* GetExtForKind(Kind kind);
 
-bool KindInArray(Kind* kinds, int nKinds, Kind kind);
+int KindIndexOf(Kind* kinds, int nKinds, Kind kind);

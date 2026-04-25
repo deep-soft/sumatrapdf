@@ -50,6 +50,18 @@ struct WindowTab {
     Annotation* selectedAnnotation = nullptr;
     bool didScrollToSelectedAnnotation = false; // only automatically scroll once
 
+    bool hideAnnotations = false;
+
+    HWND hwndPDFInfo = nullptr;
+    HWND hwndPDFOutline = nullptr;
+
+    // per-document background color from FileState; kColorUnset = use default
+    COLORREF bgColor = kColorUnset;
+    // true if per-document background is explicitly set to checkered pattern
+    bool bgColorCheckered = false;
+    // per-document tab color from FileState; kColorUnset = use default
+    COLORREF tabColor = kColorUnset;
+
     // TODO: arguably a hack
     bool ignoreNextAutoReload = false;
 

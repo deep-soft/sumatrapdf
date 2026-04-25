@@ -22,17 +22,16 @@ static inline const char* SkipDigits(const char* s) {
 
 class ParseArgs {
   public:
-    str::Str path;
+    StrBuilder path;
     bool canceled = false;
     ValueVisitor* visitor = nullptr;
 
-    explicit ParseArgs(ValueVisitor* visitor) : visitor(visitor) {
-    }
+    explicit ParseArgs(ValueVisitor* visitor) : visitor(visitor) {}
 };
 
 static const char* ParseValue(ParseArgs& args, const char* data);
 
-static const char* ExtractString(str::Str& string, const char* data) {
+static const char* ExtractString(StrBuilder& string, const char* data) {
     while (*++data) {
         if ('"' == *data) {
             return data + 1;
@@ -82,7 +81,7 @@ static const char* ExtractString(str::Str& string, const char* data) {
 }
 
 static const char* ParseString(ParseArgs& args, const char* data) {
-    str::Str string;
+    StrBuilder string;
     data = ExtractString(string, data);
     if (data) {
         const char* path = args.path.Get();

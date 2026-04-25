@@ -213,12 +213,6 @@ FZ_NORETURN static void throw(fz_context *ctx, int code)
 		if (ctx->error.top->code != FZ_ERROR_NONE)
 			fz_warn(ctx, "clobbering previous error code and message (throw in always block?)");
 		ctx->error.top->code = code;
-		/* SumatraPDF: https://fossies.org/linux/tcsh/win32/fork.c#l_212
-		https://stackoverflow.com/questions/26605063/an-invalid-or-unaligned-stack-was-encountered-during-an-unwind-operation
-		*/
-		#ifdef _M_AMD64
-		((_JUMP_BUFFER*)&ctx->error.top->buffer)->Frame = 0;
-		#endif
 		fz_longjmp(ctx->error.top->buffer, 1);
 	}
 	else

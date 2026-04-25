@@ -125,12 +125,16 @@ void SaveThumbnail(FileState* fs) {
     }
     if (!dir::CreateForFile(thumbnailPath)) {
         logf("SaveThumbnail: dir::CreateForFile('%s') failed, file path: '%s'\n", thumbnailPath, fs->filePath);
-        ReportIfQuick(true);
+        ReportIfFast(true);
     }
-    ReportIfQuick(!str::EndsWithI(thumbnailPath, ".png"));
+    ReportIfFast(!str::EndsWithI(thumbnailPath, ".png"));
 
-    Gdiplus::Bitmap bmp(fs->thumbnail->GetBitmap(), nullptr);
-    CLSID tmpClsid = GetEncoderClsid(L"image/png");
+    RenderedBitmap* thumbnail = fs->thumbnail;
+    if (!thumbnail) {
+        return;
+    }
+    Gdiplus::Bitmap bmp(thumbnail->GetBitmap(), nullptr);
+    CLSID tmpClsid = GetGdiPlusEncoderClsid(L"image/png");
     TempWStr pathW = ToWStrTemp(thumbnailPath);
     bmp.Save(pathW, &tmpClsid, nullptr);
 }

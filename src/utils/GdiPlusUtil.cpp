@@ -37,40 +37,6 @@ Gdiplus::RectF RectToRectF(const Gdiplus::Rect r) {
     return Gdiplus::RectF((float)r.X, (float)r.Y, (float)r.Width, (float)r.Height);
 }
 
-// Get width of each character and add them up.
-// Doesn't seem to be any different than MeasureTextAccurate() i.e. it still
-// underreports the width
-RectF MeasureTextAccurate2(Graphics* g, Font* f, const WCHAR* s, int len) {
-    ReportIf(0 >= len);
-    FixedArray<Region, 1024> regionBuf(len);
-    Region* r = regionBuf.Get();
-    StringFormat sf(StringFormat::GenericTypographic());
-    sf.SetFormatFlags(sf.GetFormatFlags() | StringFormatFlagsMeasureTrailingSpaces);
-    Gdiplus::RectF layoutRect;
-    FixedArray<CharacterRange, 1024> charRangesBuf(len);
-    CharacterRange* charRanges = charRangesBuf.Get();
-    for (int i = 0; i < len; i++) {
-        charRanges[i].First = i;
-        charRanges[i].Length = 1;
-    }
-    sf.SetMeasurableCharacterRanges(len, charRanges);
-    Status status = g->MeasureCharacterRanges(s, len, f, layoutRect, &sf, len, r);
-    ReportIf(status != Ok);
-    Gdiplus::RectF bbox;
-    float maxDy = 0;
-    float totalDx = 0;
-    for (int i = 0; i < len; i++) {
-        r[i].GetBounds(&bbox, g);
-        if (bbox.Height > maxDy) {
-            maxDy = bbox.Height;
-        }
-        totalDx += bbox.Width;
-    }
-    bbox.Width = totalDx;
-    bbox.Height = maxDy;
-    return RectF{bbox};
-}
-
 // note: gdi+ seems to under-report the width, the longer the text, the
 // bigger the difference. I'm trying to correct for that with those magic values
 #define PER_CHAR_DX_ADJUST .2f
@@ -270,9 +236,8 @@ static Bitmap* WICDecodeImageFromStream(IStream* stream) {
     HRESULT hr;
     int iRot = -1;
 
-#define HR(hr)      \
-    if (FAILED(hr)) \
-        return nullptr;
+#define HR(hr) \
+    if (FAILED(hr)) return nullptr;
     ScopedComPtr<IWICImagingFactory> pFactory;
     if (!pFactory.Create(CLSID_WICImagingFactory)) {
         return nullptr;
@@ -319,7 +284,7 @@ static Bitmap* WICDecodeImageFromStream(IStream* stream) {
     if (iRot >= 0 && iRot < dimof(rfts)) {
         bmp.RotateFlip(rfts[iRot]);
     }
-    return bmp.Clone(0, 0, w, h, PixelFormat32bppARGB);
+    return bmp.Clone(0, 0, bmp.GetWidth(), bmp.GetHeight(), PixelFormat32bppARGB);
 }
 
 static void MaybeFlipBitmap(Bitmap* bmp) {
@@ -467,6 +432,132 @@ static bool GifSizeFromData(ByteReader r, Size& result) {
     return false;
 }
 
+// try to get image dimensions from EXIF sub-IFD (tags 0xA002/0xA003)
+// tiffBase is the offset into r where the TIFF header starts
+static bool JpegSizeFromExif(ByteReader r, size_t tiffBase, Size& result) {
+    size_t n = r.len;
+    if (tiffBase + 8 > n) {
+        return false;
+    }
+    bool isBE = r.Byte(tiffBase) == 'M';
+    // read IFD0 offset
+    size_t ifdOff = r.DWord(tiffBase + 4, isBE);
+    size_t ifdAbs = tiffBase + ifdOff;
+    if (ifdAbs + 2 > n) {
+        return false;
+    }
+    WORD count = r.Word(ifdAbs, isBE);
+    size_t exifIfdOff = 0;
+    // scan IFD0 for ExifIFD pointer (tag 0x8769)
+    for (WORD i = 0; i < count; i++) {
+        size_t entryOff = ifdAbs + 2 + (size_t)i * 12;
+        if (entryOff + 12 > n) {
+            break;
+        }
+        WORD tag = r.Word(entryOff, isBE);
+        if (tag == 0x8769) {
+            exifIfdOff = r.DWord(entryOff + 8, isBE);
+            break;
+        }
+    }
+    if (exifIfdOff == 0) {
+        return false;
+    }
+    // read EXIF sub-IFD
+    size_t exifAbs = tiffBase + exifIfdOff;
+    if (exifAbs + 2 > n) {
+        return false;
+    }
+    count = r.Word(exifAbs, isBE);
+    for (WORD i = 0; i < count; i++) {
+        size_t entryOff = exifAbs + 2 + (size_t)i * 12;
+        if (entryOff + 12 > n) {
+            break;
+        }
+        WORD tag = r.Word(entryOff, isBE);
+        WORD type = r.Word(entryOff + 2, isBE);
+        if (tag == 0xA002) {
+            // PixelXDimension
+            if (type == 4) {
+                result.dx = (int)r.DWord(entryOff + 8, isBE);
+            } else if (type == 3) {
+                result.dx = r.Word(entryOff + 8, isBE);
+            }
+        } else if (tag == 0xA003) {
+            // PixelYDimension
+            if (type == 4) {
+                result.dy = (int)r.DWord(entryOff + 8, isBE);
+            } else if (type == 3) {
+                result.dy = r.Word(entryOff + 8, isBE);
+            }
+        }
+    }
+    return !result.IsEmpty();
+}
+
+// Read EXIF orientation from IFD0 (tag 0x0112).
+// Returns 1-8 (EXIF orientation value) or 0 if not found.
+static int JpegExifOrientationFromTiff(ByteReader r, size_t tiffBase) {
+    size_t n = r.len;
+    if (tiffBase + 8 > n) {
+        return 0;
+    }
+    bool isBE = r.Byte(tiffBase) == 'M';
+    size_t ifdOff = r.DWord(tiffBase + 4, isBE);
+    size_t ifdAbs = tiffBase + ifdOff;
+    if (ifdAbs + 2 > n) {
+        return 0;
+    }
+    WORD count = r.Word(ifdAbs, isBE);
+    for (WORD i = 0; i < count; i++) {
+        size_t entryOff = ifdAbs + 2 + (size_t)i * 12;
+        if (entryOff + 12 > n) {
+            break;
+        }
+        WORD tag = r.Word(entryOff, isBE);
+        if (tag == 0x0112) { // Orientation tag
+            return r.Word(entryOff + 8, isBE);
+        }
+    }
+    return 0;
+}
+
+// Read EXIF orientation from JPEG data. Returns 1-8 or 0 if not found.
+static int JpegExifOrientation(ByteReader r) {
+    size_t n = r.len;
+    size_t idx = 2;
+    for (;;) {
+        if (idx + 4 > n) {
+            return 0;
+        }
+        if (r.Byte(idx) != 0xff) {
+            return 0;
+        }
+        u8 marker = r.Byte(idx + 1);
+        if (marker == 0xDA) { // start of scan, stop
+            return 0;
+        }
+        size_t segLen = (size_t)r.WordBE(idx + 2);
+        if (marker == 0xE1 && idx + 10 <= n) {
+            // APP1 - check for EXIF
+            if (r.Byte(idx + 4) == 'E' && r.Byte(idx + 5) == 'x' && r.Byte(idx + 6) == 'i' && r.Byte(idx + 7) == 'f' &&
+                r.Byte(idx + 8) == 0 && r.Byte(idx + 9) == 0) {
+                return JpegExifOrientationFromTiff(r, idx + 10);
+            }
+        }
+        size_t nextIdx = idx + segLen + 2;
+        if (nextIdx <= idx) {
+            return 0; // overflow protection
+        }
+        idx = nextIdx;
+    }
+}
+
+// EXIF orientations 5-8 swap width and height
+static bool ExifOrientationSwapsDimensions(int orientation) {
+    return orientation >= 5 && orientation <= 8;
+}
+
 static bool JpegSizeFromData(ByteReader r, Size& result) {
     // find the last start of frame marker for non-differential Huffman/arithmetic coding
     size_t n = r.len;
@@ -485,7 +576,23 @@ static bool JpegSizeFromData(ByteReader r, Size& result) {
             result.dy = r.WordBE(idx + 5);
             return true;
         }
-        idx += (size_t)r.WordBE(idx + 2) + 2;
+        size_t segLen = (size_t)r.WordBE(idx + 2);
+        size_t nextIdx = idx + segLen + 2;
+        if (nextIdx + 9 >= n) {
+            // can't read past this segment; if it's APP1/EXIF, try parsing dimensions from EXIF
+            if (b == 0xE1 && idx + 10 < n) {
+                // check for "Exif\0\0" signature
+                if (r.Byte(idx + 4) == 'E' && r.Byte(idx + 5) == 'x' && r.Byte(idx + 6) == 'i' &&
+                    r.Byte(idx + 7) == 'f' && r.Byte(idx + 8) == 0 && r.Byte(idx + 9) == 0) {
+                    size_t tiffBase = idx + 10; // TIFF header starts after "Exif\0\0"
+                    if (JpegSizeFromExif(r, tiffBase, result)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+        idx = nextIdx;
     }
     return false;
 }
@@ -593,7 +700,7 @@ static bool AvifSizeFromData(ByteReader r, Size& result) {
 }
 
 // adapted from http://cpansearch.perl.org/src/RJRAY/Image-Size-3.230/lib/Image/Size.pm
-Size BitmapSizeFromData(const ByteSlice& d) {
+Size ImageSizeFromData(const ByteSlice& d) {
     Size result;
     bool ok = false;
     Kind kind = GuessFileTypeFromContent(d);
@@ -605,6 +712,9 @@ Size BitmapSizeFromData(const ByteSlice& d) {
         ok = GifSizeFromData(r, result);
     } else if (kind == kindFileJpeg) {
         ok = JpegSizeFromData(r, result);
+        if (ok && ExifOrientationSwapsDimensions(JpegExifOrientation(r))) {
+            std::swap(result.dx, result.dy);
+        }
     } else if (kind == kindFileJxr || kind == kindFileTiff) {
         ok = TiffSizeFromData(r, result);
     } else if (kind == kindFilePng) {
@@ -632,7 +742,42 @@ Size BitmapSizeFromData(const ByteSlice& d) {
     return result;
 }
 
-CLSID GetEncoderClsid(const WCHAR* format) {
+// like ImageSizeFromData but only parses headers, no full decode fallback
+Size ImageSizeFromHeader(const ByteSlice& d) {
+    Size result;
+    bool ok = false;
+    Kind kind = GuessFileTypeFromContent(d);
+
+    ByteReader r(d);
+    if (kind == kindFileBmp) {
+        ok = BmpSizeFromData(r, result);
+    } else if (kind == kindFileGif) {
+        ok = GifSizeFromData(r, result);
+    } else if (kind == kindFileJpeg) {
+        ok = JpegSizeFromData(r, result);
+        if (ok && ExifOrientationSwapsDimensions(JpegExifOrientation(r))) {
+            std::swap(result.dx, result.dy);
+        }
+    } else if (kind == kindFileJxr || kind == kindFileTiff) {
+        ok = TiffSizeFromData(r, result);
+    } else if (kind == kindFilePng) {
+        ok = PngSizeFromData(r, result);
+    } else if (kind == kindFileTga) {
+        ok = TgaSizeFromData(r, result);
+    } else if (kind == kindFileWebp) {
+        ok = WebpSizeFromData(r, result);
+    } else if (kind == kindFileJp2) {
+        ok = Jp2SizeFromData(r, result);
+    } else if (kind == kindFileAvif || kind == kindFileHeic) {
+        ok = AvifSizeFromData(r, result);
+    }
+    if (ok && !result.IsEmpty()) {
+        return result;
+    }
+    return {};
+}
+
+CLSID GetGdiPlusEncoderClsid(const WCHAR* format) {
     CLSID null{};
     uint numEncoders, size;
     Status ok = Gdiplus::GetImageEncodersSize(&numEncoders, &size);

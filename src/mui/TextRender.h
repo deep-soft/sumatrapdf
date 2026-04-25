@@ -111,18 +111,15 @@ class TextRenderGdiplus : public ITextRender {
 
     void SetFont(CachedFont* font) override;
     void SetTextColor(Gdiplus::Color col) override;
-    void SetTextBgColor(Gdiplus::Color) override {
-    }
+    void SetTextBgColor(Gdiplus::Color) override {}
 
     float GetCurrFontLineSpacing() override;
 
     RectF Measure(const char* s, size_t sLen) override;
     RectF Measure(const WCHAR* s, size_t sLen) override;
 
-    void Lock() override {
-    }
-    void Unlock() override {
-    }
+    void Lock() override {}
+    void Unlock() override {}
 
     void Draw(const char* s, size_t sLen, RectF bb, bool isRtl) override;
     void Draw(const WCHAR* s, size_t sLen, RectF bb, bool isRtl) override;

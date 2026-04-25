@@ -11,7 +11,6 @@
 #include "wingui/Layout.h"
 #include "wingui/FrameRateWnd.h"
 
-#include "AppColors.h"
 #include "Settings.h"
 #include "DocController.h"
 #include "GlobalPrefs.h"
@@ -28,10 +27,16 @@
 #include "Translations.h"
 #include "Theme.h"
 
+#include "utils/Log.h"
+
 static void OnPaintAbout(MainWindow* win) {
     auto t = TimeGet();
     PAINTSTRUCT ps;
     HDC hdc = BeginPaint(win->hwndCanvas, &ps);
+    if (!win->buffer) {
+        EndPaint(win->hwndCanvas, &ps);
+        return;
+    }
     HDC bufDC = win->buffer->GetDC();
     GlobalPrefs* prefs = gGlobalPrefs;
     bool hasPerms = HasPermission(Perm::SavePreferences | Perm::DiskAccess);
@@ -39,6 +44,7 @@ static void OnPaintAbout(MainWindow* win) {
     if (drawHome) {
         DrawHomePage(win, bufDC);
     } else {
+        HomePageDestroySearch(win);
         DrawAboutPage(win, bufDC);
     }
     win->buffer->Flush(hdc);
@@ -54,7 +60,7 @@ static void OnMouseLeftButtonDownAbout(MainWindow* win, int x, int y, WPARAM) {
 
     // remember a link under so that on mouse up we only activate
     // link if mouse up is on the same link as mouse down
-    win->urlOnLastButtonDown.SetCopy(GetStaticLinkTemp(win->staticLinks, x, y, nullptr));
+    win->urlOnLastButtonDown.SetCopy(GetStaticLinkAtTemp(win->staticLinks, x, y, nullptr));
 }
 
 static bool IsLink(const char* url) {
@@ -71,7 +77,7 @@ static bool IsLink(const char* url) {
 }
 
 static void OnMouseLeftButtonUpAbout(MainWindow* win, int x, int y, WPARAM) {
-    char* url = GetStaticLinkTemp(win->staticLinks, x, y, nullptr);
+    char* url = GetStaticLinkAtTemp(win->staticLinks, x, y, nullptr);
     char* prevUrl = win->urlOnLastButtonDown;
     bool clickedURL = url && str::Eq(url, prevUrl);
     win->urlOnLastButtonDown.Set(nullptr);
@@ -86,6 +92,14 @@ static void OnMouseLeftButtonUpAbout(MainWindow* win, int x, int y, WPARAM) {
     } else if (str::Eq(url, kLinkShowList)) {
         gGlobalPrefs->showStartPage = true;
         win->RedrawAll(true);
+    } else if (str::Eq(url, kLinkNextTip)) {
+        PickAnotherRandomPromotion();
+        win->RedrawAll(true);
+    } else if (str::StartsWith(url, "Cmd")) {
+        int cmdId = GetCommandIdByName(url);
+        if (cmdId > 0) {
+            HwndSendCommand(win->hwndFrame, cmdId);
+        }
     } else if (IsLink(url)) {
         SumatraLaunchBrowser(url);
     } else {
@@ -117,9 +131,9 @@ static void OnMouseRightButtonUpAbout(MainWindow* win, int x, int y, WPARAM) {
 static LRESULT OnSetCursorAbout(MainWindow* win, HWND hwnd) {
     Point pt = HwndGetCursorPos(hwnd);
     if (!pt.IsEmpty()) {
-        StaticLinkInfo* linkInfo;
-        if (GetStaticLinkTemp(win->staticLinks, pt.x, pt.y, &linkInfo)) {
-            win->ShowToolTip(linkInfo->tooltip, linkInfo->rect);
+        StaticLink* link;
+        if (GetStaticLinkAtTemp(win->staticLinks, pt.x, pt.y, &link)) {
+            win->ShowToolTip(link->tooltip, link->rect);
             SetCursorCached(IDC_HAND);
         } else {
             win->DeleteToolTip();
@@ -136,6 +150,26 @@ LRESULT WndProcCanvasAbout(MainWindow* win, HWND hwnd, UINT msg, WPARAM wp, LPAR
     int x = GET_X_LPARAM(lp);
     int y = GET_Y_LPARAM(lp);
     switch (msg) {
+        case WM_CTLCOLOREDIT:
+            if ((HWND)lp == win->hwndHomeSearch) {
+                HDC hdcEdit = (HDC)wp;
+                SetTextColor(hdcEdit, ThemeWindowTextColor());
+                SetBkColor(hdcEdit, ThemeControlBackgroundColor());
+                if (!win->brControlBgColor) {
+                    win->brControlBgColor = CreateSolidBrush(ThemeControlBackgroundColor());
+                }
+                return (LRESULT)win->brControlBgColor;
+            }
+            break;
+
+        case WM_COMMAND:
+            if (HIWORD(wp) == EN_CHANGE && (HWND)lp == win->hwndHomeSearch) {
+                win->homePageScrollY = 0;
+                InvalidateRect(win->hwndCanvas, nullptr, FALSE);
+                return 0;
+            }
+            break;
+
         case WM_LBUTTONDOWN:
             OnMouseLeftButtonDownAbout(win, x, y, wp);
             return 0;
@@ -167,10 +201,24 @@ LRESULT WndProcCanvasAbout(MainWindow* win, HWND hwnd, UINT msg, WPARAM wp, LPAR
             return 0;
 
         case WM_PAINT:
+            if (gRedrawLog) {
+                logf("redraw: WM_PAINT hwnd=0x%p (canvas-about)\n", hwnd);
+            }
             OnPaintAbout(win);
             return 0;
+
+        case WM_VSCROLL:
+            HomePageOnVScroll(win, wp);
+            return 0;
+
+        case WM_MOUSEWHEEL: {
+            int delta = GET_WHEEL_DELTA_WPARAM(wp);
+            HomePageOnMouseWheel(win, delta);
+            return 0;
+        }
 
         default:
             return DefWindowProc(hwnd, msg, wp, lp);
     }
+    return DefWindowProc(hwnd, msg, wp, lp);
 }

@@ -60,11 +60,9 @@ ByteReader::ByteReader(const ByteSlice& data) {
     len = data.size();
 }
 
-ByteReader::ByteReader(const char* data, size_t len) : d((const u8*)data), len(len) {
-}
+ByteReader::ByteReader(const char* data, size_t len) : d((const u8*)data), len(len) {}
 
-ByteReader::ByteReader(const u8* data, size_t len) : d((const u8*)data), len(len) {
-}
+ByteReader::ByteReader(const u8* data, size_t len) : d((const u8*)data), len(len) {}
 
 u8 ByteReader::Byte(size_t off) const {
     if (off < len) {

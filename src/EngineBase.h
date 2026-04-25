@@ -4,6 +4,12 @@
 struct fz_outline;
 struct fz_link;
 
+enum class PageInfoState {
+    Unknown,
+    Known,
+    Error,
+};
+
 extern Kind kindEngineMupdf;
 extern Kind kindEngineDjVu;
 extern Kind kindEngineImage;
@@ -35,9 +41,7 @@ struct PageLayout {
         Book,
     };
     PageLayout() = default;
-    explicit PageLayout(Type t) {
-        type = t;
-    }
+    explicit PageLayout(Type t) { type = t; }
     Type type{Type::Single};
     bool r2l = false;
     bool nonContinuous = false;
@@ -62,6 +66,17 @@ struct PageText {
 
 void FreePageText(PageText*);
 
+// UTF-8 variant: text is a UTF-8 byte string (len bytes, not including the
+// terminating null), and coords has one entry per UTF-8 byte (the same rect
+// repeated for each byte of a multi-byte codepoint).
+struct PageTextUtf8 {
+    char* text = nullptr;
+    Rect* coords = nullptr;
+    int len = 0;
+};
+
+void FreePageTextUtf8(PageTextUtf8*);
+
 // a link destination
 struct IPageDestination : KindBase {
     // page the destination points to (-1 for external destinations such as URLs)
@@ -73,23 +88,15 @@ struct IPageDestination : KindBase {
     virtual ~IPageDestination() {};
 
     // rectangle of the destination on the above returned page
-    virtual RectF GetRect2() {
-        return rect;
-    }
+    virtual RectF GetRect2() { return rect; }
     // optional zoom level on the above returned page
-    virtual float GetZoom2() {
-        return zoom;
-    }
+    virtual float GetZoom2() { return zoom; }
 
     // string value associated with the destination (e.g. a path or a URL)
-    virtual char* GetValue2() {
-        return nullptr;
-    }
+    virtual char* GetValue2() { return nullptr; }
     // the name of this destination (reverses EngineBase::GetNamedDest) or nullptr
     // (mainly applicable for links of type "LaunchFile" to PDF documents)
-    virtual char* GetName2() {
-        return nullptr;
-    }
+    virtual char* GetName2() { return nullptr; }
 };
 
 static inline char* PageDestGetName(IPageDestination* dest) {
@@ -128,13 +135,9 @@ struct PageDestinationURL : IPageDestination {
         url = str::Dup(u);
     }
 
-    ~PageDestinationURL() override {
-        str::Free(url);
-    }
+    ~PageDestinationURL() override { str::Free(url); }
 
-    char* GetValue2() override {
-        return url;
-    }
+    char* GetValue2() override { return url; }
 };
 
 struct PageDestinationFile : IPageDestination {
@@ -155,18 +158,15 @@ struct PageDestinationFile : IPageDestination {
         str::Free(dest);
     }
 
-    char* GetValue2() override {
-        return path;
-    }
+    char* GetValue2() override { return path; }
 
-    char* GetName2() override {
-        return dest;
-    }
+    char* GetName2() override { return dest; }
 };
 
 struct PageDestination : IPageDestination {
     char* value = nullptr;
     char* name = nullptr;
+    int embedObjNum = 0; // PDF object number for embedded file attachment annotations
 
     PageDestination() = default;
 
@@ -197,39 +197,25 @@ struct IPageElement {
     // the type of this page element
     bool Is(Kind expectedKind);
 
-    Kind GetKind() {
-        return kind;
-    }
+    Kind GetKind() { return kind; }
     // page this element lives on (-1 for elements in a ToC)
-    int GetPageNo() {
-        return pageNo;
-    }
+    int GetPageNo() { return pageNo; }
 
     // position of the element on page, in page coordinates
-    RectF GetRect() {
-        return rect;
-    }
+    RectF GetRect() { return rect; }
 
     // string value associated with this element (e.g. displayed in an infotip)
-    virtual char* GetValue() {
-        return nullptr;
-    }
+    virtual char* GetValue() { return nullptr; }
     // if this element is a link, this returns information about the link's destination
     // (the result is owned by the PageElement and MUST NOT be deleted)
-    virtual IPageDestination* AsLink() {
-        return nullptr;
-    }
-    bool IsLink() {
-        return AsLink() != nullptr;
-    }
+    virtual IPageDestination* AsLink() { return nullptr; }
+    bool IsLink() { return AsLink() != nullptr; }
 };
 
 struct PageElementImage : IPageElement {
     int imageID = -1;
 
-    PageElementImage() {
-        kind = kindPageElementImage;
-    }
+    PageElementImage() { kind = kindPageElementImage; }
 };
 
 struct PageElementComment : IPageElement {
@@ -240,13 +226,9 @@ struct PageElementComment : IPageElement {
         comment = str::Dup(c);
     }
 
-    ~PageElementComment() override {
-        str::Free(comment);
-    }
+    ~PageElementComment() override { str::Free(comment); }
 
-    char* GetValue() override {
-        return comment;
-    }
+    char* GetValue() override { return comment; }
 };
 
 struct PageElementDestination : IPageElement {
@@ -257,9 +239,7 @@ struct PageElementDestination : IPageElement {
         dest = d;
     }
 
-    ~PageElementDestination() override {
-        delete dest;
-    }
+    ~PageElementDestination() override { delete dest; }
 
     char* GetValue() override {
         if (dest) {
@@ -267,9 +247,7 @@ struct PageElementDestination : IPageElement {
         }
         return nullptr;
     }
-    IPageDestination* AsLink() override {
-        return dest;
-    }
+    IPageDestination* AsLink() override { return dest; }
 };
 
 // those are the same as F font bitmask in PDF docs
@@ -373,9 +351,6 @@ struct VisitTocTreeData {
 };
 
 using VisitTocTreeCb = Func1<VisitTocTreeData*>;
-bool VisitTocTree(TocItem* ti, const VisitTocTreeCb& f);
-bool VisitTocTreeWithParent(TocItem* ti, const VisitTocTreeCb& f);
-void SetTocTreeParents(TocItem* treeRoot);
 
 // a helper that allows for rendering interruptions in an engine-agnostic way
 class AbortCookie {
@@ -403,7 +378,9 @@ struct RenderPageArgs {
 class EngineBase {
   public:
     Kind kind = nullptr;
-    AtomicRefCount refCount;
+
+    Arena* arena = nullptr;
+    AtomicRefCount refCount = 1; // starts life as acquired
     // the default file extension for a document like
     // the currently loaded one (e.g. L".pdf")
     const char* defaultExt = nullptr;
@@ -413,12 +390,19 @@ class EngineBase {
     bool allowsPrinting = true;
     bool allowsCopyingText = true;
     bool isPasswordProtected = false;
-    char* decryptionKey = nullptr;
+    // hex-encoded password fingerprint + crypt key; arena-allocated
+    Str decryptionKey;
     bool hasPageLabels = false;
+    bool hideAnnotations = false;
+    bool disableAntiAlias = false;
     int pageCount = -1;
 
+    StrVec errors;
+
     // TODO: migrate other engines to use this
-    AutoFreeStr fileNameBase;
+    Str fileNameBase;
+
+    EngineBase();
 
     // creates a clone of this engine (e.g. for printing on a different thread)
     virtual EngineBase* Clone() = 0;
@@ -457,6 +441,14 @@ class EngineBase {
     // coordinates of the individual glyphs)
     // caller needs to free() the result and *coordsOut (if coordsOut is non-nullptr)
     virtual PageText ExtractPageText(int pageNo) = 0;
+    // UTF-8 variant of ExtractPageText. Default implementation returns empty.
+    virtual PageTextUtf8 ExtractPageTextUtf8(int) { return {}; }
+
+    // cached per-page text. First call on a page extracts text and caches it,
+    // subsequent calls return the cached copy. The returned pointers are owned
+    // by EngineBase and remain valid for the lifetime of the engine.
+    bool HasTextForPage(int pageNo);
+    const WCHAR* GetTextForPage(int pageNo, int* lenOut = nullptr, Rect** coordsOut = nullptr);
     // pages where clipping doesn't help are rendered in larger tiles
     virtual bool HasClipOptimizations(int pageNo) = 0;
 
@@ -471,7 +463,7 @@ class EngineBase {
     // keys are names of properties the caller wants. If given, we append those
     // proerties in this order and potentially add more
     // if keys are empty, we put them in order we want
-    virtual void GetProperties(const StrVec& keys, StrVec& keyValOut);
+    virtual void GetProperties(StrVec& keyValOut);
 
     // TODO: needs a more general interface
     // whether it is allowed to print the current document
@@ -516,11 +508,6 @@ class EngineBase {
     // whether this document required a password in order to be loaded
     bool IsPasswordProtected() const;
 
-    // returns a string to remember when the user wants to save a document's password
-    // (don't implement for document types that don't support password protection)
-    // caller must free() the result
-    char* GetDecryptionKey() const;
-
     // loads the given page so that the time required can be measured
     // without also measuring rendering times
     virtual bool BenchLoadPage(int pageNo) = 0;
@@ -539,6 +526,10 @@ class EngineBase {
 
   protected:
     virtual ~EngineBase();
+
+    // cached text, one entry per page (lazily allocated)
+    PageText* pagesText = nullptr;
+    CRITICAL_SECTION textCacheLock;
 };
 
 struct PasswordUI {

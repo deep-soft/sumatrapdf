@@ -17,6 +17,47 @@ const char* kPropFontList = "fontList";
 const char* kPropPdfVersion = "pdfVersion";
 const char* kPropPdfProducer = "pdfProducer";
 const char* kPropPdfFileStructure = "pdfFileStructure";
+const char* kPropFiles = "files";
+const char* kPropKeywords = "keywords";
+const char* kPropEncryption = "encryption";
+const char* kPropSignatures = "signatures";
+const char* kPropImageSize = "imageSize";
+const char* kPropDpi = "dpi";
+const char* kPropComment = "comment";
+const char* kPropCameraMake = "cameraMake";
+const char* kPropCameraModel = "cameraModel";
+const char* kPropDateOriginal = "dateOriginal";
+const char* kPropExposureTime = "exposureTime";
+const char* kPropFNumber = "fNumber";
+const char* kPropIsoSpeed = "isoSpeed";
+const char* kPropFocalLength = "focalLength";
+const char* kPropFocalLength35mm = "focalLength35mm";
+const char* kPropFlash = "flash";
+const char* kPropOrientation = "orientation";
+const char* kPropExposureProgram = "exposureProgram";
+const char* kPropMeteringMode = "meteringMode";
+const char* kPropWhiteBalance = "whiteBalance";
+const char* kPropExposureBias = "exposureBias";
+const char* kPropBitsPerSample = "bitsPerSample";
+const char* kPropResolutionUnit = "resolutionUnit";
+const char* kPropSoftware = "software";
+const char* kPropDateTime = "dateTime";
+const char* kPropYCbCrPositioning = "yCbCrPositioning";
+const char* kPropExifVersion = "exifVersion";
+const char* kPropDateTimeDigitized = "dateTimeDigitized";
+const char* kPropComponentsConfig = "componentsConfig";
+const char* kPropCompressedBpp = "compressedBpp";
+const char* kPropMaxAperture = "maxAperture";
+const char* kPropLightSource = "lightSource";
+const char* kPropUserComment = "userComment";
+const char* kPropFlashpixVersion = "flashpixVersion";
+const char* kPropColorSpace = "colorSpace";
+const char* kPropPixelXDimension = "pixelXDimension";
+const char* kPropPixelYDimension = "pixelYDimension";
+const char* kPropFileSource = "fileSource";
+const char* kPropSceneType = "sceneType";
+const char* kPropImageFileSize = "imageFileSize";
+const char* kPropImagePath = "imagePath";
 
 // clang-format off
 const char* gAllProps[] = {
@@ -32,7 +73,7 @@ const char* gAllProps[] = {
      kPropPdfVersion,
      kPropPdfProducer,
      kPropPdfFileStructure,
-    nullptr,
+     nullptr,
 };
 // clang-format off
 
@@ -59,7 +100,7 @@ char* GetPropValueTemp(const Props& props, const char* name) {
     if (idx < 0) {
         return nullptr;
     }
-    char* v = props.At(idx);
+    char* v = props.At(idx + 1);
     return v;
 }
 

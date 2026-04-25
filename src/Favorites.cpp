@@ -221,7 +221,7 @@ static void AddOrReplaceFav(const char* filePath, int pageNo, const char* name, 
     if (!fav) {
         // we were asked to add a favorite for current file but couldn't find
         // history for this file
-        fav = NewDisplayState(filePath);
+        fav = NewFileState(filePath);
         gFileHistory.Append(fav);
     }
 
@@ -249,9 +249,9 @@ static void RemoveFav(const char* filePath, int pageNo) {
     fav->favorites->Remove(fn);
     DeleteFavorite(fn);
 
-    if (!gGlobalPrefs->rememberOpenedFiles && 0 == fav->favorites->size()) {
+    if (!SettingsRememberOpenedFiles() && 0 == fav->favorites->size()) {
         gFileHistory.Remove(fav);
-        DeleteDisplayState(fav);
+        DeleteFileState(fav);
     }
 }
 
@@ -266,9 +266,9 @@ static void RemoveAllFavForFile(const char* filePath) {
     }
     fav->favorites->Reset();
 
-    if (!gGlobalPrefs->rememberOpenedFiles) {
+    if (!SettingsRememberOpenedFiles()) {
         gFileHistory.Remove(fav);
-        DeleteDisplayState(fav);
+        DeleteFileState(fav);
     }
 }
 
@@ -890,11 +890,12 @@ void CreateFavorites(MainWindow* win) {
 
     auto l = new LabelWithCloseWnd();
     {
-        LabelWithCloseCreateArgs args;
+        LabelWithCloseWnd::CreateArgs args;
         args.parent = win->hwndFavBox;
         args.cmdId = IDC_FAV_LABEL_WITH_CLOSE;
         // TODO: use the same font size as in GetTreeFont()?
         args.font = GetDefaultGuiFont(true, false);
+        args.isRtl = IsUIRtl();
         l->Create(args);
     }
 
@@ -907,7 +908,8 @@ void CreateFavorites(MainWindow* win) {
     args.parent = win->hwndFavBox;
     args.font = GetAppTreeFont();
     args.fullRowSelect = true;
-    args.exStyle = WS_EX_STATICEDGE;
+    args.exStyle = 0;
+    args.isRtl = IsUIRtl();
 
     auto fn = MkFunc1Void(FavTreeContextMenu);
     treeView->onContextMenu = fn;

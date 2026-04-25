@@ -29,6 +29,7 @@ TempStr GetWebView2VersionTemp() {
         return nullptr;
     }
     TempStr res = ToUtf8Temp(ver);
+    CoTaskMemFree((void*)ver);
     return res;
 }
 
@@ -50,19 +51,12 @@ class webview2_com_handler : public ICoreWebView2CreateCoreWebView2EnvironmentCo
 
   public:
     webview2_com_handler(HWND hwnd, WebViewMsgCb& msgCb, webview2_com_handler_cb_t cb)
-        : m_window(hwnd), msgCb(msgCb), m_cb(cb) {
-    }
-    ULONG STDMETHODCALLTYPE AddRef() {
-        return 1;
-    }
+        : m_window(hwnd), msgCb(msgCb), m_cb(cb) {}
+    ULONG STDMETHODCALLTYPE AddRef() { return 1; }
 
-    ULONG STDMETHODCALLTYPE Release() {
-        return 1;
-    }
+    ULONG STDMETHODCALLTYPE Release() { return 1; }
 
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, LPVOID* ppv) {
-        return S_OK;
-    }
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, LPVOID* ppv) { return S_OK; }
 
     HRESULT STDMETHODCALLTYPE Invoke(HRESULT res, ICoreWebView2Environment* env) {
         env->CreateCoreWebView2Controller(m_window, this);

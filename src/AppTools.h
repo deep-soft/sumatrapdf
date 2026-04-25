@@ -25,9 +25,10 @@ struct TextEditor {
     const char* openFileCmd = nullptr;
 };
 
-bool HasBeenInstalled();
 bool IsRunningInPortableMode();
 bool IsDllBuild();
+
+void DeleteAppTools();
 
 void SetAppDataDir(const char* path);
 TempStr GetAppDataDirTemp();
@@ -49,6 +50,3 @@ bool LaunchFileIfExists(const char* path);
 bool AdjustVariableDriveLetter(char* path);
 
 bool IsUntrustedFile(const char* filePath, const char* fileUrl = nullptr);
-void DrawCloseButton(HDC hdc, Rect& r, bool isHover);
-
-bool IsSumatraSigned();

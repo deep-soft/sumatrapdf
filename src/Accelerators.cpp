@@ -55,9 +55,9 @@
     V(VK_OEM_PLUS, "+")              \
     V(VK_ADD, "Add")                 \
     V(VK_OEM_MINUS, "-")             \
+    V(VK_SUBTRACT, "-")              \
     V(VK_SUBTRACT, "Subtract")       \
     V(VK_SUBTRACT, "Sub")            \
-    V(VK_SUBTRACT, "-")              \
     V(VK_DIVIDE, "/")                \
     V(VK_DIVIDE, "Divide")           \
     V(VK_DIVIDE, "Div")              \
@@ -99,6 +99,7 @@
     V(VK_PRINT, "Print")             \
     V(VK_EXECUTE, "Execute")         \
     V(VK_SNAPSHOT, "PrtSc")          \
+    V(VK_SNAPSHOT, "PrintScreen")    \
     V(VK_SLEEP, "Sleep")             \
     V(VK_SEPARATOR, "Separator")     \
     V(VK_DECIMAL, "Decimal")         \
@@ -224,10 +225,11 @@ ACCEL gBuiltInAccelerators[] = {
     {FCONTROL | FVIRTKEY, 'B', CmdFavoriteAdd},
     {FCONTROL | FVIRTKEY, 'C', CmdCopySelection},
     {FCONTROL | FVIRTKEY, VK_INSERT, CmdCopySelection},
+    {FCONTROL | FVIRTKEY, 'V', CmdPasteClipboardImage},
     {FCONTROL | FVIRTKEY, 'D', CmdProperties},
     {FCONTROL | FVIRTKEY, 'F', CmdFindFirst},
     {FCONTROL | FVIRTKEY, 'G', CmdGoToPage},
-    {FVIRTKEY, 'g', CmdGoToPage},
+    {FVIRTKEY, 'G', CmdGoToPage},
     {FCONTROL | FVIRTKEY, 'K', CmdCommandPalette},
     //{FALT | FVIRTKEY, 'K', CmdCommandPaletteOnlyTabs}, // removed in 3.6
     {FSHIFT | FCONTROL | FVIRTKEY, 'S', CmdSaveAnnotations},
@@ -448,7 +450,7 @@ again:
             // 4 Either ALT key is pressed.
             BYTE shiftState = HIBYTE(key);
             BYTE k = LOBYTE(key);
-            logf("mapped char 0x%x as %d (0x%x), shift state: %d\n", (int)wc, (int)k, (int)k, (int)shiftState);
+            // logf("mapped char 0x%x as %d (0x%x), shift state: %d\n", (int)wc, (int)k, (int)k, (int)shiftState);
             key = (SHORT)k;
             if (shiftState & 0x1) {
                 accel.fVirt |= (FSHIFT | FVIRTKEY);
@@ -502,13 +504,17 @@ bool IsValidShortcutString(const char* shortcut) {
     return parseShortcut(shortcut, accel);
 }
 
+bool ParseShortcutString(const char* shortcut, ACCEL& accel) {
+    return parseShortcut(shortcut, accel);
+}
+
 static TempStr appendAccelKeyToMenuStringTemp(TempStr menuStr, const ACCEL& a) {
     auto lang = trans::GetCurrentLangCode();
     bool isEng = str::IsEmpty(lang) || str::Eq(lang, "en");
     bool isGerman = str::Eq(lang, "de");
     bool isAscii = false;
 
-    str::Str str;
+    StrBuilder str;
     str.Append("\t"); // marks start of an accelerator in menu item
     BYTE virt = a.fVirt;
     if (virt & FALT) {
@@ -607,7 +613,9 @@ static WORD gNotSafeKeys[] = {
     VK_DELETE,
     VK_BACK,
     VK_HOME,
-    VK_END
+    VK_END,
+    VK_OEM_4,
+    VK_OEM_6
 };
 // clang-format on
 
@@ -643,6 +651,11 @@ static bool isSafeAccel(const ACCEL& a) {
         if ((k == VK_LEFT) || (k == VK_RIGHT)) {
             return true;
         }
+    }
+
+    if ((a.fVirt == (FCONTROL | FVIRTKEY)) && (k == 'V')) {
+        // Ctrl+V should work normally in edit controls (paste text)
+        return false;
     }
 
     for (WORD notSafe : gNotSafeKeys) {
@@ -708,6 +721,11 @@ void CreateSumatraAcceleratorTable() {
     curr = gFirstCustomCommand;
     while (curr) {
         if ((curr->id > 0) && !str::IsEmptyOrWhiteSpace(curr->key)) {
+            // CmdScreenshot shortcuts are registered as global hotkeys, not accelerators
+            if (curr->origId == CmdScreenshot) {
+                curr = curr->next;
+                continue;
+            }
             ACCEL accel{};
             accel.cmd = curr->id;
             if (parseShortcut(curr->key, accel)) {

@@ -10,18 +10,18 @@
 #include "utils/Log.h"
 
 // in TestTab.cpp
-extern int TestTab(HINSTANCE hInstance, int nCmdShow);
+extern int TestTab(int nCmdShow);
 // in TestLayout.cpp
-extern int TestLayout(HINSTANCE hInstance, int nCmdShow);
-
-HINSTANCE gHinst = nullptr;
+extern int TestLayout(int nCmdShow);
+// in SumatraPDF.cpp
+extern bool IsUIRtl();
 
 static void LaunchTabs() {
-    TestTab(gHinst, SW_SHOW);
+    TestTab(SW_SHOW);
 }
 
 static void LaunchLayout() {
-    TestLayout(gHinst, SW_SHOW);
+    TestLayout(SW_SHOW);
 }
 
 static ILayout* CreateMainLayout(HWND hwnd) {
@@ -29,14 +29,14 @@ static ILayout* CreateMainLayout(HWND hwnd) {
 
     vbox->alignMain = MainAxisAlign::MainCenter;
     vbox->alignCross = CrossAxisAlign::CrossCenter;
-
+    auto isRtl = IsUIRtl();
     {
-        auto b = CreateButton(hwnd, "Tabs test", MkFunc0Void(LaunchTabs));
+        auto b = CreateButton(hwnd, "Tabs test", MkFunc0Void(LaunchTabs), isRtl);
         vbox->AddChild(b);
     }
 
     {
-        auto b = CreateButton(hwnd, "Layout test", MkFunc0Void(LaunchLayout));
+        auto b = CreateButton(hwnd, "Layout test", MkFunc0Void(LaunchLayout), isRtl);
         vbox->AddChild(b);
     }
 
@@ -54,9 +54,7 @@ static void OnDestroy(Wnd::DestroyEvent*) {
 // in Window.cpp
 int RunMessageLoop(HACCEL accelTable, HWND hwndDialog);
 
-void TestApp(HINSTANCE hInstance) {
-    gHinst = hInstance;
-
+void TestApp() {
     auto w = new TestWnd();
     auto fn = MkFunc1Void<Wnd::DestroyEvent*>(OnDestroy);
     w->onDestroy = fn;

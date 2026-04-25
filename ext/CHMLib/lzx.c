@@ -163,8 +163,7 @@ struct LZXstate* LZXinit(int window) {
 
     /* LZX supports window sizes of 2^15 (32Kb) through 2^21 (2Mb) */
     /* if a previously allocated window is big enough, keep it     */
-    if (window < 15 || window > 21)
-        return NULL;
+    if (window < 15 || window > 21) return NULL;
 
     /* allocate state and associated window */
     pState = (struct LZXstate*)malloc(sizeof(struct LZXstate));
@@ -201,18 +200,15 @@ struct LZXstate* LZXinit(int window) {
     pState->window_posn = 0;
 
     /* initialise tables to 0 (because deltas will be applied to them) */
-    for (i = 0; i < LZX_MAINTREE_MAXSYMBOLS; i++)
-        pState->MAINTREE_len[i] = 0;
-    for (i = 0; i < LZX_LENGTH_MAXSYMBOLS; i++)
-        pState->LENGTH_len[i] = 0;
+    for (i = 0; i < LZX_MAINTREE_MAXSYMBOLS; i++) pState->MAINTREE_len[i] = 0;
+    for (i = 0; i < LZX_LENGTH_MAXSYMBOLS; i++) pState->LENGTH_len[i] = 0;
 
     return pState;
 }
 
 void LZXteardown(struct LZXstate* pState) {
     if (pState) {
-        if (pState->window)
-            free(pState->window);
+        if (pState->window) free(pState->window);
         free(pState);
     }
 }
@@ -229,10 +225,8 @@ int LZXreset(struct LZXstate* pState) {
     pState->intel_started = 0;
     pState->window_posn = 0;
 
-    for (i = 0; i < LZX_MAINTREE_MAXSYMBOLS + LZX_LENTABLE_SAFETY; i++)
-        pState->MAINTREE_len[i] = 0;
-    for (i = 0; i < LZX_LENGTH_MAXSYMBOLS + LZX_LENTABLE_SAFETY; i++)
-        pState->LENGTH_len[i] = 0;
+    for (i = 0; i < LZX_MAINTREE_MAXSYMBOLS + LZX_LENTABLE_SAFETY; i++) pState->MAINTREE_len[i] = 0;
+    for (i = 0; i < LZX_LENGTH_MAXSYMBOLS + LZX_LENTABLE_SAFETY; i++) pState->LENGTH_len[i] = 0;
 
     return DECR_OK;
 }
@@ -369,13 +363,11 @@ static int make_decode_table(ULONG nsyms, ULONG nbits, UBYTE* length, UWORD* tab
             if (length[sym] == bit_num) {
                 leaf = pos;
 
-                if ((pos += bit_mask) > table_mask)
-                    return 1; /* table overrun */
+                if ((pos += bit_mask) > table_mask) return 1; /* table overrun */
 
                 /* fill all possible lookups of this symbol with the symbol itself */
                 fill = bit_mask;
-                while (fill-- > 0)
-                    table[leaf++] = sym;
+                while (fill-- > 0) table[leaf++] = sym;
             }
         }
         bit_mask >>= 1;
@@ -385,8 +377,7 @@ static int make_decode_table(ULONG nsyms, ULONG nbits, UBYTE* length, UWORD* tab
     /* if there are any codes longer than nbits */
     if (pos != table_mask) {
         /* clear the remainder of the table */
-        for (sym = pos; sym < table_mask; sym++)
-            table[sym] = 0;
+        for (sym = pos; sym < table_mask; sym++) table[sym] = 0;
 
         /* give ourselves room for codes to grow by up to 16 more bits */
         pos <<= 16;
@@ -406,13 +397,11 @@ static int make_decode_table(ULONG nsyms, ULONG nbits, UBYTE* length, UWORD* tab
                         }
                         /* follow the path and select either left or right for next bit */
                         leaf = table[leaf] << 1;
-                        if ((pos >> (15 - fill)) & 1)
-                            leaf++;
+                        if ((pos >> (15 - fill)) & 1) leaf++;
                     }
                     table[leaf] = sym;
 
-                    if ((pos += bit_mask) > table_mask)
-                        return 1; /* table overflow */
+                    if ((pos += bit_mask) > table_mask) return 1; /* table overflow */
                 }
             }
             bit_mask >>= 1;
@@ -421,13 +410,11 @@ static int make_decode_table(ULONG nsyms, ULONG nbits, UBYTE* length, UWORD* tab
     }
 
     /* full table? */
-    if (pos == table_mask)
-        return 0;
+    if (pos == table_mask) return 0;
 
     /* either erroneous table, or all elements are 0 - let's find out. */
     for (sym = 0; sym < nsyms; sym++)
-        if (length[sym])
-            return 1;
+        if (length[sym]) return 1;
     return 0;
 }
 
@@ -457,26 +444,21 @@ static int lzx_read_lens(struct LZXstate* pState, UBYTE* lens, ULONG first, ULON
         if (z == 17) {
             READ_BITS(y, 4);
             y += 4;
-            while (y--)
-                lens[x++] = 0;
+            while (y--) lens[x++] = 0;
         } else if (z == 18) {
             READ_BITS(y, 5);
             y += 20;
-            while (y--)
-                lens[x++] = 0;
+            while (y--) lens[x++] = 0;
         } else if (z == 19) {
             READ_BITS(y, 1);
             y += 4;
             READ_HUFFSYM(PRETREE, z);
             z = lens[x] - z;
-            if (z < 0)
-                z += 17;
-            while (y--)
-                lens[x++] = z;
+            if (z < 0) z += 17;
+            while (y--) lens[x++] = z;
         } else {
             z = lens[x] - z;
-            if (z < 0)
-                z += 17;
+            if (z < 0) z += 17;
             lens[x++] = z;
         }
     }
@@ -526,8 +508,7 @@ int LZXdecompress(struct LZXstate* pState, uint8_t* inpos, uint8_t* outpos, int 
         /* last block finished, new block expected */
         if (pState->block_remaining == 0) {
             if (pState->block_type == LZX_BLOCKTYPE_UNCOMPRESSED) {
-                if (pState->block_length & 1)
-                    inpos++; /* realign bitstream to word */
+                if (pState->block_length & 1) inpos++; /* realign bitstream to word */
                 INIT_BITSTREAM;
             }
 
@@ -549,18 +530,16 @@ int LZXdecompress(struct LZXstate* pState, uint8_t* inpos, uint8_t* outpos, int 
                     READ_LENGTHS(MAINTREE, 0, 256);
                     READ_LENGTHS(MAINTREE, 256, pState->main_elements);
                     BUILD_TABLE(MAINTREE);
-                    if (LENTABLE(MAINTREE)[0xE8] != 0)
-                        pState->intel_started = 1;
+                    if (LENTABLE(MAINTREE)[0xE8] != 0) pState->intel_started = 1;
 
                     READ_LENGTHS(LENGTH, 0, LZX_NUM_SECONDARY_LENGTHS);
                     BUILD_TABLE(LENGTH);
                     break;
 
                 case LZX_BLOCKTYPE_UNCOMPRESSED:
-                    pState->intel_started = 1; /* because we can't assume otherwise */
-                    ENSURE_BITS(16);           /* get up to 16 pad bits into the buffer */
-                    if (bitsleft > 16)
-                        inpos -= 2; /* and align the bitstream! */
+                    pState->intel_started = 1;     /* because we can't assume otherwise */
+                    ENSURE_BITS(16);               /* get up to 16 pad bits into the buffer */
+                    if (bitsleft > 16) inpos -= 2; /* and align the bitstream! */
                     R0 = inpos[0] | (inpos[1] << 8) | (inpos[2] << 16) | (inpos[3] << 24);
                     inpos += 4;
                     R1 = inpos[0] | (inpos[1] << 8) | (inpos[2] << 16) | (inpos[3] << 24);
@@ -584,21 +563,18 @@ int LZXdecompress(struct LZXstate* pState, uint8_t* inpos, uint8_t* outpos, int 
              * remaining - in this boundary case they aren't really part of
              * the compressed data)
              */
-            if (inpos > (endinp + 2) || bitsleft < 16)
-                return DECR_ILLEGALDATA;
+            if (inpos > (endinp + 2) || bitsleft < 16) return DECR_ILLEGALDATA;
         }
 
         while ((this_run = pState->block_remaining) > 0 && togo > 0) {
-            if (this_run > togo)
-                this_run = togo;
+            if (this_run > togo) this_run = togo;
             togo -= this_run;
             pState->block_remaining -= this_run;
 
             /* apply 2^x-1 mask */
             window_posn &= window_size - 1;
             /* runs can't straddle the window wraparound */
-            if ((window_posn + this_run) > window_size)
-                return DECR_DATAFORMAT;
+            if ((window_posn + this_run) > window_size) return DECR_DATAFORMAT;
 
             switch (pState->block_type) {
                 case LZX_BLOCKTYPE_VERBATIM:
@@ -651,8 +627,7 @@ int LZXdecompress(struct LZXstate* pState, uint8_t* inpos, uint8_t* outpos, int 
                             rundest = window + window_posn;
                             runsrc = rundest - match_offset;
                             window_posn += match_length;
-                            if (window_posn > window_size)
-                                return DECR_ILLEGALDATA;
+                            if (window_posn > window_size) return DECR_ILLEGALDATA;
                             this_run -= match_length;
 
                             /* copy any wrapped around source data */
@@ -661,8 +636,7 @@ int LZXdecompress(struct LZXstate* pState, uint8_t* inpos, uint8_t* outpos, int 
                                 runsrc++;
                             }
                             /* copy match data - no worries about destination wraps */
-                            while (match_length-- > 0)
-                                *rundest++ = *runsrc++;
+                            while (match_length-- > 0) *rundest++ = *runsrc++;
                         }
                     }
                     break;
@@ -731,8 +705,7 @@ int LZXdecompress(struct LZXstate* pState, uint8_t* inpos, uint8_t* outpos, int 
                             rundest = window + window_posn;
                             runsrc = rundest - match_offset;
                             window_posn += match_length;
-                            if (window_posn > window_size)
-                                return DECR_ILLEGALDATA;
+                            if (window_posn > window_size) return DECR_ILLEGALDATA;
                             this_run -= match_length;
 
                             /* copy any wrapped around source data */
@@ -741,15 +714,13 @@ int LZXdecompress(struct LZXstate* pState, uint8_t* inpos, uint8_t* outpos, int 
                                 runsrc++;
                             }
                             /* copy match data - no worries about destination wraps */
-                            while (match_length-- > 0)
-                                *rundest++ = *runsrc++;
+                            while (match_length-- > 0) *rundest++ = *runsrc++;
                         }
                     }
                     break;
 
                 case LZX_BLOCKTYPE_UNCOMPRESSED:
-                    if ((inpos + this_run) > endinp)
-                        return DECR_ILLEGALDATA;
+                    if ((inpos + this_run) > endinp) return DECR_ILLEGALDATA;
                     memcpy(window + window_posn, inpos, (size_t)this_run);
                     inpos += this_run;
                     window_posn += this_run;
@@ -761,8 +732,7 @@ int LZXdecompress(struct LZXstate* pState, uint8_t* inpos, uint8_t* outpos, int 
         }
     }
 
-    if (togo != 0)
-        return DECR_ILLEGALDATA;
+    if (togo != 0) return DECR_ILLEGALDATA;
     memcpy(outpos, window + ((!window_posn) ? window_size : window_posn) - outlen, (size_t)outlen);
 
     pState->window_posn = window_posn;

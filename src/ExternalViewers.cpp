@@ -16,6 +16,7 @@
 #include "GlobalPrefs.h"
 #include "SumatraPDF.h"
 #include "WindowTab.h"
+#include "MainWindow.h"
 #include "ExternalViewers.h"
 #include "Commands.h"
 #include "Translations.h"
@@ -291,7 +292,7 @@ static bool DetectExternalViewer(ExternalViewerInfo* ev) {
             if (!args) {
                 args = "";
             }
-            logf("DetectExternalViewer: cmd %d, '%s' %s\n", ev->cmdId, ev->exeFullPath, args);
+            // logf("DetectExternalViewer: cmd %d, '%s' %s\n", ev->cmdId, ev->exeFullPath, args);
             return true;
         }
     }
@@ -472,13 +473,79 @@ bool CanSendAsEmailAttachment(WindowTab* tab) {
     return pDropTarget.Create(CLSID_SendMail);
 }
 
-// TODO: maybe use
-// https://stackoverflow.com/questions/47639267/win32-c-sending-email-in-windows-10-by-invoking-default-mail-client
+// Use MAPISendMailW to send email with attachment.
+// Works with Outlook, Thunderbird and other MAPI-registered email clients.
+bool SendAsEmailAttachmentWithMapi(HWND hwndParent, const char* filePath) {
+    HMODULE hMapi = LoadLibraryW(L"mapi32.dll");
+    if (!hMapi) {
+        return false;
+    }
+
+    // MapiFileDescW and MapiMessageW structs matching Windows SDK definitions
+    struct MapiFileDescW {
+        ULONG ulReserved;
+        ULONG flFlags;
+        ULONG nPosition;
+        PWSTR lpszPathName;
+        PWSTR lpszFileName;
+        PVOID lpFileType;
+    };
+
+    struct MapiMessageW {
+        ULONG ulReserved;
+        PWSTR lpszSubject;
+        PWSTR lpszNoteText;
+        PWSTR lpszMessageType;
+        PWSTR lpszDateReceived;
+        PWSTR lpszConversationID;
+        ULONG flFlags;
+        PVOID lpOriginator;
+        ULONG nRecipCount;
+        PVOID lpRecips;
+        ULONG nFileCount;
+        MapiFileDescW* lpFiles;
+    };
+
+    using MAPISendMailWFn = ULONG(WINAPI*)(ULONG_PTR, ULONG_PTR, MapiMessageW*, ULONG, ULONG);
+    auto fnSendMailW = (MAPISendMailWFn)GetProcAddress(hMapi, "MAPISendMailW");
+    if (!fnSendMailW) {
+        FreeLibrary(hMapi);
+        return false;
+    }
+
+    TempWStr filePathW = ToWStrTemp(filePath);
+    TempStr fileName = path::GetBaseNameTemp(filePath);
+    TempWStr fileNameW = ToWStrTemp(fileName);
+
+    MapiFileDescW fileDesc{};
+    fileDesc.nPosition = (ULONG)-1;
+    fileDesc.lpszPathName = filePathW;
+    fileDesc.lpszFileName = fileNameW;
+
+    MapiMessageW msg{};
+    msg.nFileCount = 1;
+    msg.lpFiles = &fileDesc;
+
+    constexpr ULONG kMapiDialog = 0x8;
+    constexpr ULONG kMapiLogonUI = 0x1;
+    ULONG result = fnSendMailW(0, (ULONG_PTR)hwndParent, &msg, kMapiDialog | kMapiLogonUI, 0);
+
+    FreeLibrary(hMapi);
+    // SUCCESS_SUCCESS = 0, MAPI_E_USER_ABORT = 1
+    return result <= 1;
+}
+
 bool SendAsEmailAttachment(WindowTab* tab, HWND hwndParent) {
     if (!tab || !CanSendAsEmailAttachment(tab)) {
         return false;
     }
 
+    if (SendAsEmailAttachmentWithMapi(tab->win->hwndFrame, tab->filePath)) {
+        return true;
+    }
+    // if there's no e-mail client associated, they both show the same message box
+    // which will be confusing so I'll just hope that mapi works
+#if 0
     // We use the SendTo drop target provided by SendMail.dll, which should ship with all
     // commonly used Windows versions, instead of MAPISendMail, which doesn't support
     // Unicode paths and might not be set up on systems not having Microsoft Outlook installed.
@@ -497,4 +564,7 @@ bool SendAsEmailAttachment(WindowTab* tab, HWND hwndParent) {
     pDropTarget->DragEnter(pDataObject, MK_LBUTTON, pt, &dwEffect);
     HRESULT hr = pDropTarget->Drop(pDataObject, MK_LBUTTON, pt, &dwEffect);
     return SUCCEEDED(hr);
+#else
+    return false;
+#endif
 }

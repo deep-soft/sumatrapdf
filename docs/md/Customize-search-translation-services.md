@@ -19,7 +19,7 @@ You can also use command palette (`Ctrl + K`):
 - `Ctrl + K` to open command palette
 - type e.g. `deepl` to find `Translate with DeepL` command
 
-![Untitled](img/cmd-palette-translate.png)
+![Using Command Palette](img/cmd-palette-translate.png)
 
 - press `Enter` (or double-click with mouse) to execute the action
 
@@ -48,4 +48,4 @@ SelectionHandlers [
 
 `Name` is what shows in the menu. You can use `&` characters to add Windows hot-key for keyboard-only invocation.
 
-**Ver3.6+**: `Key` is a keyboard shorcut in the same format as in [Shortcuts](Customizing-keyboard-shortcuts.md) advanced setting.
+**Ver3.6+**: `Key` is a keyboard shortcut in the same format as in [Shortcuts](Customizing-keyboard-shortcuts.md) advanced setting.

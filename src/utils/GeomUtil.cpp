@@ -5,8 +5,7 @@
 
 // ------------- Point
 
-Point::Point(int x, int y) : x(x), y(y) {
-}
+Point::Point(int x, int y) : x(x), y(y) {}
 
 bool Point::IsEmpty() const {
     return x == 0 && y == 0;
@@ -26,8 +25,7 @@ bool Point::operator!=(const Point& other) const {
 
 // ------------- PointF
 
-PointF::PointF(float x, float y) : x(x), y(y) {
-}
+PointF::PointF(float x, float y) : x(x), y(y) {}
 
 bool PointF::IsEmpty() const {
     return x == 0 && y == 0;
@@ -43,8 +41,7 @@ bool PointF::operator!=(const PointF& other) const {
 
 // ------------- Size
 
-Size::Size(int dx, int dy) : dx(dx), dy(dy) {
-}
+Size::Size(int dx, int dy) : dx(dx), dy(dy) {}
 
 bool Size::IsEmpty() const {
     return dx == 0 || dy == 0;
@@ -64,8 +61,7 @@ bool Size::operator!=(const Size& other) const {
 
 // ------------- SizeF
 
-SizeF::SizeF(float dx, float dy) : dx(dx), dy(dy) {
-}
+SizeF::SizeF(float dx, float dy) : dx(dx), dy(dy) {}
 
 bool SizeF::IsEmpty() const {
     return dx == 0 || dy == 0;
@@ -95,11 +91,9 @@ Rect::Rect(const Gdiplus::RectF r) {
     dy = (int)r.Height;
 }
 
-Rect::Rect(int x, int y, int dx, int dy) : x(x), y(y), dx(dx), dy(dy) {
-}
+Rect::Rect(int x, int y, int dx, int dy) : x(x), y(y), dx(dx), dy(dy) {}
 
-Rect::Rect(const Point min, const Point max) : x(min.x), y(min.y), dx(max.x - min.x), dy(max.y - min.y) {
-}
+Rect::Rect(const Point min, const Point max) : x(min.x), y(min.y), dx(max.x - min.x), dy(max.y - min.y) {}
 
 bool Rect::EqSize(int otherDx, int otherDy) const {
     return (dx == otherDx) && (dy == otherDy);
@@ -175,10 +169,10 @@ Rect Rect::Intersect(Rect other) const {
 
 // TODO: check that it's endpoint-exclusive https://devblogs.microsoft.com/oldnewthing/20040218-00/?p=40563
 Rect Rect::Union(Rect other) const {
-    if (this->dx <= 0 && this->dy <= 0) {
+    if (this->dx <= 0 || this->dy <= 0) {
         return other;
     }
-    if (other.dx <= 0 && other.dy <= 0) {
+    if (other.dx <= 0 || other.dy <= 0) {
         return *this;
     }
 
@@ -271,14 +265,11 @@ RectF::RectF(const Gdiplus::RectF r) {
     dy = r.Height;
 }
 
-RectF::RectF(float x, float y, float dx, float dy) : x(x), y(y), dx(dx), dy(dy) {
-}
+RectF::RectF(float x, float y, float dx, float dy) : x(x), y(y), dx(dx), dy(dy) {}
 
-RectF::RectF(PointF pt, SizeF size) : x(pt.x), y(pt.y), dx(size.dx), dy(size.dy) {
-}
+RectF::RectF(PointF pt, SizeF size) : x(pt.x), y(pt.y), dx(size.dx), dy(size.dy) {}
 
-RectF::RectF(PointF min, PointF max) : x(min.x), y(min.y), dx(max.x - min.x), dy(max.y - min.y) {
-}
+RectF::RectF(PointF min, PointF max) : x(min.x), y(min.y), dx(max.x - min.x), dy(max.y - min.y) {}
 
 bool RectF::EqSize(float otherDx, float otherDy) const {
     return (dx == otherDx) && (dy == otherDy);
@@ -351,10 +342,10 @@ RectF RectF::Intersect(RectF other) const {
 
 // TODO: check that it's endpoint-exclusive https://devblogs.microsoft.com/oldnewthing/20040218-00/?p=40563
 RectF RectF::Union(RectF other) {
-    if (this->dx <= 0 && this->dy <= 0) {
+    if (this->dx <= 0 || this->dy <= 0) {
         return other;
     }
-    if (other.dx <= 0 && other.dy <= 0) {
+    if (other.dx <= 0 || other.dy <= 0) {
         return *this;
     }
 

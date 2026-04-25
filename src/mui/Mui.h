@@ -18,15 +18,9 @@ struct CachedFont {
     HFONT hFont;
 
     HFONT GetHFont();
-    Gdiplus::FontStyle GetStyle() const {
-        return style;
-    }
-    float GetSize() const {
-        return sizePt;
-    }
-    const WCHAR* GetName() const {
-        return name;
-    }
+    Gdiplus::FontStyle GetStyle() const { return style; }
+    float GetSize() const { return sizePt; }
+    const WCHAR* GetName() const { return name; }
     bool SameAs(const WCHAR* name, float sizePt, FontStyle style) const;
 };
 
@@ -45,10 +39,6 @@ void FreeGraphicsForMeasureText(Graphics* gfx);
 
 class ScopedMui {
   public:
-    ScopedMui() {
-        mui::Initialize();
-    }
-    ~ScopedMui() {
-        mui::Destroy();
-    }
+    ScopedMui() { mui::Initialize(); }
+    ~ScopedMui() { mui::Destroy(); }
 };

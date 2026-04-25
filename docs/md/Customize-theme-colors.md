@@ -76,7 +76,7 @@ The above will provide you with a collection of themes: `My Dark Theme`, `Solari
 
 Meaning of the parameters:
 - `TextColor` and `BackgroundColor` are for main window color and color of text.
-- If you use `I` (`CmdInvertColors`) they will also be used to replace white background / black text color when renderign PDF/ePub documents.
+- If you use `I` (`CmdInvertColors`) they will also be used to replace white background / black text color when rendering PDF/ePub documents.
 - `ControlBackgroundColor` is for background of Windows controls (buttons, window frame, menus, list controls etc.).
 - `LinkColor` is a color for links. Typically it's blue.
 - `ColorizeControls` should be `true`. If `false` we won't try to change colors of standard windows controls (menu, toolbar, buttons etc.) so a lot of UI will not respect theme colors.

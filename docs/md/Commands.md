@@ -17,6 +17,7 @@ CmdClose,"Ctrl + W, Ctrl + F4",Close Document,
 CmdCloseCurrentDocument,q,Close Current Document,
 CmdCommandPalette,Ctrl + K,Command Palette,
 CmdDuplicateInNewWindow,Shift + Ctrl + N,Open Current Document In New Window,
+CmdDuplicateInNewTab,,Open Current Document In New Tab,ver 3.6+
 CmdExit,Ctrl + Q,Exit Application,
 CmdMoveFrameFocus,F6,Move Frame Focus,
 CmdNewWindow,Ctrl + N,Open New SumatraPDF Window,
@@ -52,13 +53,13 @@ CmdDeleteFile,,Delete Currently Opened File, ver 3.6+
 ## Search
 
 ```commands
-Command IDs,Keyboard shortcuts,Command Palette
-CmdFindFirst,Ctrl + F,Find
-CmdFindMatch,,Find: Match Case
-CmdFindNext,F3,Find Next
-CmdFindNextSel,Ctrl + F3,Find Next Selection
-CmdFindPrev,Shift + F3,Find Previous
-CmdFindPrevSel,Shift + Ctrl + F3,Find Previous Selection
+Command IDs,Keyboard shortcuts,Command Palette,Notes
+CmdFindFirst,Ctrl + F,Find,
+CmdFindToggleMatchCase,,Find: Toggle Match Case,
+CmdFindNext,F3,Find Next,
+CmdFindNextSel,Ctrl + F3,Find Next Selection,
+CmdFindPrev,Shift + F3,Find Previous,
+CmdFindPrevSel,Shift + Ctrl + F3,Find Previous Selection,
 ```
 
 ## Viewing
@@ -67,7 +68,7 @@ CmdFindPrevSel,Shift + Ctrl + F3,Find Previous Selection
 Command IDs,Keyboard shortcuts,Command Palette,Notes
 CmdBookView,Ctrl + 8,Book View,
 CmdFacingView,Ctrl + 7,Facing View,
-CmdInvertColors,i,Invert Colors,
+CmdInvertColors,Shift + I,Invert Colors,was `i` before 3.6
 CmdRotateLeft,"[, Shift + Ctrl + Subtract",Rotate Left,
 CmdRotateRight,"], Shift + Ctrl + Add",Rotate Right,
 CmdSinglePageView,Ctrl + 6,Single Page View,
@@ -75,12 +76,16 @@ CmdToggleContinuousView,c,Toggle Continuous View,
 CmdToggleFullscreen,"f, Shift + Ctrl + L, F11",Toggle Fullscreen,
 CmdToggleMangaMode,,Toggle Manga Mode,
 CmdToggleMenuBar,F9,Toggle Menu Bar,
-CmdTogglePageInfo,Shift + i,Show / Hide Current Page Number,
-CmdToggleScrollbars,,Toggle Scrollbars,
+CmdTogglePageInfo,i,Show / Hide Current Page Number,was Shift + i before 3.6
+CmdChangeScrollbar,,Change Scrollbar,"Opens dialog to choose scrollbar mode (windows/smart/overlay/hidden)"
+CmdChangeBackgroundColor,,Change Background Color,"Opens color picker to change document background color"
 CmdToggleToolbar,F8,Toggle Toolbar,
+CmdToggleChmUI,,Toggle CHM UI,"Toggle dedicated CHM UI for CHM documents, reloading the current CHM document, ver 3.7+"
+CmdToggleUseTabs,,Toggle Use Tabs,"Toggle UseTabs setting, only affects new windows, ver 3.7+"
+CmdToggleTabsMru,,Toggle Tabs MRU Order,"Toggle TabsMru setting: Ctrl+Tab switches tabs in most recently used order, ver 3.7+"
 CmdToggleFrequentlyRead,,Toggle Frequently Read,ver 3.5+
 CmdSelectNextTheme,,Select Next Theme,ver 3.5+
-CmdToggleLinks,,Toggle Show Links, Toggle drawing blue rectangle around links
+CmdToggleLinks,,Toggle Show Links,"Toggle drawing blue rectangle around links, ver 3.6+"
 ```
 
 ## Tabs
@@ -97,47 +102,49 @@ CmdMoveTabRight,Ctrl + Shift + PageUp,Move Tab Right,ver 3.6+
 CmdMoveTabLeft,Ctrl + Shift + PageDown,Move Tab Left,ver 3.6+
 CmdNextTabSmart,Ctrl + Tab,Smart tab Switch,ver 3.6+
 CmdPrevTabSmart,Ctrl + Shift + Tab,Smart tab Switch,ver 3.6+
+CmdTabGroupSave,,Save Tab Group,ver 3.7+
+CmdTabGroupRestore,,Restore Tab Group,ver 3.7+
 ```
 
 ## Navigation
 
 ```commands
-Command IDs,Keyboard shortcuts,Command Palette
-CmdScrollUp,"k, Up",Scroll Up
-CmdScrollDown,"j, Down",Scroll Down
-CmdScrollLeft,"h, Left",Scroll Left
-CmdScrollRight,"l, Right",Scroll Right
-CmdScrollUpHalfPage,Shift + Up,Scroll Up By Half Page
-CmdScrollDownHalfPage,Shift + Down,Scroll Down By Half Page
-CmdScrollUpPage,"Ctrl + Up, PageUp, Shift + Return, Shift + Space",Scroll Up By Page
-CmdScrollDownPage,"Ctrl + Down, PageDown, Return, Space",Scroll Down By Page
-CmdScrollLeftPage,Shift + Left,Scroll Left By Page
-CmdScrollRightPage,Shift + Right,Scroll Right By Page
-CmdGoToFirstPage,"Ctrl + Home, Home",First Page
-CmdGoToLastPage,"Ctrl + End, End",Last Page
-CmdGoToPrevPage,"p",Previous Page
-CmdGoToNextPage,"n",Next Page
-CmdGoToPage,"g, Ctrl + G",Go to Page...
-CmdNavigateBack,"Alt + Left, Backspace",Navigate Back
-CmdNavigateForward,"Alt + Right, Shift + Backspace",Navigate Forward
+Command IDs,Keyboard shortcuts,Command Palette,Notes
+CmdScrollUp,"k, Up",Scroll Up,
+CmdScrollDown,"j, Down",Scroll Down,
+CmdScrollLeft,"h, Left",Scroll Left,
+CmdScrollRight,"l, Right",Scroll Right,
+CmdScrollUpHalfPage,Shift + Up,Scroll Up By Half Page,
+CmdScrollDownHalfPage,Shift + Down,Scroll Down By Half Page,
+CmdScrollUpPage,"Ctrl + Up, PageUp, Shift + Return, Shift + Space",Scroll Up By Page,
+CmdScrollDownPage,"Ctrl + Down, PageDown, Return, Space",Scroll Down By Page,
+CmdScrollLeftPage,Shift + Left,Scroll Left By Page,
+CmdScrollRightPage,Shift + Right,Scroll Right By Page,
+CmdGoToFirstPage,"Ctrl + Home, Home",First Page,
+CmdGoToLastPage,"Ctrl + End, End",Last Page,
+CmdGoToPrevPage,"p",Previous Page,
+CmdGoToNextPage,"n",Next Page,
+CmdGoToPage,"g, Ctrl + G",Go to Page...,
+CmdNavigateBack,"Alt + Left, Backspace",Navigate Back,
+CmdNavigateForward,"Alt + Right, Shift + Backspace",Navigate Forward,
 ```
 
 ## Favorites
 
 ```commands
-Command IDs,Keyboard shortcuts,Command Palette
-CmdFavoriteAdd,Ctrl + B,Add Favorite
-CmdFavoriteDel,,Delete Favorite
-CmdFavoriteToggle,,Toggle Favorites
+Command IDs,Keyboard shortcuts,Command Palette,Notes
+CmdFavoriteAdd,Ctrl + B,Add Favorite,
+CmdFavoriteDel,,Delete Favorite,
+CmdFavoriteToggle,,Toggle Favorites,
 ```
 
 ## Presentation
 
 ```commands
-Command IDs,Keyboard shortcuts,Command Palette
-CmdTogglePresentationMode,"Ctrl + L, Shift + F11, F5",View: Presentation Mode
-CmdPresentationBlackBackground,.,Presentation Black Background
-CmdPresentationWhiteBackground,w,Presentation White Background
+Command IDs,Keyboard shortcuts,Command Palette,Notes
+CmdTogglePresentationMode,"Ctrl + L, Shift + F11, F5",View: Presentation Mode,
+CmdPresentationBlackBackground,.,Presentation Black Background,
+CmdPresentationWhiteBackground,w,Presentation White Background,
 ```
 
 ## Annotations
@@ -166,6 +173,9 @@ CmdDeleteAnnotation,Delete,Delete Annotation,
 CmdEditAnnotations,,Edit Annotations,
 CmdSaveAnnotations,Shift + Ctrl + S,Save Annotations to existing PDF,
 CmdSaveAnnotationsNewFile,,Save Annotations to new PDF,ver 3.6+
+CmdShowAnnotations,,Show Annotations,"ver 3.6+, for current document"
+CmdHideAnnotations,,Hide Annotations,"ver 3.6+, for current document"
+CmdToggleShowAnnotations,,Toggle Showing Annotations,"ver 3.6+, for current document"
 ```
 
 ## Zoom
@@ -176,6 +186,7 @@ CmdToggleZoom,z,Toggle Zoom,
 CmdZoomActualSize,Ctrl + 1,Zoom: Actual Size,
 CmdZoomCustom,Ctrl + Y,Zoom: Custom...,
 CmdZoomFitContent,Ctrl + 3,Zoom: Fit Content,
+CmdZoomShrinkToFit,,Zoom: Shrink To Fit,"Shows at 100% if page is smaller than view area, otherwise fits page"
 CmdZoomFitPage,Ctrl + 0,Zoom: Fit Page,
 CmdZoomFitPageAndSinglePage,,Zoom: Fit Page and Single Page,
 CmdZoomFitWidth,Ctrl + 2,Zoom: Fit Width,
@@ -195,6 +206,16 @@ CmdZoom50,,Zoom: 50%,
 CmdZoom6400,,Zoom: 6400%,
 CmdZoom8_33,,Zoom: 8.33%,
 CmdZoom800,,Zoom: 800%,
+```
+
+## File information / conversion
+
+```commands
+Command IDs,Keyboard shortcuts,Command Palette,Notes
+CmdPdShowInfo,,Show PDF Info,shows information about currently opened PDF file
+CmdDocumentShowOutline,,Show Document Outline,shows the outline (table of contents) of currently opened document
+CmdPdfBake,,Bake PDF File,bakes interactive form and annotation content into static graphics; saves to a new PDF file and opens it
+CmdDocumentExtractText,,Extract Text From Document,"extract text from document pages to a .txt file, with configurable page ranges, ver 3.7+"
 ```
 
 ## External app
@@ -217,7 +238,7 @@ CmdTranslateSelectionWithGoogle,,Translate Selection with Google,
 CmdSearchSelectionWithBing,,Search Selection with Bing,
 CmdSearchSelectionWithGoogle,,Search Selection with Google,
 CmdSearchSelectionWithWikipedia,,Search Selection with Wikipedia,ver 3.6+
-CmdSearchSelectionWithGoogleScholar,,Search Selection with Goolge Scholar,ver 3.6+
+CmdSearchSelectionWithGoogleScholar,,Search Selection with Google Scholar,ver 3.6+
 CmdSendByEmail,,Send Document By Email...,
 CmdInvokeInverseSearch,,Invoke Inverse Search,ver 3.6+
 
@@ -226,55 +247,88 @@ CmdInvokeInverseSearch,,Invoke Inverse Search,ver 3.6+
 ## System
 
 ```commands
-Command IDs,Keyboard shortcuts,Command Palette
-CmdAdvancedOptions,,Advanced Options (Settings)...
-CmdAdvancedSettings,,Advanced Options (Settings)...
-CmdChangeLanguage,,Change Language...
-CmdCheckUpdate,,Check For Updates
-CmdClearHistory,,Clear History
-CmdContributeTranslation,,Contribute Translation
-CmdForgetSelectedDocument,,Remove Selected Document From History
-CmdOptions,,Options...
-CmdShowLog,,Show Logs
+Command IDs,Keyboard shortcuts,Command Palette,Notes
+CmdAdvancedOptions,,Advanced Options (Settings)...,
+CmdAdvancedSettings,,Advanced Options (Settings)...,
+CmdChangeLanguage,,Change Language...,
+CmdCheckUpdate,,Check For Updates,
+CmdClearHistory,,Clear History,Clears history of opened files (for recently opened list in home page)
+CmdContributeTranslation,,Contribute Translation,
+CmdForgetSelectedDocument,,Remove Selected Document From History,
+CmdListPrinters,,List Printers,ver 3.7+
+CmdOptions,,Options...,
+CmdScreenshot,,Take Screenshot,"ver 3.7+, requires Shortcuts entry (e.g. Key = PrtSc) to register global hotkey"
+CmdCropImage,,Crop Image,ver 3.7+
+CmdResizeImage,,Resize Image,ver 3.7+
+CmdSaveImage,,Save Image,"Save image from context menu, ver 3.7+"
+CmdPasteClipboardImage,,Paste Image From Clipboard,"Paste image from clipboard and open it, ver 3.7+"
+CmdShowErrors,,Show Errors,"Show mupdf warnings/errors in right-click context menu, ver 3.7+"
+CmdShowLog,,Show Logs,
 ```
 
 ## Help
 
 ```commands
-Command IDs,Keyboard shortcuts,Command Palette
-CmdHelpOpenManual,F1,Help: Manual
-CmdHelpOpenKeyboardShortcuts,,Help: Keyboard Shortcuts
-CmdHelpAbout,,Help: About SumatraPDF
-CmdHelpOpenManualOnWebsite,,Help: Manual On Website
-CmdHelpVisitWebsite,,Help: SumatraPDF Website
+Command IDs,Keyboard shortcuts,Command Palette,Notes
+CmdHelpOpenManual,F1,Help: Manual,
+CmdHelpOpenKeyboardShortcuts,,Help: Keyboard Shortcuts,
+CmdHelpAbout,,Help: About SumatraPDF,
+CmdHelpOpenManualOnWebsite,,Help: Manual On Website,
+CmdHelpVisitWebsite,,Help: SumatraPDF Website,
+```
+
+## Misc
+
+```commands
+Command IDs,Keyboard shortcuts,Command Palette,Notes
+CmdToggleInverseSearch,,Toggle Inverse Search,"temporarily disable TeX inverse search on left mouse click, ver 3.6+"
+CmdToggleAntiAlias,,Toggle Anti-Alias Rendering,"Toggle anti-alias rendering in pdf and epub documents, ver 3.6+"
+CmdToggleSmoothScroll,,Toggle Smooth Scroll,"Toggle SmoothScroll advanced setting, ver 3.7+"
+CmdToggleScrollbarInSinglePage,,Toggle Scrollbar In Single Page,"Toggle ScrollbarInSinglePage advanced setting, ver 3.7+"
+CmdToggleLazyLoading,,Toggle Lazy Loading,"Toggle LazyLoading advanced setting, ver 3.7+"
+CmdToggleEscToExit,,Toggle Esc to Exit,"Toggle EscToExit advanced setting, ver 3.7+"
+CmdToggleTips,,Toggle Tips,"Toggle ShowTips advanced setting, ver 3.7+"
+CmdToggleReuseInstance,,Toggle Reuse Instance,"Toggle ReuseInstance advanced setting, ver 3.7+"
+CmdToggleWindowsPreviewer,,Register / Un-register Windows Previewer,"Only available when SumatraPDF is installed. Registers or un-registers the PDF preview handler for Windows Explorer preview pane, ver 3.7+"
+CmdToggleWindowsSearchFilter,,Register / Un-register Windows Search Filter,"Only available when SumatraPDF is installed. Registers or un-registers the PDF search filter for Windows Search indexing, ver 3.7+"
+CmdSetTabColor,,Set Tab Color,"Set a custom color for the tab of the current document, available from tab context menu, ver 3.7+"
+CmdPdfCompress,,Compress PDF,"Compress a PDF file using aggressive garbage collection and optimization, ver 3.7+"
+CmdPdfDecompress,,Decompress PDF,"Decompress a PDF file for easier inspection, ver 3.7+"
+CmdPdfDeletePages,,Delete Pages From PDF,"Delete pages from a PDF file using page ranges like 1,3-8,13-N where N is the last page, ver 3.7+"
+CmdPdfExtractPages,,Extract Pages From PDF,"Extract pages from a PDF file using page ranges like 1,3-8,13-N where N is the last page, ver 3.7+"
+CmdPdfEncrypt,,Encrypt PDF,"Encrypt a PDF file with a password using AES-256 encryption, ver 3.7+"
+CmdPdfDecrypt,,Decrypt PDF,"Decrypt an encrypted PDF file, removing password protection, ver 3.7+"
+CmdSetScreenshotHotkey,,Set Screenshot Hotkey,"Open dialog to set or remove a global hotkey for taking screenshots, ver 3.7+"
 ```
 
 ## Debug
 
 ```commands
-Command IDs,Keyboard shortcuts,Command Palette
-CmdDebugCrashMe,,Debug: Crash Me
-CmdDebugDownloadSymbols,,Debug: Download Symbols
-CmdDebugShowNotif,,Debug: Show Notification
-CmdDebugStartStressTest,,Debug: Start Stress Test
-CmdDebugTestApp,,Debug: Test App
-CmdDebugTogglePredictiveRender,,Debug: Toggle Predictive Rendering
-CmdDebugToggleRtl,,Debug: Toggle Rtl
-CmdNone,,Do nothing
+Command IDs,Keyboard shortcuts,Command Palette,Notes
+CmdDebugCrashMe,,Debug: Crash Me,
+CmdDebugDownloadSymbols,,Debug: Download Symbols,
+CmdDebugShowNotif,,Debug: Show Notification,
+CmdDebugStartStressTest,,Debug: Start Stress Test,
+CmdDebugTestApp,,Debug: Test App,
+CmdDebugTogglePredictiveRender,,Debug: Toggle Predictive Rendering,
+CmdDebugToggleRtl,,Debug: Toggle Rtl,
+CmdNone,,Do nothing,
 ```
 
 ## Deprecated or internal
 
 ```commands
-Command IDs,Keyboard shortcuts,Command Palette
-CmdDebugCorruptMemory,,don't use
-CmdOpenWithKnownExternalViewerFirst,,don't use
-CmdOpenWithKnownExternalViewerLast,,don't use
-CmdSelectionHandler,,use SelectionHandlers advanced setting instead
-CmdSetTheme,,don't use
-CmdViewWithExternalViewer,,don't use
-CmdSaveAttachment,,don't use
-CmdOpenAttachment,,don't use
+Command IDs,Keyboard shortcuts,Command Palette,Notes
+CmdDebugCorruptMemory,,don't use,
+CmdOpenWithKnownExternalViewerFirst,,don't use,
+CmdOpenWithKnownExternalViewerLast,,don't use,
+CmdSelectionHandler,,use SelectionHandlers advanced setting instead,
+CmdSetTheme,,don't use,
+CmdViewWithExternalViewer,,don't use,
+CmdSaveAttachment,,don't use,
+CmdOpenAttachment,,don't use,
+CmdExec,,don't use,
+CmdFindMatch,,since 3.6 it's called CmdFindToggleMatchCase,
 ```
 
 # Commands with arguments
@@ -294,7 +348,7 @@ Shortcuts [
 
 By default `a` invokes `CmdCreateAnnotHighlight` with default yellow color.
 
-You can over-ride `a` shortcut to creat green (`#00ff00`) highlight annotation instead and automatically open annotations edit window (`openedit` boolean argument).
+You can over-ride `a` shortcut to create green (`#00ff00`) highlight annotation instead and automatically open annotations edit window (`openedit` boolean argument).
 
 You can create multiple keyboard shortcuts for multiple colors.
 
@@ -349,10 +403,11 @@ Arguments:
 
 - `color` : default, color
 - `openedit` : boolean, `false` if not given
-- `copytoclipboard` : boolean, `false` if not given. For highlight/underline/squiggly/strikeout  annotations, copies the selection (text of annotation) to clipboard. This used to be default behavior for built-in `a` etc. keyboard shortcuts but now it has to be explicitly chosen.
-- `setcontent` : boolean, false if not give. For highlight/underline/squiggly/strikeout sets content of annotation to the selection (text of annotation)
+- `copytoclipboard` : boolean, `false` if not given. For highlight/underline/squiggly/strikeout annotations, copies the selection (text of annotation) to clipboard. This used to be default behavior for built-in `a` etc. keyboard shortcuts but now it has to be explicitly chosen.
+- `setcontent` : boolean, false if not given. For highlight/underline/squiggly/strikeout sets content of annotation to the selection (text of annotation)
 
-Use cases: 
+Use cases:
+
 - change default color for annotations
 - create multiple shortcuts for different colors
 
@@ -367,17 +422,34 @@ Shortcuts [
 ]
 ```
 
+## Other CmdCreateAnnot\* arguments
+
+**Ver 3.6+**
+
+Arguments for `CmdCreateAnnotHighlight` plus:
+
+- `color` : default, color of text and border, black if not given
+- `bgcolor` : background color of annotation, fully transparent if not given
+- `textsize` : size of annotation text, 12 if not given
+- `borderwidth` : border width, 1 if not given
+- `opacity` : opacity of annotation, 0 - fully transparent (i.e. invisible), 100 - fully opaque (default if not given)
+- `interiorcolor` : interior color for circle, square etc. annotations, fully transparent if not given
+- `focusedit` : boolean, when annotation edit window opens, focus the contents edit control
+- `focuslist` : boolean, when annotation edit window opens, focus the annotations list
+
 ## `CmdZoomCustom`
 
 **Ver 3.6+**
 
 Arguments:
-- `level` : default, string or intenger, zoom level
+
+- `level` : default, string or integer, zoom level
 
 `level` can be:
+
 - a number describing zoom level in percent e.g.:
-    - `50` or `50%` means 50% zoom
-    - `125` means 125% zoom
+  - `50` or `50%` means 50% zoom
+  - `125` means 125% zoom
 - a virtual zoom level:
   - `actual size` (100% zoom level)
   - `fit page`
@@ -395,12 +467,12 @@ Shortcuts [
 ]
 ```
 
-
 ## `CmdCommandPalette`
 
 **Ver 3.6+**
 
 Argument:
+
 - `mode` : default, optional string, Values:
   - `@` for opened files (tabs)
   - `#` for history of files

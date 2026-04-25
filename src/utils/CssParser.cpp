@@ -34,6 +34,9 @@ static bool SkipQuotedString(const char*& s, const char* end) {
     while (++s < end && *s != quote) {
         if (*s == '\\') {
             s++;
+            if (s >= end) {
+                return false;
+            }
         }
     }
     if (s == end) {

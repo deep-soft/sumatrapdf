@@ -24,7 +24,7 @@ static void markAllPagesNonSkip(Vec<bool>& pagesToSkip) {
         pagesToSkip[i] = false;
     }
 }
-TextSearch::TextSearch(EngineBase* engine, DocumentTextCache* textCache) : TextSelection(engine, textCache) {
+TextSearch::TextSearch(EngineBase* engine) : TextSelection(engine) {
     nPages = engine->PageCount();
     pagesToSkip.SetSize(nPages);
     markAllPagesNonSkip(pagesToSkip);
@@ -103,11 +103,11 @@ void TextSearch::SetText(const WCHAR* text) {
     markAllPagesNonSkip(pagesToSkip);
 }
 
-void TextSearch::SetSensitive(bool sensitive) {
-    if (caseSensitive == sensitive) {
+void TextSearch::SetMatchCase(bool newMatchCase) {
+    if (matchCase == newMatchCase) {
         return;
     }
-    this->caseSensitive = sensitive;
+    this->matchCase = newMatchCase;
 
     markAllPagesNonSkip(pagesToSkip);
 }
@@ -136,8 +136,9 @@ void TextSearch::SetLastResult(TextSelection* sel) {
     SetText(selection);
 
     searchHitStartAt = findPage = std::min(startPage, endPage);
-    findIndex = (findPage == startPage ? startGlyph : endGlyph) + (int)str::Len(findText);
-    pageText = textCache->GetTextForPage(findPage);
+    findPage = std::max(startPage, endPage);
+    findIndex = (findPage == endPage ? endGlyph : startGlyph);
+    pageText = engine->GetTextForPage(findPage);
     forward = true;
 }
 
@@ -185,7 +186,7 @@ TextSearch::PageAndOffset TextSearch::MatchEnd(const WCHAR* start) const {
         /* Going from page n to page n+1 is a space, too.*/
         lookingAtWs = (!*end && (currentPage < nPages)) || str::IsWs(*end);
         bool isMatch = false;
-        if (caseSensitive) {
+        if (matchCase) {
             isMatch = *match == *end;
         } else {
             WCHAR matchLower = CharToLower(*match);
@@ -220,7 +221,7 @@ TextSearch::PageAndOffset TextSearch::MatchEnd(const WCHAR* start) const {
             // ... or because we were looking at whitespace in the pattern and we were at a page break
             // -> skip to next page
             ++currentPage;
-            end = currentPageText = textCache->GetTextForPage(currentPage);
+            end = currentPageText = engine->GetTextForPage(currentPage);
         }
         // treat "??" and "? ?" differently, since '?' could have been a word
         // character that's just missing an encoding (and '?' is the replacement
@@ -232,7 +233,7 @@ TextSearch::PageAndOffset TextSearch::MatchEnd(const WCHAR* start) const {
             while ((!*end) && (currentPage < nPages)) {
                 // treat page break as whitespace, too
                 ++currentPage;
-                end = currentPageText = textCache->GetTextForPage(currentPage);
+                end = currentPageText = engine->GetTextForPage(currentPage);
                 SkipWhitespace(end);
             }
         }
@@ -262,7 +263,7 @@ bool TextSearch::FindTextInPage(int pageNo, TextSearch::PageAndOffset* finalGlyp
     }
     // According to my analysis of 69912675c766b6325f38036913dcf0505a00be36, when we
     // get here with pageNo != 0 the findText has already been set so I didn't add
-    // a findText = textCache->GetData(findPage) here.
+    // a findText = engine->GetTextForPage(findPage) here.
     findPage = pageNo;
 
     const WCHAR* found;
@@ -272,7 +273,7 @@ bool TextSearch::FindTextInPage(int pageNo, TextSearch::PageAndOffset* finalGlyp
             found = GetNextIndex(pageText, findIndex, forward);
         } else if (forward) {
             const WCHAR* s = pageText + findIndex;
-            if (caseSensitive) {
+            if (matchCase) {
                 found = StrStr(s, anchor);
             } else {
                 found = StrStrI(s, anchor);
@@ -320,7 +321,7 @@ bool TextSearch::FindStartingAtPage(int pageNo) {
 
         Reset();
 
-        pageText = textCache->GetTextForPage(pageNo, &findIndex);
+        pageText = engine->GetTextForPage(pageNo, &findIndex);
         if (pageText) {
             if (forward) {
                 findIndex = 0;
@@ -330,7 +331,7 @@ bool TextSearch::FindStartingAtPage(int pageNo) {
                 if (forward) {
                     if (findPage != r.page) {
                         findPage = r.page;
-                        pageText = textCache->GetTextForPage(findPage);
+                        pageText = engine->GetTextForPage(findPage);
                     }
                     findIndex = r.offset;
                 }
@@ -373,7 +374,7 @@ TextSel* TextSearch::FindNext() {
         if (forward) {
             findPage = finalGlyph.page;
             findIndex = finalGlyph.offset;
-            pageText = textCache->GetTextForPage(findPage);
+            pageText = engine->GetTextForPage(findPage);
         }
         return &result;
     }

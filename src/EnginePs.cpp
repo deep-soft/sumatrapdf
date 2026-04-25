@@ -105,12 +105,8 @@ TryAgain64Bit:
 struct AutoDeleteFile {
     AutoFreeStr filePath;
 
-    explicit AutoDeleteFile(const WCHAR* path) {
-        filePath.Set(ToUtf8(path));
-    }
-    explicit AutoDeleteFile(const char* path) {
-        filePath.SetCopy(path);
-    }
+    explicit AutoDeleteFile(const WCHAR* path) { filePath.Set(ToUtf8(path)); }
+    explicit AutoDeleteFile(const char* path) { filePath.SetCopy(path); }
     ~AutoDeleteFile() {
         if (filePath) {
             file::Delete(filePath);
@@ -272,17 +268,13 @@ class EnginePs : public EngineBase {
         return clone;
     }
 
-    RectF PageMediabox(int pageNo) override {
-        return pdfEngine->PageMediabox(pageNo);
-    }
+    RectF PageMediabox(int pageNo) override { return pdfEngine->PageMediabox(pageNo); }
 
     RectF PageContentBox(int pageNo, RenderTarget target = RenderTarget::View) override {
         return pdfEngine->PageContentBox(pageNo, target);
     }
 
-    RenderedBitmap* RenderPage(RenderPageArgs& args) override {
-        return pdfEngine->RenderPage(args);
-    }
+    RenderedBitmap* RenderPage(RenderPageArgs& args) override { return pdfEngine->RenderPage(args); }
 
     RectF Transform(const RectF& rect, int pageNo, float zoom, int rotation, bool inverse = false) override {
         return pdfEngine->Transform(rect, pageNo, zoom, rotation, inverse);
@@ -301,13 +293,10 @@ class EnginePs : public EngineBase {
         return file::Copy(dstPath, srcPath, false);
     }
 
-    PageText ExtractPageText(int pageNo) override {
-        return pdfEngine->ExtractPageText(pageNo);
-    }
+    PageText ExtractPageText(int pageNo) override { return pdfEngine->ExtractPageText(pageNo); }
+    PageTextUtf8 ExtractPageTextUtf8(int pageNo) override { return pdfEngine->ExtractPageTextUtf8(pageNo); }
 
-    bool HasClipOptimizations(int pageNo) override {
-        return pdfEngine->HasClipOptimizations(pageNo);
-    }
+    bool HasClipOptimizations(int pageNo) override { return pdfEngine->HasClipOptimizations(pageNo); }
 
     TempStr GetPropertyTemp(const char* name) override {
         // omit properties created by Ghostscript
@@ -326,30 +315,18 @@ class EnginePs : public EngineBase {
         return pdfEngine->GetPropertyTemp(name);
     }
 
-    bool BenchLoadPage(int pageNo) override {
-        return pdfEngine->BenchLoadPage(pageNo);
-    }
+    bool BenchLoadPage(int pageNo) override { return pdfEngine->BenchLoadPage(pageNo); }
 
-    Vec<IPageElement*> GetElements(int pageNo) override {
-        return pdfEngine->GetElements(pageNo);
-    }
+    Vec<IPageElement*> GetElements(int pageNo) override { return pdfEngine->GetElements(pageNo); }
 
     // don't delete the result
-    IPageElement* GetElementAtPos(int pageNo, PointF pt) override {
-        return pdfEngine->GetElementAtPos(pageNo, pt);
-    }
+    IPageElement* GetElementAtPos(int pageNo, PointF pt) override { return pdfEngine->GetElementAtPos(pageNo, pt); }
 
-    bool HandleLink(IPageDestination* dest, ILinkHandler* lh) override {
-        return pdfEngine->HandleLink(dest, lh);
-    }
+    bool HandleLink(IPageDestination* dest, ILinkHandler* lh) override { return pdfEngine->HandleLink(dest, lh); }
 
-    IPageDestination* GetNamedDest(const char* name) override {
-        return pdfEngine->GetNamedDest(name);
-    }
+    IPageDestination* GetNamedDest(const char* name) override { return pdfEngine->GetNamedDest(name); }
 
-    TocTree* GetToc() override {
-        return pdfEngine->GetToc();
-    }
+    TocTree* GetToc() override { return pdfEngine->GetToc(); }
 
     EngineBase* pdfEngine = nullptr;
 
@@ -379,7 +356,7 @@ class EnginePs : public EngineBase {
         fileDPI = pdfEngine->GetFileDPI();
         allowsPrinting = pdfEngine->AllowsPrinting();
         allowsCopyingText = pdfEngine->AllowsCopyingText();
-        decryptionKey = pdfEngine->decryptionKey;
+        decryptionKey = StrDup(arena, pdfEngine->decryptionKey);
         pageCount = pdfEngine->PageCount();
 
         return true;

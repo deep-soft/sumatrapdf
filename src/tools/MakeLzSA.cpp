@@ -20,12 +20,8 @@
 namespace lzsa {
 
 struct ISzCrtAlloc : ISzAlloc {
-    static void* _Alloc(__unused void* p, size_t size) {
-        return malloc(size);
-    }
-    static void _Free(__unused void* p, void* ptr) {
-        free(ptr);
-    }
+    static void* _Alloc(__unused void* p, size_t size) { return malloc(size); }
+    static void _Free(__unused void* p, void* ptr) { free(ptr); }
 
     ISzCrtAlloc() {
         this->Alloc = _Alloc;
@@ -38,8 +34,7 @@ struct ISzCrtAlloc : ISzAlloc {
 
 static bool Compress(const char* uncompressed, size_t uncompressedSize, char* compressed, size_t* compressedSize) {
     ReportIf(*compressedSize < uncompressedSize + 1);
-    if (*compressedSize < uncompressedSize + 1)
-        return false;
+    if (*compressedSize < uncompressedSize + 1) return false;
 
     size_t lzma_size = (size_t)-1;
 
@@ -64,8 +59,7 @@ static bool Compress(const char* uncompressed, size_t uncompressedSize, char* co
             LzmaEncode((Byte*)compressed + LZMA_HEADER_SIZE, &outSize, bcj_enc ? bcj_enc : (const Byte*)uncompressed,
                        uncompressedSize, &props, (Byte*)compressed + 1, &propsSize, TRUE /* add EOS marker */, nullptr,
                        &lzmaAlloc, &lzmaAlloc);
-        if (SZ_OK == res && propsSize == LZMA_PROPS_SIZE)
-            lzma_size = outSize + LZMA_HEADER_SIZE;
+        if (SZ_OK == res && propsSize == LZMA_PROPS_SIZE) lzma_size = outSize + LZMA_HEADER_SIZE;
     }
 
     if (lzma_size <= uncompressedSize) {
@@ -109,8 +103,7 @@ static bool AppendEntry(str::Str& data, str::Str& content, const char* filePath,
         return false;
     }
     u32 fileDataCrc = crc32(0, (const u8*)fileData.data(), (u32)fileData.size());
-    if (fi && fi->uncompressedCrc32 == fileDataCrc && fi->uncompressedSize == fileData.size())
-        goto ReusePrevious;
+    if (fi && fi->uncompressedCrc32 == fileDataCrc && fi->uncompressedSize == fileData.size()) goto ReusePrevious;
 
     size_t compressedSize = fileData.size() + 1;
     AutoFree compressed((char*)malloc(compressedSize));
@@ -175,10 +168,8 @@ bool CreateArchive(const char* archivePath, StrVec& files, size_t skipFiles = 0)
 
         int idx = GetIdxFromName(&prevArchive, utf8Name);
         lzma::FileInfo* fi = nullptr;
-        if (idx != -1)
-            fi = &prevArchive.files[idx];
-        if (!AppendEntry(data, content, filePath, utf8Name, fi))
-            return false;
+        if (idx != -1) fi = &prevArchive.files[idx];
+        if (!AppendEntry(data, content, filePath, utf8Name, fi)) return false;
     }
 
     u32 headerCrc32 = crc32(0, (const u8*)data.Get(), (u32)data.size());
@@ -186,8 +177,7 @@ bool CreateArchive(const char* archivePath, StrVec& files, size_t skipFiles = 0)
     buf.Write32(headerCrc32);
     ReportIf(buf.Size() != 4);
     data.AppendSlice(buf.AsByteSlice());
-    if (!data.Append(content.Get(), content.size()))
-        return false;
+    if (!data.Append(content.Get(), content.size())) return false;
 
     ByteSlice d = data.AsByteSlice();
     return file::WriteFile(archivePath, d);
@@ -198,10 +188,8 @@ bool CreateArchiveFromDir(const char* archivePath, const char* dir) {
     int n = str::Len(dir);
     bool ok = DirTraverse(dir, true, [&files, n](const char* path) -> bool {
         const char* archiveName = path + n;
-        if ('\\' == *archiveName)
-            archiveName++;
-        if ('/' == *archiveName)
-            archiveName++;
+        if ('\\' == *archiveName) archiveName++;
+        if ('/' == *archiveName) archiveName++;
         TempStr s = str::JoinTemp(path, ":", archiveName);
         files.Append(s);
         return true;
