@@ -1347,6 +1347,12 @@ static void OpenCopyDataAsyncRun(OpenCopyDataAsync* d) {
     }
     LoadArgs args(d->path, win);
     args.activateExisting = d->newWindow == 0;
+    // Match the legacy DDE Open(..., setFocus=1) behavior used by
+    // shell/reuseInstance launches: opening into an existing instance should
+    // bring that window to the foreground.
+    if (win) {
+        win->Focus();
+    }
     StartLoadDocument(&args);
 
     str::Free(d->path);

@@ -1584,6 +1584,27 @@ static void CreateMainLayout(EditAnnotationsWindow* ew) {
     HidePerAnnotControls(ew);
 }
 
+static void LimitEditAnnotationsClientSizeToScreen(HWND hwnd, HWND hwndRelative, SIZE& size) {
+    Rect work = GetWorkAreaRect(WindowRect(hwndRelative), hwndRelative);
+    WINDOWINFO wi{};
+    wi.cbSize = sizeof(wi);
+    if (!GetWindowInfo(hwnd, &wi)) {
+        LimitWindowSizeToScreen(hwndRelative, size);
+        return;
+    }
+
+    int nonClientDx = RectDx(wi.rcWindow) - RectDx(wi.rcClient);
+    int nonClientDy = RectDy(wi.rcWindow) - RectDy(wi.rcClient);
+    int maxClientDx = work.dx - nonClientDx;
+    int maxClientDy = work.dy - nonClientDy;
+    if (size.cx > maxClientDx) {
+        size.cx = maxClientDx;
+    }
+    if (size.cy > maxClientDy) {
+        size.cy = maxClientDy;
+    }
+}
+
 void ShowEditAnnotationsWindow(WindowTab* tab, Annotation* annot, EditAnnotFocus focus) {
     if (!tab) return;
     auto engine = tab->GetEngine();
@@ -1653,14 +1674,20 @@ void ShowEditAnnotationsWindow(WindowTab* tab, Annotation* annot, EditAnnotFocus
     }
 
     if (lastPos.IsEmpty()) {
-        LayoutAndSizeToContent(ew->mainLayout, 520, minDy, ew->hwnd);
+        SIZE size = {520, minDy};
+        LimitEditAnnotationsClientSizeToScreen(ew->hwnd, tab->win->hwndFrame, size);
+        LayoutAndSizeToContent(ew->mainLayout, size.cx, size.cy, ew->hwnd);
         HwndPositionToTheRightOf(ew->hwnd, tab->win->hwndFrame);
     } else {
-        int dx = lastPos.dx;
-        LayoutAndSizeToContent(ew->mainLayout, dx, minDy, ew->hwnd);
+        SIZE size = {lastPos.dx, minDy};
+        LimitEditAnnotationsClientSizeToScreen(ew->hwnd, tab->win->hwndFrame, size);
+        LayoutAndSizeToContent(ew->mainLayout, size.cx, size.cy, ew->hwnd);
         // pass nullptr for hwnd so ShiftRectToWorkArea uses the saved rect
         // to find the correct monitor (not the monitor the hwnd is currently on)
-        Rect r = ShiftRectToWorkArea(lastPos, nullptr, true);
+        Rect r = WindowRect(ew->hwnd);
+        r.x = lastPos.x;
+        r.y = lastPos.y;
+        r = ShiftRectToWorkArea(r, nullptr, true);
         SetWindowPos(ew->hwnd, nullptr, r.x, r.y, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
     }
     if (!annot) annot = ew->tab->selectedAnnotation;

@@ -175,6 +175,14 @@ bool RenderCache::DropCacheEntry(BitmapCacheEntry* entry) {
     return true;
 }
 
+bool RenderCache::DropCacheEntryIfNotUsed(BitmapCacheEntry* entry) {
+    ScopedCritSec scope(&cacheAccess);
+    if (!entry || entry->refs > 1) {
+        return false;
+    }
+    return DropCacheEntry(entry);
+}
+
 static bool FreeIfFull(RenderCache* rc, const PageRenderRequest& req) {
     int n = rc->cacheCount;
     if (n < MAX_BITMAPS_CACHED) {
@@ -186,7 +194,7 @@ static bool FreeIfFull(RenderCache* rc, const PageRenderRequest& req) {
     for (int i = 0; i < n; i++) {
         auto entry = rc->cache[i];
         if (entry->dm == dm && !dm->PageVisibleNearby(entry->pageNo)) {
-            bool didDrop = rc->DropCacheEntry(entry);
+            bool didDrop = rc->DropCacheEntryIfNotUsed(entry);
             if (didDrop) {
                 return true;
             }
@@ -203,7 +211,7 @@ static bool FreeIfFull(RenderCache* rc, const PageRenderRequest& req) {
             // in a different window, but it's harder to detect
             continue;
         }
-        bool didDrop = rc->DropCacheEntry(entry);
+        bool didDrop = rc->DropCacheEntryIfNotUsed(entry);
         if (didDrop) {
             return true;
         }
@@ -310,7 +318,7 @@ void RenderCache::FreePage(DisplayModel* dm, int pageNo, TilePosition* tile) {
                           tile->row == (USHORT)-1 && entry->tile.res == 0 && entry->outOfDate);
         }
         if (shouldFree) {
-            DropCacheEntry(entry);
+            DropCacheEntryIfNotUsed(entry);
         }
     }
 }
@@ -322,7 +330,7 @@ void RenderCache::FreeForDisplayModel(DisplayModel* dm) {
     for (int i = cacheCount - 1; i >= 0; i--) {
         BitmapCacheEntry* entry = cache[i];
         if (entry->dm == dm) {
-            DropCacheEntry(entry);
+            DropCacheEntryIfNotUsed(entry);
         }
     }
 }
@@ -339,7 +347,7 @@ void RenderCache::FreeNotVisible() {
             shouldFree = !IsTileVisible(entry->dm, entry->pageNo, entry->tile, 2.0);
         }
         if (shouldFree) {
-            DropCacheEntry(entry);
+            DropCacheEntryIfNotUsed(entry);
         }
     }
 }

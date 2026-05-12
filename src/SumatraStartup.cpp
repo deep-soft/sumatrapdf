@@ -1033,11 +1033,6 @@ static void DeleteStaleFilesAsync() {
     }
 }
 
-void StartDeleteStaleFiles() {
-    auto fn = MkFunc0Void(DeleteStaleFilesAsync);
-    RunAsync(fn, "DeleteStaleFilesThread");
-}
-
 static void LayoutAndFocusOnStartup(MainWindow* win) {
     if (!win || !IsWindow(win->hwndFrame)) {
         return;
@@ -1317,6 +1312,9 @@ int APIENTRY WinMain(_In_ HINSTANCE /*hInstance*/, _In_opt_ HINSTANCE, _In_ LPST
     ParseFlags(GetCommandLineW(), flags, gToolNames);
     gCli = &flags;
     bool isInstaller = flags.install || flags.runInstallNow || flags.fastInstall || IsInstallerAndNamedAsSuch();
+    if (flags.justExtractFiles) {
+        isInstaller = false;
+    }
     bool isUninstaller = flags.uninstall;
     bool noLogHere = isInstaller || isUninstaller;
 
@@ -1792,7 +1790,11 @@ ContinueOpenWindow:
         // BringWindowToTop(win->hwndFrame);
     }
 
-    StartDeleteStaleFiles();
+    {
+        auto fn = MkFunc0Void(DeleteStaleFilesAsync);
+        RunAsync(fn, "DeleteStaleFilesAsync");
+    }
+
     // needed if RememberOpenedFiles = false
     // https://github.com/sumatrapdfreader/sumatrapdf/issues/5456
     uitask::Post(MkFunc0(LayoutAndFocusOnStartup, win), "LayoutAndFocusOnStartup");

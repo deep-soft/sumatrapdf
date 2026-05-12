@@ -833,6 +833,7 @@ void TabsCtrl::SetTextAndTooltip(int idx, const char* text, const char* tooltip)
     str::ReplaceWithCopy(&tab->text, text);
     str::ReplaceWithCopy(&tab->tooltip, tooltip);
     LayoutTabs();
+    HwndScheduleRepaint(hwnd);
 }
 
 void TabsCtrl::SetTabDirty(int idx, bool dirty) {
